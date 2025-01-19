@@ -1,0 +1,257 @@
+\documentclass[12pt]{report}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, hyperref, siunitx, graphicx, multicol, natbib}
+
+\title{Key Formulas and Notations in Rocket Propulsion: A Reference Guide for Undergraduates}
+\author{Compiled by Viggo Hansen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+Rocket propulsion is pivotal for space exploration, satellite deployment, and various scientific missions. This document compiles key formulas and notations used in undergraduate studies of rocket propulsion. Here, we explore fundamental equations that govern rocket design and performance, providing a roadmap to understanding how rockets achieve their thrust and maneuver in space. 
+
+The document is structured as follows:
+\begin{itemize}
+    \item \textbf{Basic Notations}: Introduction to symbols used in rocket propulsion.
+    \item \textbf{Key Equations}: Fundamental equations explaining thrust, velocity changes, and efficiency.
+    \item \textbf{Applications and Examples}: Practical examples to apply these equations.
+    \item \textbf{Advanced Equations for Design}: More specialized equations for detailed rocket engineering.
+    \item \textbf{Additional Topics}: Insights into multi-stage rockets, propellants, and efficiency losses.
+\end{itemize}
+
+\section{Basic Notations}
+\begin{multicols}{2}
+    \begin{itemize}
+        \item $I_{\text{sp}}$: Specific impulse (s) - Measures engine efficiency in terms of thrust per unit weight of propellant.
+        \item $F$: Thrust (\si{\newton}) - Total force propelling the rocket.
+        \item $\dot{m}$: Mass flow rate (\si{\kilogram\per\second}) - Rate at which propellant is ejected.
+        \item $v_e$: Effective exhaust velocity (\si{\meter\per\second}) - Velocity of the exhaust gases relative to the rocket.
+        \item $p_e$: Exit pressure of exhaust gases (\si{\pascal}) - Pressure at the nozzle exit.
+        \item $A_e$: Nozzle exit area (\si{\meter\squared}) - Cross-sectional area at the nozzle's end.
+        \item $p_0$: Ambient pressure (\si{\pascal}) - Atmospheric pressure outside the rocket.
+        \item $m_0$: Initial mass of the rocket (\si{\kilogram}) - Total mass before any propellant is burned.
+        \item $m_f$: Final mass of the rocket (\si{\kilogram}) - Mass after all propellant is expelled.
+        \item $g_0$: Standard gravitational acceleration (\si{9.81\meter\per\second\squared}) - Used for normalization in specific impulse calculations.
+        \item $\gamma$: Specific heat ratio (dimensionless) - Ratio of specific heats, $c_p/c_v$, for the exhaust gas.
+        \item $M_e$: Mach number at the nozzle exit (dimensionless) - Ratio of exit gas speed to the speed of sound in the gas at that point.
+        \item $\rho_e$: Exhaust gas density (\si{\kilogram\per\cubic\meter}) - Density of gases at the nozzle exit.
+        \item $A_t$: Nozzle throat area (\si{\meter\squared}) - Minimum cross-sectional area in the nozzle.
+        \item $p_c$: Combustion chamber pressure (\si{\pascal}) - Pressure inside the combustion chamber.
+        \item $c^*$: Characteristic velocity (\si{\meter\per\second}) - A measure of combustion performance.
+    \end{itemize}
+\end{multicols}
+
+\section{Key Equations}
+
+\subsection{Thrust Equation}
+\begin{equation}
+F = \dot{m} v_e + (p_e - p_0) A_e \label{eq:thrust}
+\end{equation}
+This equation quantifies the total thrust of a rocket engine, combining momentum thrust from accelerated mass and pressure thrust from the pressure difference at the nozzle exit. 
+
+\textbf{Assumptions}: Steady flow, ideal gas behavior, no drag or gravitational effects outside the rocket.
+
+\subsection{Effective Exhaust Velocity}
+\begin{equation}
+v_e = I_{\text{sp}} g_0 \label{eq:exhaust_velocity}
+\end{equation}
+This formula connects specific impulse with exhaust velocity, crucial for understanding propulsion efficiency.
+
+\textbf{Typical Values}: $I_{\text{sp}}$ for liquid engines can range from 250 to 450 seconds.
+
+\subsection{Rocket Equation (Tsiolkovsky Equation)}
+\begin{equation}
+\Delta v = v_e \ln\left(\frac{m_0}{m_f}\right) \label{eq:tsiolkovsky}
+\end{equation}
+This equation calculates the maximum change in velocity possible, assuming no external forces like drag.
+
+\textbf{Significance}: Fundamental for predicting a rocket's velocity change during flight.
+
+\subsection{Specific Impulse}
+\begin{equation}
+I_{\text{sp}} = \frac{F}{\dot{m} g_0} \label{eq:specific_impulse}
+\end{equation}
+This measures how effectively propellant is used to produce thrust, in terms of time.
+
+\subsection{Mass Flow Rate}
+\begin{equation}
+\dot{m} = \rho_e A_e v_e \label{eq:mass_flow}
+\end{equation}
+Relates the mass flow rate to physical parameters of the exhaust at the nozzle exit.
+
+\subsection{Nozzle Area Ratio}
+\begin{equation}
+\frac{A_e}{A_t} = \left(\frac{\gamma+1}{2}\right)^{\frac{\gamma+1}{2(\gamma-1)}} \left(\frac{1}{M_e}\right) \left[1 + \frac{\gamma-1}{2} M_e^2\right]^{\frac{\gamma+1}{2(\gamma-1)}} \label{eq:area_ratio}
+\end{equation}
+This ratio determines the nozzle's geometry for optimal performance, based on gas dynamics.
+
+\subsection{Thermal Efficiency}
+\begin{equation}
+\eta_t = 1 - \frac{T_e}{T_c} \label{eq:thermal_efficiency}
+\end{equation}
+Indicates how well the combustion energy is converted into kinetic energy of exhaust gases.
+
+\subsection{Characteristic Velocity}
+\begin{equation}
+c^* = \frac{p_c A_t}{\dot{m}} \label{eq:characteristic_velocity}
+\end{equation}
+A performance indicator for the combustion process within the engine.
+
+\subsection{Ideal Thrust Coefficient}
+\begin{equation}
+C_f = \frac{F}{p_c A_t} \label{eq:thrust_coefficient}
+\end{equation}
+A dimensionless number that gauges the effectiveness of the nozzle in converting pressure into thrust.
+
+\section{Applications and Examples}
+
+\textbf{Example 1: Calculating Thrust}
+Given $I_{\text{sp}} = 300~\si{\second}$, $\dot{m} = 10~\si{\kilogram\per\second}$, $p_e = 10^5~\si{\pascal}$, $p_0 = 10^5~\si{\pascal}$, $A_e = 0.5~\si{\meter\squared}$:
+\begin{align*}
+v_e &= I_{\text{sp}} g_0 = 300 \times 9.81 = 2943~\si{\meter\per\second} \\
+F &= \dot{m} v_e + (p_e - p_0) A_e = 10 \times 2943 + (10^5 - 10^5) \times 0.5 = 29430~\si{\newton}
+\end{align*}
+
+\textbf{Example 2: Delta-V Calculation for a Single-Stage Rocket}
+For $m_0 = 10000~\si{\kilogram}$, $m_f = 2000~\si{\kilogram}$, $v_e = 3000~\si{\meter\per\second}$:
+\begin{align*}
+\Delta v &= v_e \ln\left(\frac{m_0}{m_f}\right) = 3000 \ln\left(\frac{10000}{2000}\right) \approx 6931.5~\si{\meter\per\second}
+\end{align*}
+
+\section{Advanced Equations for Design}
+
+\subsection{Nozzle Exit Velocity}
+\begin{equation}
+v_2 = \sqrt{\frac{2\gamma}{\gamma-1} R T_1 \left[1 - \left(\frac{p_2}{p_1}\right)^{\frac{\gamma-1}{\gamma}}\right]} \label{eq:nozzle_velocity}
+\end{equation}
+Where $R$ is the gas constant for the exhaust, $T_1$ is the stagnation temperature, $p_2$ is exit pressure, and $p_1$ is chamber pressure.
+
+\subsection{Choked Mass Flow Rate}
+\begin{equation}
+\dot{m} = A_t p_1 \sqrt{\frac{\gamma}{R T_1}} \left(\frac{2}{\gamma+1}\right)^{\frac{\gamma+1}{2(\gamma-1)}} \label{eq:choked_mass_flow}
+\end{equation}
+This applies when the flow is choked at the nozzle throat.
+
+\subsection{Nozzle Area Ratio (Alternative Form)}
+\begin{equation}
+\frac{A_e}{A_t} = \left(\frac{1}{M_e}\right) \left[\frac{2}{\gamma+1} \left(1 + \frac{\gamma-1}{2} M_e^2 \right)\right]^{\frac{\gamma+1}{2(\gamma-1)}} \label{eq:nozzle_area_ratio}
+\end{equation}
+
+\subsection{Total Impulse}
+\begin{equation}
+I_t = \int_0^{t_b} F \, dt \label{eq:total_impulse}
+\end{equation}
+Measures the total thrust over the burn time, useful for mission design.
+
+\subsection{Exhaust Gas Temperature (Stagnation Temperature)}
+\begin{equation}
+T_0 = T + \frac{v^2}{2c_p} \label{eq:stagnation_temperature}
+\end{equation}
+For calculating the temperature of gases if suddenly stopped.
+
+\subsection{Thrust with Expansion Losses}
+\begin{equation}
+F = \dot{m}v_2 + (p_e - p_0)A_e \label{eq:thrust_with_losses}
+\end{equation}
+Considering real-world losses due to expansion.
+
+\subsection{Characteristic Exhaust Velocity (CSTAR)}
+\begin{equation}
+c^* = \frac{T_c}{\sqrt{\gamma R T_c / M}} \left(\frac{2\gamma}{\gamma-1}\right)^{(\gamma+1)/2(\gamma-1)} \label{eq:cstar}
+\end{equation}
+For assessing engine performance under chamber conditions.
+
+\subsection{Optimal Expansion Ratio}
+\begin{equation}
+\frac{A_e}{A_t} = \left(\frac{2}{\gamma+1}\right)^{(\gamma+1)/2(\gamma-1)} \left(\frac{p_0}{p_e}\right)^{1/\gamma} \label{eq:optimal_expansion}
+\end{equation}
+To design nozzles for maximum thrust at specific altitudes.
+
+\subsection{Regenerative Cooling}
+Regenerative cooling is essential for managing the high temperatures experienced by rocket engines. Here's how we can quantify the heat transfer involved:
+
+\begin{equation}
+\dot{Q} = \dot{m}_c C_p (T_{out} - T_{in}) \label{eq:regenerative_cooling}
+\end{equation}
+
+\textbf{Explanation}:
+\begin{itemize}
+    \item $\dot{Q}$: Rate of heat transfer (\si{\watt}).
+    \item $\dot{m}_c$: Mass flow rate of coolant (\si{\kilogram\per\second}).
+    \item $C_p$: Specific heat capacity of the coolant at constant pressure (\si{\joule\per\kilogram\per\kelvin}).
+    \item $T_{out}$, $T_{in}$: Outlet and inlet temperatures of the coolant (\si{\kelvin}).
+\end{itemize}
+
+\textbf{Assumptions}: Steady-state operation, no phase change in coolant, uniform heat distribution.
+
+\subsection{Propellant Chemistry and Performance}
+The performance of a rocket engine is heavily influenced by the choice of propellants. Here's an equation to estimate theoretical specific impulse:
+
+\begin{equation}
+I_{sp} = \frac{1}{g_0} \sqrt{\frac{2\gamma R T_c}{\gamma-1} \left[1 - \left(\frac{p_e}{p_c}\right)^{\frac{\gamma-1}{\gamma}}\right]} \label{eq:theoretical_specific_impulse}
+\end{equation}
+
+\textbf{Explanation}:
+\begin{itemize}
+    \item $T_c$: Combustion chamber temperature (\si{\kelvin}).
+    \item $R$: Gas constant for the exhaust gases (\si{\joule\per\kilogram\per\kelvin}).
+    \item Other variables as previously defined.
+\end{itemize}
+
+\textbf{Considerations}:
+- Different propellant combinations yield different values for $\gamma$ and $R$, directly affecting performance.
+- Practical $I_{sp}$ will be lower due to inefficiencies in combustion and nozzle design.
+
+\subsection{Nozzle Design for Different Environments}
+Nozzle design must consider the operational environment, especially the ambient pressure:
+
+\begin{equation}
+\frac{A_e}{A_t} = \left(\frac{2}{\gamma+1}\right)^{\frac{\gamma+1}{2(\gamma-1)}} \left(\frac{p_0}{p_e}\right)^{\frac{1}{\gamma}} \label{eq:optimal_expansion_environment}
+\end{equation}
+
+\textbf{Explanation}:
+\begin{itemize}
+    \item This equation helps in determining the optimal nozzle expansion ratio for a given ambient pressure $p_0$.
+    \item For vacuum conditions ($p_0 \approx 0$), $A_e/A_t$ is maximized for maximum thrust.
+    \item At sea level or higher pressure environments, this ratio is adjusted to optimize performance.
+\end{itemize}
+
+\textbf{Key Points}:
+- Nozzle design impacts how effectively the expansion of gases converts into thrust.
+- Altitude compensating nozzles like aerospike or extendable nozzles can adapt to changing atmospheric conditions.
+
+\section{Additional Topics}
+
+\subsection{Staging and Multi-Stage Rockets}
+Discusses how staging can multiply $\Delta v$ by allowing each stage to operate at optimum conditions.
+
+\subsection{Propellants and Their Impact on Performance}
+Different propellants like LOX/RP-1 or LH2/LOX influence $I_{\text{sp}}$ and $c^*$.
+
+\subsection{Efficiency Losses in Real Engines}
+Real engines deal with losses from combustion inefficiency, nozzle divergence, and friction, reducing theoretical performance.
+
+\section{Glossary of Terms}
+\begin{itemize}
+    \item \textbf{Choked Flow}: When the flow velocity at the nozzle throat reaches the speed of sound.
+    \item \textbf{Isentropic Expansion}: Ideal gas expansion where entropy remains constant.
+    \item \textbf{Stagnation Temperature}: Temperature if the flow were brought to rest isentropically.
+\end{itemize}
+
+\section{References}
+\begin{thebibliography}{9}
+    \bibitem{sutton} Sutton, G. P., \& Biblarz, O. (2016). \emph{Rocket Propulsion Elements} (9th ed.). Wiley.
+    \bibitem{anderson} Anderson, J. D. (2010). \emph{Modern Compressible Flow: With Historical Perspective} (3rd ed.). McGraw-Hill Education.
+    \bibitem{humble} Humble, R. W., Henry, G. N., \& Larson, W. J. (1995). \emph{Space Propulsion Analysis and Design}. McGraw-Hill Education.
+\end{thebibliography}
+
+\section{Further Reading}
+\begin{itemize}
+    \item \href{https://ntrs.nasa.gov/}{NASA Technical Reports Server} for propulsion studies.
+    \item \href{https://ocw.mit.edu/courses/aeronautics-and-astronautics/}{Online courses from MIT OpenCourseWare} on aerospace engineering.
+\end{itemize}
+
+\end{document}
