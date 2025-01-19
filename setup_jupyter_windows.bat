@@ -7,6 +7,16 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
+:: Check if venv exists, create it if not
+if not exist venv (
+    echo Creating a virtual environment...
+    python -m venv venv
+)
+
+:: Activate the virtual environment
+echo Activating the virtual environment...
+call venv\Scripts\activate
+
 :: Upgrade pip
 echo Upgrading pip...
 python -m pip install --upgrade pip
