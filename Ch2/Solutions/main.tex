@@ -1,0 +1,234 @@
+\documentclass{article}
+\usepackage{amsmath}
+
+\title{Rocket Propulsion Problems Solution - Sutton Ch 2}
+\author{Viggo K. Hansen}
+\date{January 27, 2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Problem 1: Rocket Propulsion Problem Solution}
+
+\subsection{Problem Statement}
+The following data are given for a certain rocket unit: thrust, 8896 N; propellant consumption, 3.867 kg/sec; velocity of vehicle, 400 m/sec; energy content of propellant, 6.911 MJ/kg. Assume 100\% combustion efficiency.
+
+Determine:
+\begin{itemize}
+    \item[(a)] the effective velocity;
+    \item[(b)] the kinetic jet energy rate per unit flow of propellant;
+    \item[(c)] the internal efficiency;
+    \item[(d)] the propulsive efficiency;
+    \item[(e)] the overall efficiency;
+    \item[(f)] the specific impulse;
+    \item[(g)] the specific propellant consumption.
+\end{itemize}
+
+\subsection{Solution}
+
+Given:
+\begin{itemize}
+    \item $F = 8896 \, \text{N}$
+    \item $\dot{m} = 3.867 \, \text{kg/sec}$
+    \item $u = 400 \, \text{m/sec}$
+    \item $Q_R = 6.911 \, \text{MJ/kg}$
+    \item $\eta_{\text{comb}} = 1.0$
+\end{itemize}
+
+\subsubsection{(a) Effective Velocity}
+The effective velocity, $c$, is given by:
+\[
+c = \frac{F}{\dot{m}} = \frac{8896 \, \text{N}}{3.867 \, \text{kg/sec}} = 2300 \, \text{m/sec}
+\]
+
+\subsubsection{(b) Kinetic Jet Energy Rate per Unit Flow of Propellant}
+The kinetic jet energy rate per unit flow of propellant, $E_k$, is:
+\[
+E_k = \frac{c^2}{2} = \frac{(2300 \, \text{m/sec})^2}{2} = 2.645 \times 10^6 \, \text{m}^2/\text{sec}^2 = 2.645 \, \text{MJ/kg}
+\]
+
+\subsubsection{(c) Internal Efficiency}
+The internal efficiency, $\eta_i$, is:
+\[
+\eta_i = \frac{0.5mc^2}{\dot{m} Q_R \eta_{\text{comb}}} = \frac{0.5 \times 3.867 \times 2300^2}{3.867 \times 6.911 \times 10^6} = 0.383 = 38.3\%
+\]
+
+\subsubsection{(d) Propulsive Efficiency}
+The propulsive efficiency, $\eta_p$, is:
+\[
+\eta_p = \frac{2u/c}{1 + (u/c)^2} = \frac{2 \times 400/2300}{1 + (400/2300)^2} = 0.3376 = 33.76\%
+\]
+
+\subsubsection{(e) Overall Efficiency}
+The overall efficiency, $\eta$, is:
+\[
+\eta = \eta_i \eta_p = 0.383 \times 0.3376 = 0.1293 = 12.93\%
+\]
+
+Alternatively, it can be calculated as:
+\[
+\eta = \frac{Fu}{\dot{m} Q_R} = \frac{8896 \times 400}{3.867 \times 6.911 \times 10^6} = 0.133 = 13.3\%
+\]
+
+\subsubsection{(f) Specific Impulse}
+The specific impulse, $I_s$, is:
+\[
+I_s = \frac{F}{\dot{m} g_0} = \frac{8896}{3.867 \times 9.81} = 234.5 \, \text{sec}
+\]
+
+\subsubsection{(g) Specific Propellant Consumption}
+The specific propellant consumption, SFC, is:
+\[
+\text{SFC} = \frac{1}{I_s} = \frac{1}{234.5} = 0.00426 \, \text{sec}^{-1}
+\]
+
+\subsection{Conclusion}
+The answers are:
+\begin{itemize}
+    \item[(a)] $2300 \, \text{m/sec}$
+    \item[(b)] $2.645 \, \text{MJ/kg}$
+    \item[(c)] $38.3\%$
+    \item[(d)] $33.76\%$
+    \item[(e)] $13.3\%$
+    \item[(f)] $234.5 \, \text{sec}$
+    \item[(g)] $0.00426 \, \text{sec}^{-1}$
+\end{itemize}
+
+\section{Problem 2: Rocket Propulsion Problem 4 Solution}
+
+\subsection{Problem Statement}
+For the rocket in Problem 1, calculate the specific power, assuming a propulsion system dry mass of 80 kg and a duration of 3 min.
+
+\subsection{Given Data from Problem 1}
+\begin{itemize}
+    \item Thrust, \( F = 8896 \, \text{N} \)
+    \item Propellant consumption rate, \( \dot{m} = 3.867 \, \text{kg/sec} \)
+    \item Effective velocity, \( c = 2300 \, \text{m/sec} \)
+\end{itemize}
+
+\subsection{Additional Data for Problem 2}
+\begin{itemize}
+    \item Dry mass of propulsion system, \( m_f = 80 \, \text{kg} \)
+    \item Duration, \( t = 3 \, \text{min} = 180 \, \text{sec} \)
+\end{itemize}
+
+\subsection{Solution}
+
+\subsubsection{Specific Power Calculation}
+Specific power is given by:
+\[
+\text{Specific Power} = \frac{P_{\text{jet}}}{m_0}
+\]
+where \( P_{\text{jet}} = 0.5Fc \) and \( m_0 \) is the total initial mass of the rocket including propellant.
+
+First, calculate the total initial mass \( m_0 \):
+\[
+m_0 = \dot{m} \times t + m_f = (3.867 \, \text{kg/sec}) \times (180 \, \text{sec}) + 80 \, \text{kg} = 776.06 \, \text{kg}
+\]
+
+Next, calculate the jet power \( P_{\text{jet}} \):
+\[
+P_{\text{jet}} = 0.5 \times F \times c = 0.5 \times 8896 \, \text{N} \times 2300 \, \text{m/sec} = 10,230,400 \, \text{W}
+\]
+
+Finally, calculate the specific power:
+\[
+\text{Specific Power} = \frac{P_{\text{jet}}}{m_0} = \frac{10,230,400 \, \text{W}}{776.06 \, \text{kg}} = 13.18 \, \text{kW/kg}
+\]
+
+\subsection{Conclusion}
+The specific power for the rocket is:
+\[
+\boxed{13.18 \, \text{kW/kg}}
+\]
+
+\section{Problem 3: Rocket Propulsion Problem 7 Solution}
+
+\subsection{Problem Statement}
+For a solid propellant rocket motor with a sea-level thrust of 207,000 lbf, determine:
+\begin{itemize}
+    \item[(a)] the (constant) propellant mass flow rate $\dot{m}$ and the specific impulse $I_s$ at sea level;
+    \item[(b)] the altitude for optimum nozzle expansion as well as the thrust and specific impulse at this optimum condition and (c) at vacuum conditions.
+\end{itemize}
+
+Given:
+\begin{itemize}
+    \item Initial total mass of the rocket motor is 50,000 lbm and its propellant mass fraction is 0.90.
+    \item The residual propellant (called slivers) combustion stops when the chamber pressure falls below a deflagration limit, which amounts to 3\% of the burnt.
+    \item Burn time is 50 seconds.
+    \item Nozzle throat area ($A_t$) is 164.2 in$^2$.
+    \item Area ratio ($A_e/A_t$) is 10.
+    \item Chamber pressure ($p_c$) is 780 psia and the pressure ratio ($p_e/p_c$) across the nozzle may be taken as 90.0.
+\end{itemize}
+
+\subsection{Solution}
+
+\subsubsection{(a) Propellant Mass Flow Rate and Specific Impulse at Sea Level}
+
+First, calculate the usable propellant mass:
+\[
+m_p = m_0 \kappa_f = 50,000 \times 0.90 = 45,000 \, \text{lbm}
+\]
+Since 3\% of the burnt propellant remains as residual:
+\[
+\text{usable part} = 45,000 \times 0.97 = 43,650 \, \text{lbm}
+\]
+
+Now, calculate the propellant mass flow rate $\dot{m}$:
+\[
+\dot{m} = \frac{m_p}{t} = \frac{43650}{50} = 873.0 \, \text{lbm/sec}
+\]
+
+Calculate the total impulse $I_t$:
+\[
+I_t = F \times t = 207,000 \times 50 = 10,350,000 \, \text{lb-sec}
+\]
+
+Finally, calculate the specific impulse $I_s$ at sea level:
+\[
+I_s = \frac{I_t}{W} = \frac{10,350,000}{43650} = 237.1 \, \text{sec}
+\]
+
+\subsubsection{(b) Altitude for Optimum Nozzle Expansion}
+
+From Sutton, 9th Edition, Chapter 3, Fig. 3-4, if $k = 1.25$ and with the given chamber pressure (780 psia) and area ratio (10), at optimum expansion, $p_2 = p_3 = \frac{780}{90} = 8.666 \, \text{psia}$.
+
+The nozzle exit area $A_e$ is:
+\[
+A_e = 10 A_t = 10 \times 164.2 = 1642 \, \text{in}^2
+\]
+
+Using Eq. 2-13 from Sutton to solve for the momentum thrust at optimum expansion:
+\[
+\dot{m} v_e = 207,000 - (8.666 \times 14.696) = 216,900 \, \text{lbf}
+\]
+
+Calculate the specific impulse at optimum expansion:
+\[
+I_s = \frac{216,900}{873} = 248.45 \, \text{sec}
+\]
+
+From Appendix 2 in Sutton, the altitude for 8.666 psia is approximately 4,200 meters.
+
+\subsubsection{(c) Vacuum Conditions}
+
+For vacuum conditions, $p_3 = 0$. Using Eq. 2-14:
+\[
+F = 216,900 + 8.67 \times 1642 = 231,000 \, \text{lbf}
+\]
+
+Calculate the specific impulse in vacuum:
+\[
+I_s = \frac{231,000}{873} = 264.6 \, \text{sec}
+\]
+
+\subsection{Conclusion}
+The results are:
+\begin{itemize}
+    \item[(a)] $\dot{m} = 873.0 \, \text{lbm/sec}$, $I_s = 237.1 \, \text{sec}$
+    \item[(b)] Altitude for optimum nozzle expansion: 4,200 meters, Thrust: 216,900 lbf, $I_s = 248.45 \, \text{sec}$
+    \item[(c)] Thrust in vacuum: 231,000 lbf, $I_s = 264.6 \, \text{sec}$
+\end{itemize}
+
+\end{document}
