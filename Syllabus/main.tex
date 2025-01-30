@@ -1,11 +1,16 @@
 \documentclass[12pt]{article}
 
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{fancyhdr}
+\usepackage{mdframed} % For drawing boxes (already in your document)
+
+% Your existing packages
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{tabularx}
-\usepackage{mdframed} % For drawing boxes
 
 \hypersetup{
     colorlinks=true,
@@ -14,7 +19,11 @@
     urlcolor=cyan,
 }
 
-\title{Course Syllabus - Rocket Propulsion}
+% Define document control information
+\newcommand{\documentversion}{Version 1.0}
+\newcommand{\documentdate}{\today}
+
+\title{\textbf{Course Syllabus - Rocket Propulsion} \\ \small{\documentversion, Revised: \documentdate}}
 \author{Viggo K. Hansen \href{mailto:vkhansen@eng.chula.ac.th}{[Email]}}
 \date{January 30, 2025}
 
@@ -22,8 +31,18 @@
 
 \maketitle
 
+% Setup headers and footers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\documentversion}
+\fancyhead[R]{\documentdate}
+\fancyfoot[C]{\thepage\ of \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
 \tableofcontents
 
+% Content sections remain unchanged
 \section{\hyperref[sec:course_info]{Course Information}}
 \label{sec:course_info}
 \begin{itemize}
@@ -141,4 +160,5 @@ Philip G. Hill and Carl R. Peterson. \textit{Mechanics and Thermodynamics of Pro
 Dieter K. Huzel and David H. Huang. \textit{Design of Liquid Propellant Rocket Engines}. National Aeronautics and Space Administration, Washington, D.C., 1967. (NASA SP-125)
 \end{thebibliography}
 
+\label{LastPage}
 \end{document}
