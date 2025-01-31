@@ -1,0 +1,103 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\begin{document}
+
+\section{Explanation of Mistakes in Student Work for Problem 7 Part (b)}
+
+The student's work for Problem 7 part (b) from the text "Rocket Propulsion Elements" contains several errors which led to incorrect results. Below is a detailed examination of these mistakes:
+
+\subsection{Incorrect Calculation of Exit Velocity}
+
+The student mistakenly used the specific impulse \( I_s \) directly as the exit velocity \( V_e \):
+
+\begin{equation}
+V_e = 237.1 \, \text{ft/s}
+\end{equation}
+
+This is incorrect because the specific impulse \( I_s \) is not directly equivalent to the exit velocity. The exit velocity should be calculated using the formula:
+
+\begin{equation}
+V_e = I_s \times g_0
+\end{equation}
+
+Where \( g_0 \) is the standard gravitational acceleration at sea level, \( 32.174 \, \text{ft/s}^2 \). Thus, the correct exit velocity should have been:
+
+\begin{equation}
+V_e = 237.1 \times 32.174 = 7622.4 \, \text{ft/s}
+\end{equation}
+
+\subsection{Unit Confusion}
+
+There is clear confusion regarding the units in the student's work. The student wrote:
+
+\begin{equation}
+F = \dot{m} V_e + (p_e - p_a) A_e
+\end{equation}
+
+However, in the calculation, they did not convert the area \( A_e \) from square inches to square feet, which is necessary for dimensional consistency when dealing with pressures in psi:
+
+\begin{equation}
+A_e = \frac{1642}{144} \, \text{ft}^2
+\end{equation}
+
+The student's work lacks this conversion, leading to incorrect dimensional analysis and calculation errors.
+
+\subsection{Incorrect Formula Application}
+
+The student failed to correctly apply the thrust equation at optimum expansion. The correct formula as provided in the solutions manual is:
+
+\begin{equation}
+F_{\text{opt}} = F_t - (\dot{m} V_e + (p_e - p_a) A_e)
+\end{equation}
+
+However, the student's approach was flawed as they calculated:
+
+\begin{equation}
+\dot{m} V_e = 207,000 - (8.666 \times 14.696)
+\end{equation}
+
+This calculation is incorrect because it does not account for the proper dimensional conversion and misunderstands the application of the momentum thrust term \( \dot{m} V_e \). The correct approach should have been:
+
+\begin{equation}
+F_{\text{opt}} = F_t - ((p_e - p_a) \times A_e \times 144)
+\end{equation}
+
+Where the area conversion factor (144) converts \( A_e \) back to square inches for the pressure term.
+
+\subsection{Impact on Specific Impulse Calculation}
+
+Due to the incorrect thrust calculation, the student's specific impulse at optimum expansion \( I_{s,\text{opt}} \) was also incorrect:
+
+\begin{equation}
+I_{s,\text{opt}} = \frac{F_{\text{opt}}}{\dot{m}}
+\end{equation}
+
+The student calculated:
+
+\begin{equation}
+I_{s,\text{opt}} = \frac{316511.86}{873} = 361.56 \, \text{s}
+\end{equation}
+
+This result is incorrect because \( F_{\text{opt}} \) was miscalculated. The correct calculation should have been:
+
+\begin{equation}
+I_{s,\text{opt}} = \frac{216,900}{873 \times 32.174} = 248.5 \, \text{s}
+\end{equation}
+
+This value matches the solution provided in the manual.
+
+\section{Conclusion}
+
+The primary errors in the student's work were:
+\begin{itemize}
+    \item Misunderstanding and misapplication of the exit velocity calculation.
+    \item Confusion with unit conversions, particularly between square inches and square feet.
+    \item Incorrect application of the thrust formula at optimum expansion, leading to incorrect dimensional handling.
+\end{itemize}
+
+Correcting these errors would align the student's work with the solutions manual's calculations, providing accurate results for thrust and specific impulse at optimum expansion.
+
+\end{document}
