@@ -1,0 +1,149 @@
+\documentclass[a4paper,12pt]{article}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{Assignment: Delta-V Split Optimization Using OpenOffice Calc}
+\author{Instructor: Viggo Hansen}
+\date{Due Date: \textbf{[Insert Due Date]}}
+
+\begin{document}
+
+\maketitle
+
+\section{Objective}
+The goal of this assignment is to develop a deeper understanding of delta-v split optimization by applying it to real-world rocket systems. You will install OpenOffice, open the provided spreadsheet, and use it to analyze a rocket system of your choice. Your task is to determine the parameters of your selected rocket and reproduce them within the spreadsheet to evaluate its delta-v split performance.
+
+\section{Assignment Tasks}
+
+\subsection{1. Install OpenOffice Calc}
+\begin{itemize}
+    \item If you do not already have OpenOffice installed, download it from the official site: 
+    \url{https://www.openoffice.org/download/}.
+    \item Install and open OpenOffice Calc.
+\end{itemize}
+
+\subsection{2. Download the Delta-V Split Optimization Spreadsheet}
+\begin{itemize}
+    \item Access the spreadsheet from \textbf{Course View} in your learning portal.
+    \item Save a local copy and open it in OpenOffice Calc.
+\end{itemize}
+
+\subsection{3. Select a Rocket System}
+Choose a rocket system that has been or is currently in operation. Examples include:
+\begin{itemize}
+    \item Falcon 9
+    \item Saturn V
+    \item Electron Rocket
+    \item Space Shuttle
+    \item Any other rocket system with publicly available performance data
+\end{itemize}
+
+\subsection{4. Determine the Rocket Parameters}
+Research and find the following parameters for your selected rocket:
+\begin{itemize}
+    \item \textbf{Specific impulse (I_{sp})} of each stage
+    \item \textbf{Mass ratio} (\frac{m_0}{m_f}) for each stage
+    \item \textbf{Stage separation points}
+    \item \textbf{Total delta-v required for the mission}
+\end{itemize}
+
+\subsection{5. Input Data into the Spreadsheet}
+\begin{itemize}
+    \item Enter the values into the provided input cells in the delta-v optimization spreadsheet.
+    \item Adjust parameters as needed to match known values from your selected rocket.
+\end{itemize}
+
+\subsection{6. Analyze the Results}
+\begin{itemize}
+    \item Compare the output from the spreadsheet to published mission data.
+    \item Identify discrepancies and discuss potential reasons for them.
+\end{itemize}
+
+\subsection{7. Write a Short Report (1-2 Pages)}
+Your report should include:
+\begin{itemize}
+    \item \textbf{Introduction}: Briefly explain the purpose of delta-v optimization.
+    \item \textbf{Selected Rocket}: Describe the rocket system you chose and provide references for your data.
+    \item \textbf{Data Entry and Analysis}: Summarize how you inputted the values and any challenges you faced.
+    \item \textbf{Comparison \& Discussion}: Compare your spreadsheet results to actual mission data and discuss any deviations.
+    \item \textbf{Conclusion}: Reflect on what you learned from this exercise.
+\end{itemize}
+
+\section{Nomenclature}
+Below is a list of relevant parameters and their definitions:
+
+\subsection{Rocket Stage Parameters}
+\begin{align*}
+    m_0 & : \text{Initial mass of the stage (kg)} \\
+    m_f & : \text{Final mass of the stage (kg)} \\
+    R   & : \text{Mass ratio} = \frac{m_0}{m_f} \\
+    I_{sp} & : \text{Specific impulse (s)} \\
+    T/W  & : \text{Thrust-to-weight ratio} \\
+    F    & : \text{Thrust (N)} \\
+    \Delta v_s & : \text{Delta-v contribution of each stage (m/s)} \\
+    g_0  & : \text{Standard gravity} = 9.80665 \text{ m/s}^2
+\end{align*}
+
+\subsection{Launch and Initial Conditions}
+\begin{align*}
+    \lambda & : \text{Launch latitude (degrees)} \\
+    h_0 & : \text{Launch altitude (m)} \\
+    v_0 & : \text{Initial velocity at launch (m/s)} \\
+    \gamma_0 & : \text{Initial flight path angle (degrees)} \\
+    \Omega & : \text{Earth’s angular velocity} = 7.2921 \times 10^{-5} \text{ rad/s}
+\end{align*}
+
+\subsection{Orbital Parameters}
+\begin{align*}
+    a & : \text{Semi-major axis (m)} \\
+    e & : \text{Eccentricity} \\
+    h_a & : \text{Apogee altitude (m)} \\
+    h_p & : \text{Perigee altitude (m)} \\
+    v_a & : \text{Velocity at apogee (m/s)} \\
+    v_p & : \text{Velocity at perigee (m/s)} \\
+    i & : \text{Orbital inclination (degrees)} \\
+    \omega & : \text{Argument of periapsis (degrees)} \\
+    \Omega & : \text{Right ascension of ascending node (RAAN, degrees)}
+\end{align*}
+
+\subsection{Delta-V and Optimization Parameters}
+\begin{align*}
+    \Delta v_{req} & : \text{Required delta-v (m/s)} \\
+    \Delta v_{opt} & : \text{Optimized delta-v split among stages (m/s)} \\
+    \Delta v_{loss} & : \text{Total delta-v losses (m/s)} \\
+    \Delta v_{gravity} & : \text{Gravity losses (m/s)} \\
+    \Delta v_{aero} & : \text{Aerodynamic losses (m/s)} \\
+    \Delta v_{margin} & : \text{Delta-v margin for contingencies (m/s)} \\
+    \Delta v_{circularization} & : \text{Delta-v needed for orbit circularization (m/s)}
+\end{align*}
+
+\section{Extra Credit Opportunity}
+Students can earn extra credit by developing a MATLAB or Python simulation for trajectory and delta-v split optimization. The simulation should:
+\begin{itemize}
+    \item Model the delta-v budget based on real-world launch parameters.
+    \item Include multi-stage optimization.
+    \item Simulate the effects of gravity and aerodynamic losses.
+    \item Compare the results with the spreadsheet approach.
+\end{itemize}
+Submit your simulation code alongside your report for evaluation.
+
+\section{Submission Requirements}
+\begin{itemize}
+    \item \textbf{Spreadsheet File:} Submit your completed OpenOffice Calc spreadsheet (.ods format).
+    \item \textbf{Report:} Submit a PDF or Word document containing your analysis.
+    \item \textbf{Extra Credit (Optional):} MATLAB or Python code in a separate file.
+    \item \textbf{Submission Method:} Upload all files to the course portal.
+\end{itemize}
+
+\section{Resources}
+\begin{itemize}
+    \item OpenOffice: \url{https://www.openoffice.org/download/}
+    \item NASA Technical Reports Server: \url{https://ntrs.nasa.gov/}
+    \item Rocket Performance Data: \url{https://en.wikipedia.org/wiki/Comparison_of_orbital_launch_systems}
+\end{itemize}
+
+\textbf{Good luck!} If you have any questions, please post them in the course discussion forum or email me.
+
+\end{document}
