@@ -2,7 +2,7 @@ import time
 import numpy as np
 from nstage import Nstage
 
-vf = 3000 # exhuast velocity
+vf = 3
 beta = np.array([0.5, 0.3, 0.2]) # Stage weights
 epsilon = np.array([0.08, 0.10, 0.15]) # Struture mass fraction
 alpha = np.array([1.1, 1.2, 1.3]) # Stage efficiency
