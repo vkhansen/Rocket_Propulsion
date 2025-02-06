@@ -1,0 +1,24 @@
+
+Here's an explanation of the variables used in the context of rocket delta-V (change in velocity) split optimization:
+
+vf (exhaust velocity):
+Definition: The exhaust velocity of the rocket's propulsion system. It's a measure of how fast the exhaust gases are expelled from the rocket's nozzle.
+Unit: Typically measured in meters per second (m/s).
+Significance: Directly affects the efficiency of the rocket in terms of delta-V per mass of propellant. Higher exhaust velocity means more efficient use of propellant, leading to higher achievable delta-V for a given mass.
+beta (stage weights):
+Definition: An array representing the fraction of the total initial mass that each stage of the rocket contributes. Here, [0.5, 0.3, 0.2] means the first stage accounts for 50% of the initial mass, the second for 30%, and the third for 20%.
+Significance: Determines how the mass is distributed among stages. This distribution impacts the staging strategy, where lighter stages can be shed to increase acceleration as the rocket ascends.
+epsilon (structure mass fraction):
+Definition: An array specifying the fraction of the stage mass that is structural (non-propellant). Here, [0.08, 0.10, 0.15] implies that 8% of the first stage is structure, 10% for the second, and 15% for the third.
+Significance: Affects the payload fraction and overall efficiency. Lower structural mass fractions allow for more propellant, potentially increasing delta-V, but physical constraints and strength requirements limit how low this can go.
+alpha (stage efficiency):
+Definition: An array representing the efficiency of each stage in terms of propellant burn. Values like [1.1, 1.2, 1.3] indicate that each stage is slightly more efficient than a basic theoretical model might predict (1 would be perfect efficiency).
+Significance: Efficiency here can include aspects like combustion efficiency, nozzle efficiency, etc. Higher values mean more of the chemical energy of the propellant is converted into thrust.
+solvers:
+Definition: List of different numerical methods used to solve the optimization problem for determining the optimal mass split for maximum delta-V. Includes 'newton', 'bisection', 'secant', 'scipy', and 'genetic'.
+Significance: Different solvers might converge at different speeds or to different solutions due to their inherent algorithms. This comparison helps in understanding which method is most suitable for this specific optimization problem in terms of accuracy, speed, and reliability.
+results:
+Definition: A dictionary to store the results from each solver, including the optimal parameter p_opt (which could be some measure like the propellant mass ratio or similar) and the time taken to compute this solution.
+Significance: Allows for a comparative analysis of different optimization techniques in terms of performance metrics, aiding in choosing the best method for practical applications.
+
+This setup is designed to test and compare different mathematical methods for solving the complex optimization problem of staging in rockets, where the goal is to maximize delta-V given certain constraints on mass, efficiency, and structural requirements.
