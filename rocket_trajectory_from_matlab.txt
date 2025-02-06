@@ -1,0 +1,109 @@
+# Install necessary packages (if not installed)
+!pip install numpy scipy matplotlib pandas
+
+# Import required libraries
+import numpy as np
+import scipy.integrate as spi
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Define global constants
+constants = {
+    "dtr": np.pi / 180,
+    "mu": 3.986004e14,
+    "Re": 6378.135e3,
+    "J2": 1.08263e-3,
+    "J3": 2.532153e-7,
+    "J4": 1.6109876e-7,
+    "omega": 7.2921159e-5,
+    "S": 10,
+    "c": 300,
+    "rm": 6371000,
+    "tb1": 50,
+    "tb2": 100,
+    "fT1": 50000,
+    "fT2": 30000,
+    "m01": 5000,
+    "m02": 3000,
+    "mL": 1500,
+    "mp1": 2000,
+    "mp2": 1000,
+    "Gamma": 1.4,
+}
+
+# Define helper functions
+def gravity(r, lat):
+    phi = np.pi / 2 - lat
+    mu, Re, J2, J3, J4 = constants["mu"], constants["Re"], constants["J2"], constants["J3"], constants["J4"]
+    gc = mu * (1 - 1.5 * J2 * (3 * np.cos(phi)**2 - 1) * (Re / r)**2
+               - 2 * J3 * np.cos(phi) * (5 * np.cos(phi)**2 - 3) * (Re / r)**3
+               - (5 / 8) * J4 * (35 * np.cos(phi)**4 - 30 * np.cos(phi)**2 + 3) * (Re / r)**4) / r**2
+    gnorth = (-3 * mu * np.sin(phi) * np.cos(phi) * (Re / r)**2 *
+              (J2 + 0.5 * J3 * (5 * np.cos(phi)**2 - 1) * (Re / r) / np.cos(phi) +
+               (5 / 6) * J4 * (7 * np.cos(phi)**2 - 1) * (Re / r)**2) / r**2)
+    return gc, gnorth
+
+def conticap(mach):
+    machr = np.array([0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 0.9, 0.95, 1.05, 1.1, 1.2, 1.6, 2.0, 2.5, 3, 3.8, 5, 10, 99])
+    Cdr = np.array([.475475, .475475, .47576, .48336, .488965, .508345, .56563, .618165, .668135,
+                    1.031795, 1.01707, .990565, .815955, .69236, .60971, .54606, .513, .494, .48317, .48317])
+    return np.interp(mach, machr, Cdr)
+
+def atmosphere(h, v, CL):
+    R = 287
+    go = 9.806
+    gamma = 1.405
+    To = 288.15
+    Po = 1.01325e5
+    H = 8500  
+    if h >= 2000e3:
+        return [0, 0, 0, 0, 0, 0]
+    rho = Po / (R * To) * np.exp(-h / H)
+    asound = np.sqrt(gamma * R * To)
+    Mach = v / asound if asound > 0 else 0
+    Kn = 0.001  
+    return [To, rho, Mach, Kn, asound, 1]
+
+def rocket_fixed(t, o):
+    g, gn = gravity(o[2], o[1])
+    lo, la, rad, v, fpa, chi = o
+    clo, slo, cla, sla = np.cos(lo), np.sin(lo), np.cos(la), np.sin(la)
+    cfpa, sfpa, cchi, schi = np.cos(fpa), np.sin(fpa), np.cos(chi), np.sin(chi)
+
+    v = max(v, 1e-6)
+    rad = max(rad, constants["rm"] + 1e-6)
+    m = max(constants["mL"], 1e-6)
+
+    alt = rad - constants["rm"]
+    if alt <= 2000e3:
+        atmosp = atmosphere(alt, v, constants["c"])
+        rho, mach = atmosp[1], atmosp[2]
+        Qinf = 0.5 * rho * v ** 2
+        CD = conticap(mach)
+    else:
+        rho, Qinf, CD, mach = 0, 0, 0, 0
+
+    fT = constants["fT1"] if t <= constants["tb1"] else constants["fT2"] if t <= (constants["tb1"] + constants["tb2"]) else 0
+    m = constants["m01"] - constants["mp1"] * t / constants["tb1"] if t <= constants["tb1"] else constants["m02"] - constants["mp2"] * (t - constants["tb1"]) / constants["tb2"] if t <= (constants["tb1"] + constants["tb2"]) else constants["mL"]
+
+    D = Qinf * constants["S"] * CD
+    Xfo, Yfo, Zfo = fT - D, 0, 0
+
+    longidot = v * cfpa * schi / (rad * cla)
+    latidot = v * cfpa * cchi / rad
+    raddot = v * sfpa
+    veldot = -g * sfpa + gn * cchi * cfpa + Xfo / m + constants["omega"] ** 2 * rad * cla * (sfpa * cla - cfpa * cchi * sla)
+
+    return [longidot, latidot, raddot, veldot, 0, 0]
+
+o0 = [0, 0, constants["rm"], 1000, np.pi / 4, 0]
+sol_fixed = spi.solve_ivp(rocket_fixed, [0, 150], o0, method='RK45', t_eval=np.linspace(0, 150, 500))
+
+plt.figure(figsize=(10, 5))
+plt.plot(sol_fixed.t, sol_fixed.y[2] - constants["rm"], label="Altitude (m)")
+plt.xlabel("Time (s)")
+plt.ylabel("Altitude (m)")
+plt.title("Rocket Altitude Over Time")
+plt.legend()
+plt.grid()
+plt.show()
