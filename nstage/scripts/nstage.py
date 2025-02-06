@@ -2,12 +2,21 @@ import numpy as np
 from scipy.optimize import root_scalar
 from deap import base, creator, tools, algorithms
 
+# Ensure DEAP creator components are only created once
+if not hasattr(creator, "FitnessMin"):
+    creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+    creator.create("Individual", list, fitness=creator.FitnessMin)
+
 def Nstage(vf, beta, epsilon, alpha, solver='newton', tol=1e-9, max_iter=100):
     def f(p):
-        return vf + np.sum(beta * np.log(epsilon + alpha * (1 - epsilon) * p))
+        """ Function to find the optimal staging parameter. """
+        p = np.clip(p, 1e-6, 1)  # Restrict p to valid range (avoid log(0) or negative values)
+        return vf + np.sum(beta * np.log(np.maximum(epsilon + alpha * (1 - epsilon) * p, 1e-9)))
 
     def df(p):
-        return np.sum(alpha * beta / (epsilon + alpha * (1 - epsilon) * p))
+        """ Derivative of the function. """
+        p = np.clip(p, 1e-6, 1)  # Ensure p is valid before calculating derivative
+        return np.sum(alpha * beta / np.maximum(epsilon + alpha * (1 - epsilon) * p, 1e-9))
 
     if solver == 'newton':
         p = 0.1
@@ -15,18 +24,29 @@ def Nstage(vf, beta, epsilon, alpha, solver='newton', tol=1e-9, max_iter=100):
             f_p, df_p = f(p), df(p)
             if abs(f_p) < tol:
                 return p
+            if abs(df_p) < 1e-12:  # Avoid division by zero
+                raise ValueError("Newton's method encountered zero derivative.")
             p -= f_p / df_p
         raise ValueError("Newton's method did not converge.")
 
     elif solver == 'bisection':
         a, b = 0, 1
         if f(a) * f(b) > 0:
-            raise ValueError("Bisection method requires bracketing.")
+            # Dynamically expand the bracket if needed
+            for _ in range(10):
+                a -= 0.1
+                b += 0.1
+                if f(a) * f(b) < 0:
+                    break
+            else:
+                raise ValueError("Bisection method: could not find valid bracket.")
+
         for _ in range(max_iter):
             p = (a + b) / 2
-            if abs(f(p)) < tol:
+            f_p = f(p)
+            if abs(f_p) < tol:
                 return p
-            if f(a) * f(p) < 0:
+            if f(a) * f_p < 0:
                 b = p
             else:
                 a = p
@@ -38,6 +58,8 @@ def Nstage(vf, beta, epsilon, alpha, solver='newton', tol=1e-9, max_iter=100):
             f_p0, f_p1 = f(p0), f(p1)
             if abs(f_p1) < tol:
                 return p1
+            if abs(f_p1 - f_p0) < 1e-12:  # Avoid division by zero
+                raise ValueError("Secant method encountered nearly identical function values.")
             p_new = p1 - f_p1 * (p1 - p0) / (f_p1 - f_p0)
             p0, p1 = p1, p_new
         raise ValueError("Secant method did not converge.")
@@ -49,8 +71,6 @@ def Nstage(vf, beta, epsilon, alpha, solver='newton', tol=1e-9, max_iter=100):
         raise ValueError("SciPy root-finding method did not converge.")
 
     elif solver == 'genetic':
-        creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-        creator.create("Individual", list, fitness=creator.FitnessMin)
         toolbox = base.Toolbox()
         toolbox.register("attr_float", np.random.uniform, 0, 1)
         toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_float, n=1)
