@@ -1,0 +1,8 @@
+Parameter,Value,
+G0,9.81,
+TOTAL_DELTA_V,9500,
+,,
+stage,ISP,EPSILON
+1,300,0.1
+2,320,0.08
+3,350,0.06

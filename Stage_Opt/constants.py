@@ -3,8 +3,8 @@ import numpy as np
 
 # Physical constants & mission parameters
 G0 = 9.81  # gravitational acceleration (m/s²)
-ISP = np.array([282, 348])  # specific impulse for stage 1 and stage 2 (s)
-EPSILON = np.array([0.03, 0.07])  # structural mass fractions for each stage
+ISP = np.array([282, 348, 350])  # specific impulse for stage 1 and stage 2 (s)
+EPSILON = np.array([0.03, 0.07, 0.06])  # structural mass fractions for each stage
 PAYLOAD_FRACTION = 0.03  # payload fraction (3% of total mass)
 TOTAL_DELTA_V = 10500  # required net mission ΔV (m/s)
 

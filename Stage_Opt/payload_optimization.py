@@ -22,6 +22,7 @@ Usage:
 
 import csv
 import sys
+import time  # <-- Added missing import for time
 import numpy as np
 from scipy.optimize import minimize, differential_evolution
 from pymoo.algorithms.soo.nonconvex.ga import GA
@@ -65,10 +66,17 @@ def read_csv_input(filename):
     return parameters, sorted(stages, key=lambda x: x['stage'])
 
 def payload_fraction_objective(dv, G0, ISP, EPSILON):
-    """Objective function to be minimized."""
+    """
+    Objective function to be minimized.
+    
+    We first flatten the input to ensure that dv is a 1D array of scalars.
+    """
+    dv = np.asarray(dv).flatten()  # Ensure dv is 1D
     product = 1.0
     for i, dvi in enumerate(dv):
+        # Calculate the stage ratio for this stage
         f_i = np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i]
+        # If f_i is not positive, we return a high penalty value.
         if f_i <= 0:
             return 1e6  # Penalty for an infeasible stage allocation
         product *= f_i
@@ -101,15 +109,19 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
     elif method == 'GA':
         class OptimizationProblem(Problem):
             def __init__(self):
-                super().__init__(n_var=n, n_obj=1, xl=0, xu=max_dv)
+                super().__init__(n_var=n, n_obj=1, xl=np.zeros(n), xu=max_dv)
             def _evaluate(self, x, out, *args, **kwargs):
-                f = payload_fraction_objective(x, G0, ISP, EPSILON)
-                out["F"] = np.array([f])
+                # Ensure x is 2D. If it isn't, reshape it.
+                if x.ndim == 1:
+                    x = x.reshape(1, -1)
+                # Flatten each candidate solution to avoid ambiguous truth values.
+                F = np.array([payload_fraction_objective(np.asarray(xi).flatten(), G0, ISP, EPSILON) for xi in x])
+                out["F"] = F.reshape(-1, 1)
         
         problem = OptimizationProblem()
         algorithm = GA(pop_size=50)
-        res = pymoo_minimize(problem, algorithm, termination=('n_gen', 50))
-        res = res.X  # GA returns best solution directly
+        res_obj = pymoo_minimize(problem, algorithm, termination=('n_gen', 50))
+        res = res_obj.X  # GA returns the best solution directly
 
     if method in ['SLSQP', 'differential_evolution']:
         if not res.success:
@@ -164,7 +176,7 @@ def main():
         except Exception as e:
             print(f"Error during optimization with {method}: {e}")
 
-    # Plotting results
+    # Plotting results: write figures to file and do not display them.
     method_names = [r['method'] for r in results]
     times = [r['time'] for r in results]
     payloads = [r['payload'] for r in results]
@@ -175,7 +187,7 @@ def main():
     plt.xlabel('Solver Method')
     plt.ylabel('Time (s)')
     plt.savefig('execution_time.png')
-    plt.show()
+    plt.close()  # Close the figure
 
     plt.figure(figsize=(10, 5))
     plt.bar(method_names, payloads)
@@ -183,7 +195,7 @@ def main():
     plt.xlabel('Solver Method')
     plt.ylabel('Payload Fraction')
     plt.savefig('payload_fraction.png')
-    plt.show()
+    plt.close()  # Close the figure
 
     # Generate LaTeX report
     with open('report.tex', 'w') as f:
