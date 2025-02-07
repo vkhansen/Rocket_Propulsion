@@ -128,7 +128,7 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
             bounds, 
             args=(G0, ISP, EPSILON, TOTAL_DELTA_V),
             strategy='best1bin',
-            popsize=15,      # Increased population size may improve search
+            popsize=200,      # Increased population size may improve search
             tol=1e-6,
             mutation=(0.5, 1),
             recombination=0.7,
