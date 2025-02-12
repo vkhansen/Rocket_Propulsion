@@ -261,6 +261,51 @@ def main():
     plt.savefig('payload_fraction.png')
     plt.close()
 
+    # Plot the ΔV breakdown (including drag and gravity losses) and display it.
+    plot_dv_breakdown(results, TOTAL_DELTA_V, GRAVITY_LOSS, DRAG_LOSS, filename="dv_breakdown.png")
+
+
+
+def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename="dv_breakdown.png"):
+    """
+    Plot the engine-provided ΔV breakdown per solver, including drag and gravity losses.
+    Labels each bar with the stage ratio and total delta-V.
+    """
+    solver_names = [res["method"] for res in results]
+    indices = np.arange(len(solver_names))
+    bar_width = 0.4
+
+    required_engine_dv = total_delta_v + gravity_loss + drag_loss
+    colors = ['dodgerblue', 'orange', 'green', 'purple', 'cyan', 'magenta']
+
+    plt.figure(figsize=(12, 6))
+
+    for i, res in enumerate(results):
+        sol = res["dv"]  # The allocated ΔV per stage.
+        ratios = res["ratio"]  # Stage ratios
+        cumulative = 0
+
+        for j, (dv, ratio) in enumerate(zip(sol, ratios)):
+            plt.bar(i, dv, bar_width, bottom=cumulative, color=colors[j % len(colors)], 
+                    label=f'Stage {j+1}' if i == 0 else "")
+            cumulative += dv
+            plt.text(i, cumulative - dv / 2, f"{dv:.1f} m/s\n({ratio:.2f})", 
+                     ha='center', va='center', fontsize=9, color='white', fontweight='bold')
+
+        plt.text(i, cumulative + 50, f"Total: {cumulative:.0f} m/s", 
+                 ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+    plt.axhline(required_engine_dv, color='red', linestyle='--', linewidth=2, label='Required Engine ΔV')
+
+    plt.xticks(indices, solver_names)
+    plt.ylabel("Engine-Provided ΔV (m/s)")
+    plt.title("ΔV Breakdown per Solver")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+
     # Print all the results to the console in a neat format.
     print("\nOptimization Results:")
     for result in results:
@@ -306,8 +351,6 @@ Method & Time (s) & Payload Fraction \\
 \end{document}
 """)
     
-    # Plot the ΔV breakdown (including drag and gravity losses) and display it.
-    plot_dv_breakdown(results, TOTAL_DELTA_V, GRAVITY_LOSS, DRAG_LOSS, filename="dv_breakdown.png")
 
 if __name__ == '__main__':
     main()
