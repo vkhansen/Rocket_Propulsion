@@ -1,0 +1,79 @@
+\documentclass{article}
+\usepackage{amsmath}
+
+\begin{document}
+
+\title{Derivation of the Choked Flow Equation Using Density}
+\author{}
+\date{}
+\maketitle
+
+\section{Standard Choked Flow Equation}
+
+The choked mass flow rate equation for an ideal gas, using the specific gas constant \( R_s \), is given by:
+
+\begin{equation}
+\dot{m} = A^* P_0 \sqrt{\frac{\gamma}{R_s T_0} \left( \frac{2}{\gamma+1} \right)^{\frac{\gamma+1}{\gamma-1}}}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item \( \dot{m} \) = mass flow rate
+    \item \( A^* \) = throat area
+    \item \( P_0 \) = stagnation pressure
+    \item \( T_0 \) = stagnation temperature
+    \item \( R_s \) = specific gas constant (\( R/M \), where \( R \) is the universal gas constant and \( M \) is the molar mass)
+    \item \( \gamma \) = heat capacity ratio
+\end{itemize}
+
+\section{Expressing \( R_s \) in Terms of Density}
+
+From the ideal gas law:
+
+\begin{equation}
+P = \rho R_s T
+\end{equation}
+
+At stagnation conditions:
+
+\begin{equation}
+P_0 = \rho_0 R_s T_0
+\end{equation}
+
+Rearranging for \( R_s \):
+
+\begin{equation}
+R_s = \frac{P_0}{\rho_0 T_0}
+\end{equation}
+
+\section{Substituting \( R_s \) into the Choked Flow Equation}
+
+Substituting \( R_s \) from equation (3) into equation (1):
+
+\begin{equation}
+\dot{m} = A^* P_0 \sqrt{\frac{\gamma}{\frac{P_0}{\rho_0 T_0} T_0} \left( \frac{2}{\gamma+1} \right)^{\frac{\gamma+1}{\gamma-1}}}
+\end{equation}
+
+Simplifying:
+
+\begin{equation}
+\dot{m} = A^* P_0 \sqrt{\frac{\gamma \rho_0}{P_0} \left( \frac{2}{\gamma+1} \right)^{\frac{\gamma+1}{\gamma-1}}}
+\end{equation}
+
+Since \( P_0 / P_0 = 1 \), we obtain:
+
+\begin{equation}
+\dot{m} = A^* \sqrt{\gamma \rho_0 P_0 \left( \frac{2}{\gamma+1} \right)^{\frac{\gamma+1}{\gamma-1}}}
+\end{equation}
+
+\section{Final Form Using Density}
+
+The final equation in terms of density is:
+
+\begin{equation}
+\dot{m} = A^* \sqrt{\gamma \rho_0 P_0 \left( \frac{2}{\gamma+1} \right)^{\frac{\gamma+1}{\gamma-1}}}
+\end{equation}
+
+This confirms that the choked flow equation can be rewritten in terms of density using the ideal gas law.
+
+\end{document}

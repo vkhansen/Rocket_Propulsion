@@ -288,6 +288,9 @@ def main():
 
 \section{Payload Fraction}
 \includegraphics[width=\textwidth]{payload_fraction.png}
+                
+\section{Payload Fraction}
+\includegraphics[width=\textwidth]{dv_breakdown.png}
 
 \section{Results}
 \begin{tabular}{lccc}
