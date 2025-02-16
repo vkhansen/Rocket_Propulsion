@@ -29,8 +29,9 @@ from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# Example constants for gravity and drag losses (in m/s)
+# Constants for gravity and drag losses (in m/s)
 GRAVITY_LOSS = 100.0  
 DRAG_LOSS = 50.0      
 
@@ -43,6 +44,7 @@ def read_csv_input(filename):
     with open(filename, newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
+            # Switch mode when encountering an empty line.
             if not row or all(cell.strip() == "" for cell in row):
                 if mode == "parameters":
                     mode = "stages"
@@ -128,7 +130,7 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
             bounds, 
             args=(G0, ISP, EPSILON, TOTAL_DELTA_V),
             strategy='best1bin',
-            popsize=200,      # Increased population size may improve search
+            popsize=200,
             tol=1e-6,
             mutation=(0.5, 1),
             recombination=0.7,
@@ -140,7 +142,6 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
             def __init__(self):
                 super().__init__(n_var=n, n_obj=1, xl=np.zeros(n), xu=max_dv)
             def _evaluate(self, x, out, *args, **kwargs):
-                # Ensure x is 2D.
                 if x.ndim == 1:
                     x = x.reshape(1, -1)
                 F = np.array([
@@ -150,7 +151,6 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
                 out["F"] = F.reshape(-1, 1)
         
         problem = OptimizationProblem()
-        # Increase population size and number of generations.
         algorithm = GA(pop_size=100)
         res_obj = pymoo_minimize(problem, algorithm, termination=('n_gen', 100))
         res = res_obj.X  # GA returns the best solution directly
@@ -171,32 +171,62 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
 def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename="dv_breakdown.png"):
     """
     Plot the engine-provided ΔV breakdown per solver, including drag and gravity losses.
-    For each solver (result), the delta-V allocated per stage is plotted as stacked bars.
+    Labels each bar with the stage ratio and total delta-V.
     """
-    solver_names = [res["method"] for res in results]
+    solver_names = [res["Method"] for res in results]
     indices = np.arange(len(solver_names))
-    bar_width = 0.15
+    bar_width = 0.4
 
     required_engine_dv = total_delta_v + gravity_loss + drag_loss
+    colors = ['dodgerblue', 'orange', 'green', 'purple', 'cyan', 'magenta']
 
     plt.figure(figsize=(12, 6))
-    colors = ['dodgerblue', 'orange', 'green', 'purple', 'cyan', 'magenta']
+
     for i, res in enumerate(results):
-        sol = res["dv"]  # The allocated ΔV per stage.
+        sol = res["dv"]      # Allocated ΔV per stage.
+        ratios = res["ratio"]  # Stage ratios
         cumulative = 0
-        for j, dv in enumerate(sol):
-            plt.bar(i, dv, bar_width, bottom=cumulative, color=colors[j % len(colors)],
+
+        for j, (dv, ratio) in enumerate(zip(sol, ratios)):
+            plt.bar(i, dv, bar_width, bottom=cumulative, color=colors[j % len(colors)], 
                     label=f'Stage {j+1}' if i == 0 else "")
             cumulative += dv
-        plt.text(i, cumulative + 50, f"{cumulative:.0f}", ha='center', va='bottom', fontsize=9)
+            plt.text(i, cumulative - dv / 2, f"{dv:.1f} m/s\n({ratio:.2f})", 
+                     ha='center', va='center', fontsize=9, color='white', fontweight='bold')
+
+        plt.text(i, cumulative + 50, f"Total: {cumulative:.0f} m/s", 
+                 ha='center', va='bottom', fontsize=10, fontweight='bold')
+
     plt.axhline(required_engine_dv, color='red', linestyle='--', linewidth=2, label='Required Engine ΔV')
     plt.xticks(indices, solver_names)
-    plt.ylabel("Engine-Provided ΔV (m/s)")
-    plt.title("ΔV Breakdown per Solver")
+    plt.ylabel("ΔV (m/s)")
+    plt.title("ΔV Solution per Solver")
     plt.legend()
     plt.tight_layout()
     plt.savefig(filename)
     plt.close()
+
+def generate_report(parameters, stages, results):
+    """
+    Generates a report with tables for input variables and optimization results.
+    Saves CSV files and displays the tables by printing them to the console.
+    """
+    input_df = pd.DataFrame(list(parameters.items()), columns=["Parameter", "Value"])
+    stages_df = pd.DataFrame(stages)
+    results_df = pd.DataFrame(results)
+    
+    input_df.to_csv("input_variables.csv", index=False)
+    stages_df.to_csv("stage_data.csv", index=False)
+    results_df.to_csv("optimization_results.csv", index=False)
+    
+    print("\n--- Input Variables ---")
+    print(input_df.to_string(index=False))
+    print("\n--- Stage Data ---")
+    print(stages_df.to_string(index=False))
+    print("\n--- Optimization Results ---")
+    print(results_df.to_string(index=False))
+
+    print("\nCSV files generated: input_variables.csv, stage_data.csv, optimization_results.csv")
 
 def main():
     if len(sys.argv) < 2:
@@ -220,9 +250,9 @@ def main():
     EPSILON = [stage['EPSILON'] for stage in stages]
 
     methods = ['SLSQP', 'differential_evolution', 'GA']
-    results = []
+    optimization_results = []
 
-    # Loop over solvers and store each result.
+    # Run optimization for each method.
     for method in methods:
         start_time = time.time()
         try:
@@ -230,20 +260,20 @@ def main():
                 TOTAL_DELTA_V, ISP, EPSILON, G0, method=method
             )
             execution_time = time.time() - start_time
-            results.append({
-                'method': method,
-                'time': execution_time,
-                'dv': optimal_dv,
-                'ratio': optimal_stage_ratio,
-                'payload': overall_payload
+            optimization_results.append({
+                "Method": method,
+                "Time (s)": execution_time,
+                "Payload Fraction": overall_payload,
+                "dv": optimal_dv,
+                "ratio": optimal_stage_ratio
             })
         except Exception as e:
             print(f"Error during optimization with {method}: {e}")
 
-    # Plotting execution time and payload fraction; figures are saved to file.
-    method_names = [r['method'] for r in results]
-    times = [r['time'] for r in results]
-    payloads = [r['payload'] for r in results]
+    # Generate plots for execution time and payload fraction.
+    method_names = [r["Method"] for r in optimization_results]
+    times = [r["Time (s)"] for r in optimization_results]
+    payloads = [r["Payload Fraction"] for r in optimization_results]
 
     plt.figure(figsize=(10, 5))
     plt.bar(method_names, times)
@@ -261,71 +291,25 @@ def main():
     plt.savefig('payload_fraction.png')
     plt.close()
 
-    # Plot the ΔV breakdown (including drag and gravity losses) and display it.
-    plot_dv_breakdown(results, TOTAL_DELTA_V, GRAVITY_LOSS, DRAG_LOSS, filename="dv_breakdown.png")
+    # Plot the ΔV breakdown (including drag and gravity losses).
+    plot_dv_breakdown(optimization_results, TOTAL_DELTA_V, GRAVITY_LOSS, DRAG_LOSS, filename="dv_breakdown.png")
 
-
-
-def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename="dv_breakdown.png"):
-    """
-    Plot the engine-provided ΔV breakdown per solver, including drag and gravity losses.
-    Labels each bar with the stage ratio and total delta-V.
-    """
-    solver_names = [res["method"] for res in results]
-    indices = np.arange(len(solver_names))
-    bar_width = 0.4
-
-    required_engine_dv = total_delta_v + gravity_loss + drag_loss
-    colors = ['dodgerblue', 'orange', 'green', 'purple', 'cyan', 'magenta']
-
-    plt.figure(figsize=(12, 6))
-
-    for i, res in enumerate(results):
-        sol = res["dv"]  # The allocated ΔV per stage.
-        ratios = res["ratio"]  # Stage ratios
-        cumulative = 0
-
-        for j, (dv, ratio) in enumerate(zip(sol, ratios)):
-            plt.bar(i, dv, bar_width, bottom=cumulative, color=colors[j % len(colors)], 
-                    label=f'Stage {j+1}' if i == 0 else "")
-            cumulative += dv
-            plt.text(i, cumulative - dv / 2, f"{dv:.1f} m/s\n({ratio:.2f})", 
-                     ha='center', va='center', fontsize=9, color='white', fontweight='bold')
-
-        plt.text(i, cumulative + 50, f"Total: {cumulative:.0f} m/s", 
-                 ha='center', va='bottom', fontsize=10, fontweight='bold')
-
-    plt.axhline(required_engine_dv, color='red', linestyle='--', linewidth=2, label='Required Engine ΔV')
-
-    plt.xticks(indices, solver_names)
-    plt.ylabel("ΔV (m/s)")
-    plt.title("ΔV Solution per Solver")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(filename)
-    plt.close()
-
-
-    # Print all the results to the console in a neat format.
+    # Print results to console.
     print("\nOptimization Results:")
-    for result in results:
+    for result in optimization_results:
         print("--------------------------------------------------")
-        print(f"Method: {result['method']}")
-        if 'time' in result:
-            print(f"Execution Time (s): {result['time']:.4f}")
-        # Convert NumPy numbers to Python floats for a cleaner printout.
+        print(f"Method: {result['Method']}")
+        print(f"Execution Time (s): {result['Time (s)']:.4f}")
         dv_list = [float(x) for x in result.get('dv', [])]
         ratio_list = [float(x) for x in result.get('ratio', [])]
         print("Optimal Delta-V Allocations:", dv_list)
         print("Optimal Stage Ratios:", ratio_list)
-        if 'payload' in result:
-            print(f"Overall Payload Fraction: {result['payload']:.4f}")
+        print(f"Overall Payload Fraction: {result['Payload Fraction']:.4f}")
     print("--------------------------------------------------\n")
 
     # Generate LaTeX report.
-    with open('report.tex', 'w') as f:
-        f.write(r"""
-\documentclass{article}
+    with open('report.tex', 'w', encoding='utf-8') as f:
+        f.write(r"""\documentclass{article}
 \usepackage{graphicx}
 \begin{document}
 \section{Execution Time}
@@ -334,7 +318,7 @@ def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename=
 \section{Payload Fraction}
 \includegraphics[width=\textwidth]{payload_fraction.png}
                 
-\section{Payload Fraction}
+\section{ΔV Breakdown}
 \includegraphics[width=\textwidth]{dv_breakdown.png}
 
 \section{Results}
@@ -343,104 +327,15 @@ def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename=
 Method & Time (s) & Payload Fraction \\
 \hline
 """)
-        for result in results:
-            f.write(f"{result['method']} & {result['time']:.4f} & {result['payload']:.4f} \\\\\n")
-        f.write(r"""
-\hline
+        for result in optimization_results:
+            f.write(f"{result['Method']} & {result['Time (s)']:.4f} & {result['Payload Fraction']:.4f} \\\\\n")
+        f.write(r"""\hline
 \end{tabular}
 \end{document}
 """)
     
-
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-import csv
-import sys
-
-def generate_report(parameters, stages, results):
-    """
-    Generates a report with two tables: one for input variables and one for optimization results.
-    """
-    
-    # Create a DataFrame for input parameters
-    input_df = pd.DataFrame(parameters.items(), columns=["Parameter", "Value"])
-    
-    # Create a DataFrame for stage data
-    stages_df = pd.DataFrame(stages)
-    
-    # Create a DataFrame for optimization results
-    results_df = pd.DataFrame(results)
-    
-    # Save the data as CSV for clarity
-    input_df.to_csv("input_variables.csv", index=False)
-    stages_df.to_csv("stage_data.csv", index=False)
-    results_df.to_csv("optimization_results.csv", index=False)
-    
-    # Display tables to user
-    import ace_tools as tools
-    tools.display_dataframe_to_user(name="Input Variables", dataframe=input_df)
-    tools.display_dataframe_to_user(name="Stage Data", dataframe=stages_df)
-    tools.display_dataframe_to_user(name="Optimization Results", dataframe=results_df)
-
-    print("\nInput Variables and Results Saved.")
-    print("CSV files generated: input_variables.csv, stage_data.csv, optimization_results.csv")
-
-def read_csv_input(filename):
-    """Reads the CSV file and returns a dictionary of global parameters and a list of stage data."""
-    parameters = {}
-    stages = []
-    mode = "parameters"
-    
-    with open(filename, newline='') as csvfile:
-        reader = csv.reader(csvfile)
-        for row in reader:
-            if not row or all(cell.strip() == "" for cell in row):
-                if mode == "parameters":
-                    mode = "stages"
-                continue
-
-            if mode == "parameters":
-                if row[0].strip().lower() == "parameter":
-                    continue  # Skip header
-                if len(row) < 2:
-                    continue
-                parameters[row[0].strip()] = row[1].strip()
-            else:  # mode == "stages"
-                if row[0].strip().lower() == "stage":
-                    continue  # Skip header
-                if len(row) < 3:
-                    continue
-                try:
-                    stages.append({
-                        'Stage': int(row[0].strip()),
-                        'ISP': float(row[1].strip()),
-                        'Epsilon': float(row[2].strip())
-                    })
-                except Exception as e:
-                    print(f"Error parsing stage row: {row}, {e}")
-    return parameters, sorted(stages, key=lambda x: x['Stage'])
-
-def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} input_data.csv")
-        sys.exit(1)
-    
-    input_csv = sys.argv[1]
-    parameters, stages = read_csv_input(input_csv)
-    
-    # Simulated optimization results for demonstration
-    results = [
-        {"Method": "SLSQP", "Time (s)": 1.23, "Payload Fraction": 0.32},
-        {"Method": "Differential Evolution", "Time (s)": 5.67, "Payload Fraction": 0.35},
-        {"Method": "GA", "Time (s)": 12.45, "Payload Fraction": 0.33}
-    ]
-    
-    generate_report(parameters, stages, results)
-
-if __name__ == '__main__':
-    main()
-
+    # Generate additional report (CSV files and DataFrame display).
+    generate_report(parameters, stages, optimization_results)
 
 if __name__ == '__main__':
     main()
