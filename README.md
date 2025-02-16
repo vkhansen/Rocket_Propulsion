@@ -144,15 +144,3 @@ This ensures that all functions behave as expected and that the optimization rou
 ## License
 
 This project is released under the [MIT License](LICENSE).
-
----
-
-## Acknowledgments
-
-This project leverages robust scientific libraries such as NumPy, SciPy, and pymoo to address a real-world optimization problem in aerospace engineering. Contributions and feedback are welcome!
-
----
-
-Feel free to open issues or submit pull requests for improvements and additional features.
-
-Happy optimizing!
