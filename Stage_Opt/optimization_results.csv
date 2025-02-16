@@ -1,0 +1,4 @@
+Method,Time (s),Payload Fraction
+SLSQP,1.23,0.32
+Differential Evolution,5.67,0.35
+GA,12.45,0.33

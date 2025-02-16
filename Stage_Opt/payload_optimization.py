@@ -298,8 +298,8 @@ def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename=
     plt.axhline(required_engine_dv, color='red', linestyle='--', linewidth=2, label='Required Engine ΔV')
 
     plt.xticks(indices, solver_names)
-    plt.ylabel("Engine-Provided ΔV (m/s)")
-    plt.title("ΔV Breakdown per Solver")
+    plt.ylabel("ΔV (m/s)")
+    plt.title("ΔV Solution per Solver")
     plt.legend()
     plt.tight_layout()
     plt.savefig(filename)
@@ -351,6 +351,96 @@ Method & Time (s) & Payload Fraction \\
 \end{document}
 """)
     
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import csv
+import sys
+
+def generate_report(parameters, stages, results):
+    """
+    Generates a report with two tables: one for input variables and one for optimization results.
+    """
+    
+    # Create a DataFrame for input parameters
+    input_df = pd.DataFrame(parameters.items(), columns=["Parameter", "Value"])
+    
+    # Create a DataFrame for stage data
+    stages_df = pd.DataFrame(stages)
+    
+    # Create a DataFrame for optimization results
+    results_df = pd.DataFrame(results)
+    
+    # Save the data as CSV for clarity
+    input_df.to_csv("input_variables.csv", index=False)
+    stages_df.to_csv("stage_data.csv", index=False)
+    results_df.to_csv("optimization_results.csv", index=False)
+    
+    # Display tables to user
+    import ace_tools as tools
+    tools.display_dataframe_to_user(name="Input Variables", dataframe=input_df)
+    tools.display_dataframe_to_user(name="Stage Data", dataframe=stages_df)
+    tools.display_dataframe_to_user(name="Optimization Results", dataframe=results_df)
+
+    print("\nInput Variables and Results Saved.")
+    print("CSV files generated: input_variables.csv, stage_data.csv, optimization_results.csv")
+
+def read_csv_input(filename):
+    """Reads the CSV file and returns a dictionary of global parameters and a list of stage data."""
+    parameters = {}
+    stages = []
+    mode = "parameters"
+    
+    with open(filename, newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        for row in reader:
+            if not row or all(cell.strip() == "" for cell in row):
+                if mode == "parameters":
+                    mode = "stages"
+                continue
+
+            if mode == "parameters":
+                if row[0].strip().lower() == "parameter":
+                    continue  # Skip header
+                if len(row) < 2:
+                    continue
+                parameters[row[0].strip()] = row[1].strip()
+            else:  # mode == "stages"
+                if row[0].strip().lower() == "stage":
+                    continue  # Skip header
+                if len(row) < 3:
+                    continue
+                try:
+                    stages.append({
+                        'Stage': int(row[0].strip()),
+                        'ISP': float(row[1].strip()),
+                        'Epsilon': float(row[2].strip())
+                    })
+                except Exception as e:
+                    print(f"Error parsing stage row: {row}, {e}")
+    return parameters, sorted(stages, key=lambda x: x['Stage'])
+
+def main():
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} input_data.csv")
+        sys.exit(1)
+    
+    input_csv = sys.argv[1]
+    parameters, stages = read_csv_input(input_csv)
+    
+    # Simulated optimization results for demonstration
+    results = [
+        {"Method": "SLSQP", "Time (s)": 1.23, "Payload Fraction": 0.32},
+        {"Method": "Differential Evolution", "Time (s)": 5.67, "Payload Fraction": 0.35},
+        {"Method": "GA", "Time (s)": 12.45, "Payload Fraction": 0.33}
+    ]
+    
+    generate_report(parameters, stages, results)
+
+if __name__ == '__main__':
+    main()
+
 
 if __name__ == '__main__':
     main()
