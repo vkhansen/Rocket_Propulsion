@@ -14,7 +14,7 @@ where:
 - **ΔV₍ᵢ₎** is the delta-V allocated to stage *i*,  
 - **G₀** is the standard gravitational acceleration,  
 - **Isp₍ᵢ₎** is the specific impulse of stage *i*, and  
-- **ε₍ᵢ₎** represents structural or efficiency losses for stage *i*.
+- **ε₍ᵢ₎** represents structural ratio for stage *i*.
 
 The overall payload fraction is computed as the product of the stage ratios. Since optimization routines generally minimize functions, the code minimizes the **negative product** of the stage ratios while ensuring that the sum of ΔV allocations equals the total available ΔV. Each stage's ΔV is also constrained by a maximum value determined by the condition that the stage ratio remains positive.
 
