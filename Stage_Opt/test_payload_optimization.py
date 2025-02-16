@@ -157,14 +157,15 @@ stage,ISP,EPSILON
         logger.info("Running test_plot_dv_breakdown")
         # Create a dummy results list.
         results = [
-            {
-                "method": "TestMethod",
+                    {
+                "Method": "TestMethod",
                 "dv": [3000, 3500],
                 "ratio": [0.5, 0.6],
-                "payload": 0.3,
-                "time": 0.1,
+                "Payload Fraction": 0.3,  # if needed by consistency elsewhere
+                "Time (s)": 0.1,          # if needed by consistency elsewhere
             }
         ]
+
         plot_filename = "test_dv_breakdown.png"
         po.plot_dv_breakdown(results, total_delta_v=9500, gravity_loss=100, drag_loss=50, filename=plot_filename)
         logger.debug(f"Plot file created: {plot_filename}")
