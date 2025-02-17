@@ -83,6 +83,28 @@ stage,ISP,EPSILON
         # The function returns the negative product (here just the negative of one value).
         self.assertAlmostEqual(f, -expected_ratio, places=5)
 
+    def test_payload_fraction_objective_negative_isp(self):
+        logger.info("Running test_payload_fraction_objective_negative_isp")
+        G0 = 9.81
+        dv = [1000]
+        ISP = [-300]  # Negative ISP
+        EPSILON = [0.1]
+        
+        with self.assertRaises(ValueError) as context:
+            po.payload_fraction_objective(dv, G0, ISP, EPSILON)
+        self.assertTrue("ISP values must be positive" in str(context.exception))
+
+    def test_payload_fraction_objective_overflow(self):
+        logger.info("Running test_payload_fraction_objective_overflow")
+        G0 = 9.81
+        dv = [1e6]  # Very large delta-V
+        ISP = [100]  # Small ISP to force overflow
+        EPSILON = [0.1]
+        penalty_coeff = 1e6
+        
+        result = po.payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+        self.assertEqual(result, penalty_coeff)
+
     def test_objective_with_penalty(self):
         logger.info("Running test_objective_with_penalty")
         G0 = 9.81
@@ -98,6 +120,37 @@ stage,ISP,EPSILON
         obj_with_penalty = po.objective_with_penalty(dv, G0, ISP, EPSILON, total_delta_v, penalty_coeff=penalty_coeff)
         logger.debug(f"Objective with penalty: {obj_with_penalty}")
         self.assertAlmostEqual(obj_with_penalty, base_obj + expected_penalty, places=5)
+
+    def test_objective_with_penalty_nan_input(self):
+        logger.info("Running test_objective_with_penalty_nan_input")
+        G0 = 9.81
+        dv = [np.nan, 1000]  # Include NaN value
+        ISP = [300, 320]
+        EPSILON = [0.1, 0.08]
+        total_delta_v = 3000
+        penalty_coeff = 1e6
+        
+        result = po.objective_with_penalty(dv, G0, ISP, EPSILON, total_delta_v, penalty_coeff)
+        self.assertEqual(result, penalty_coeff)
+
+    def test_objective_with_penalty_scaled_tolerance(self):
+        logger.info("Running test_objective_with_penalty_scaled_tolerance")
+        G0 = 9.81
+        dv = [1500, 1500.1]  # Sum is 3000.1
+        ISP = [300, 320]
+        EPSILON = [0.1, 0.08]
+        total_delta_v = 3000
+        penalty_coeff = 1e6
+        tol = 1.0  # Large tolerance
+        
+        # With large tolerance, small deviation should not incur penalty
+        result_with_tol = po.objective_with_penalty(dv, G0, ISP, EPSILON, total_delta_v, 
+                                                  penalty_coeff, tol)
+        # With default tolerance, same deviation should incur penalty
+        result_default = po.objective_with_penalty(dv, G0, ISP, EPSILON, total_delta_v, 
+                                                 penalty_coeff)
+        
+        self.assertLess(result_with_tol, result_default)
 
     def test_optimize_payload_allocation_one_stage(self):
         logger.info("Running test_optimize_payload_allocation_one_stage")

@@ -71,39 +71,111 @@ def read_csv_input(filename):
                     print(f"Error parsing stage row: {row}, {e}")
     return parameters, sorted(stages, key=lambda x: x['stage'])
 
-def payload_fraction_objective(dv, G0, ISP, EPSILON):
+def payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff=1e6):
     """
     Objective function to be minimized.
     Flattens the input so that dv is a 1D array of scalars.
     Returns the negative product of stage ratios.
+
+    Args:
+        dv (array-like): Delta-V values for each stage
+        G0 (float): Gravitational constant (m/s^2)
+        ISP (array-like): Specific impulse values for each stage (s)
+        EPSILON (array-like): Mass fraction values for each stage (dimensionless)
+        penalty_coeff (float): Penalty coefficient for invalid solutions (default: 1e6)
+
+    Returns:
+        float: Negative product of stage ratios, or penalty value if constraints are violated
     """
     dv = np.asarray(dv).flatten()  # Ensure dv is 1D
+    
+    # Validate ISP values
+    if np.any(np.array(ISP) <= 0):
+        raise ValueError("ISP values must be positive")
+    
+    # Check for NaN or infinite values in input
+    if np.any(np.isnan(dv)) or np.any(np.isinf(dv)):
+        return penalty_coeff
+    
     product = 1.0
     for i, dvi in enumerate(dv):
-        # Calculate the stage ratio for this stage.
-        f_i = np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i]
-        # Return a high penalty if the stage ratio is not positive.
+        # Protect against overflow in exponential calculation
+        exp_term = -dvi / (G0 * ISP[i])
+        if exp_term < -700:  # numpy.exp underflows at ~-709
+            return penalty_coeff
+            
+        # Calculate the stage ratio for this stage
+        try:
+            f_i = np.exp(exp_term) - EPSILON[i]
+        except OverflowError:
+            return penalty_coeff
+            
+        # Return penalty if the stage ratio is not positive
         if f_i <= 0:
-            return 1e6  
+            return penalty_coeff
         product *= f_i
     return -product
 
-def objective_with_penalty(dv, G0, ISP, EPSILON, total_delta_v, penalty_coeff=1e6, tol=1e-6):
+def objective_with_penalty(dv, G0, ISP, EPSILON, total_delta_v, penalty_coeff=1e6, tol=None):
     """
     A wrapper objective that adds a penalty if the equality constraint
-        sum(dv) == total_delta_v
-    is violated.
+    sum(dv) == total_delta_v is violated.
+
+    Args:
+        dv (array-like): Delta-V values for each stage
+        G0 (float): Gravitational constant (m/s^2)
+        ISP (array-like): Specific impulse values for each stage (s)
+        EPSILON (array-like): Mass fraction values for each stage (dimensionless)
+        total_delta_v (float): Required total Delta-V
+        penalty_coeff (float): Penalty coefficient for constraint violations
+        tol (float, optional): Tolerance for constraint satisfaction. If None,
+                             defaults to 1e-6 * total_delta_v
+
+    Returns:
+        float: Objective value with penalty if constraints are violated
     """
     dv = np.asarray(dv).flatten()
+    
+    # Set tolerance based on problem scale if not provided
+    if tol is None:
+        tol = 1e-6 * total_delta_v
+    
+    # Check for NaN or infinite values
+    if np.any(np.isnan(dv)) or np.any(np.isinf(dv)):
+        return penalty_coeff
+    
     constraint_error = abs(np.sum(dv) - total_delta_v)
     penalty = penalty_coeff * constraint_error if constraint_error > tol else 0.0
-    return payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
+    
+    # Calculate base objective with same penalty coefficient
+    base_objective = payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+    
+    return base_objective + penalty
 
-def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SLSQP'):
-    """Optimize the allocation of TOTAL_DELTA_V among the rocket's stages."""
+def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SLSQP', penalty_coeff=1e6, tol=None):
+    """
+    Optimize the allocation of TOTAL_DELTA_V among the rocket's stages.
+    
+    Args:
+        TOTAL_DELTA_V (float): Total required delta-V for all stages
+        ISP (list): List of specific impulse values for each stage
+        EPSILON (list): List of mass fraction values for each stage
+        G0 (float): Gravitational constant (default: 9.81 m/s^2)
+        method (str): Optimization method to use (default: 'SLSQP')
+        penalty_coeff (float): Penalty coefficient for constraint violations (default: 1e6)
+        tol (float, optional): Tolerance for constraint satisfaction. If None,
+                             defaults to 1e-6 * TOTAL_DELTA_V
+    
+    Returns:
+        tuple: (optimal_dv, optimal_stage_ratio, overall_payload)
+    """
     n = len(ISP)
     if n != len(EPSILON):
         raise ValueError("ISP and EPSILON lists must have the same length.")
+    
+    # Validate ISP values
+    if np.any(np.array(ISP) <= 0):
+        raise ValueError("ISP values must be positive")
     
     # Maximum delta-V per stage based on the constraints.
     max_dv = np.array([-G0 * isp * np.log(eps) for isp, eps in zip(ISP, EPSILON)])
@@ -121,14 +193,15 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
     # For SLSQP we can use the constraint directly.
     if method == 'SLSQP':
         constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - TOTAL_DELTA_V}
-        res = minimize(payload_fraction_objective, initial_guess, args=(G0, ISP, EPSILON), 
-                       method=method, bounds=bounds, constraints=constraints)
+        res = minimize(payload_fraction_objective, initial_guess, 
+                      args=(G0, ISP, EPSILON, penalty_coeff), 
+                      method=method, bounds=bounds, constraints=constraints)
     elif method == 'differential_evolution':
         # Use the penalized objective for DE.
         res = differential_evolution(
             objective_with_penalty, 
             bounds, 
-            args=(G0, ISP, EPSILON, TOTAL_DELTA_V),
+            args=(G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol),
             strategy='best1bin',
             popsize=200,
             tol=1e-6,
@@ -145,7 +218,8 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
                 if x.ndim == 1:
                     x = x.reshape(1, -1)
                 F = np.array([
-                    objective_with_penalty(np.asarray(xi).flatten(), G0, ISP, EPSILON, TOTAL_DELTA_V)
+                    objective_with_penalty(np.asarray(xi).flatten(), G0, ISP, EPSILON, 
+                                        TOTAL_DELTA_V, penalty_coeff, tol)
                     for xi in x
                 ])
                 out["F"] = F.reshape(-1, 1)
