@@ -242,7 +242,7 @@ class TestCSVOutputs(unittest.TestCase):
     def setUpClass(cls):
         cls.output_dir = os.path.join('output')
         cls.stage_results_path = os.path.join(cls.output_dir, 'stage_results.csv')
-        cls.optimization_results_path = os.path.join(cls.output_dir, 'optimization_results.csv')
+        cls.optimization_results_path = os.path.join(cls.output_dir, 'optimization_summary.csv')
 
     def test_csv_files_exist(self):
         """Verify that output CSV files are created."""
@@ -256,7 +256,7 @@ class TestCSVOutputs(unittest.TestCase):
             rows = list(reader)
             
         # Verify columns
-        expected_columns = ['Stage', 'DeltaV', 'Lambda', 'Contribution']
+        expected_columns = ['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)']
         self.assertListEqual(reader.fieldnames, expected_columns)
         
         # Verify number of stages
@@ -275,7 +275,7 @@ class TestCSVOutputs(unittest.TestCase):
         ]
 
         for row, test_case in zip(rows, test_cases):
-            dv = float(row['DeltaV'])
+            dv = float(row['Delta-V (m/s)'])
             isp = test_case['ISP']
             epsilon = test_case['EPSILON']
             
@@ -283,14 +283,14 @@ class TestCSVOutputs(unittest.TestCase):
             expected_lambda = math.exp(-dv / (9.81 * isp)) - epsilon
             
             # Verify with CSV value
-            self.assertAlmostEqual(float(row['Lambda']), expected_lambda, places=4)
+            self.assertAlmostEqual(float(row['Mass Ratio']), expected_lambda, places=4)
 
     def test_delta_v_split(self):
         """Verify delta-V split sums to total delta-V."""
         total_delta_v = 9300  # As defined in the input data
         with open(self.stage_results_path) as f:
             reader = csv.DictReader(f)
-            total_calculated_delta_v = sum(float(row['DeltaV']) for row in reader)
+            total_calculated_delta_v = sum(float(row['Delta-V (m/s)']) for row in reader)
         
         # Verify total delta-V
         self.assertAlmostEqual(total_calculated_delta_v, total_delta_v, places=1)
@@ -304,7 +304,7 @@ class TestCSVOutputs(unittest.TestCase):
         # Calculate product of stage λ values
         lambda_product = 1.0
         for row in rows:
-            lambda_product *= float(row['Lambda'])
+            lambda_product *= float(row['Mass Ratio'])
 
         # Get payload fraction from optimization results
         with open(self.optimization_results_path) as f:
