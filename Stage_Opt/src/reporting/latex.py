@@ -4,6 +4,7 @@ import csv
 import json
 from datetime import datetime
 from ..utils.config import OUTPUT_DIR, logger
+import numpy as np
 
 def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
     """Write optimization results to CSV files."""
@@ -46,7 +47,12 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
                         logger.warning(f"Skipping incomplete stage data for {method}")
                         continue
                     total_dv = sum(result['dv'])
-                    for i, (dv, ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
+                    
+                    # Recalculate mass ratios using correct formula
+                    stage_ratios = []
+                    for i, (dv, stage) in enumerate(zip(result['dv'], stages)):
+                        # Correct mass ratio formula: λ = exp(-ΔV/(g₀·ISP)) - ε
+                        ratio = np.exp(-dv / (9.81 * stage['ISP'])) - stage['EPSILON']
                         contribution = (dv / total_dv * 100) if total_dv > 0 else 0
                         writer.writerow([
                             method,

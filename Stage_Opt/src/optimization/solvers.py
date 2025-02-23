@@ -42,9 +42,13 @@ class RocketOptimizationProblem(Problem):
         
         # Evaluate each solution
         for i in range(n_solutions):
-            # Calculate payload fraction
-            stage_ratios = [np.exp(-dv / (self.G0 * isp)) - eps 
-                          for dv, isp, eps in zip(x[i], self.ISP, self.EPSILON)]
+            # Calculate payload fraction using correct mass ratio formula
+            stage_ratios = []
+            for dv, isp, eps in zip(x[i], self.ISP, self.EPSILON):
+                # Correct mass ratio formula: λ = exp(-ΔV/(g₀·ISP)) - ε
+                ratio = np.exp(-dv / (self.G0 * isp)) - eps
+                stage_ratios.append(ratio)
+            
             f[i] = -np.prod(stage_ratios)  # Negative because we minimize
             
             # Constraint: total delta-v
