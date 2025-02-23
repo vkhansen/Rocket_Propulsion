@@ -42,26 +42,14 @@ except Exception as e:
     }
 
 # Setup logging
-logger = logging.getLogger()  # Root logger
-logger.setLevel(logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_FILE, mode='w')
+    ]
+)
 
-# Remove any existing handlers
-for handler in logger.handlers[:]:
-    logger.removeHandler(handler)
-
-# Create file handler
-fh = logging.FileHandler(LOG_FILE, mode='w')  # Overwrite log file each run
-fh.setLevel(logging.INFO)
-
-# Create console handler
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-
-# Create formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-fh.setFormatter(formatter)
-ch.setFormatter(formatter)
-
-# Add handlers to logger
-logger.addHandler(fh)
-logger.addHandler(ch)
+# Get logger
+logger = logging.getLogger(__name__)

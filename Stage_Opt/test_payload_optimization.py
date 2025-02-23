@@ -1,33 +1,44 @@
+"""Test suite for rocket stage optimization."""
 import os
 import json
 import tempfile
 import unittest
 import numpy as np
 import logging
+import sys
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
+        logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join("output", "test_debug.log"), mode='w')
     ]
 )
 logger = logging.getLogger(__name__)
-logging.getLogger("matplotlib").setLevel(logging.INFO)
 
-import payload_optimization as po
+# Import our modules
+from src.utils.data import load_input_data, calculate_mass_ratios, calculate_payload_fraction
+from src.optimization.objective import payload_fraction_objective, objective_with_penalty
+from src.optimization.solvers import (
+    solve_with_slsqp,
+    solve_with_basin_hopping,
+    solve_with_differential_evolution
+)
+from src.utils.config import CONFIG
+
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 class TestPayloadOptimization(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        logger.info("Starting TestPayloadOptimization suite.")
+        print("\nStarting TestPayloadOptimization suite.")
         
     def setUp(self):
-        logger.info("Setting up temporary test files.")
+        print("\nSetting up test case...")
         # Create a temporary input data file
         self.input_data = {
             "parameters": {
@@ -38,18 +49,12 @@ class TestPayloadOptimization(unittest.TestCase):
                 {
                     "stage": 1,
                     "ISP": 300,
-                    "EPSILON": 0.1,
-                    "parameters": {
-                        "TOTAL_DELTA_V": 9500
-                    }
+                    "EPSILON": 0.1
                 },
                 {
                     "stage": 2,
                     "ISP": 320,
-                    "EPSILON": 0.08,
-                    "parameters": {
-                        "TOTAL_DELTA_V": 9500
-                    }
+                    "EPSILON": 0.08
                 }
             ]
         }
@@ -60,89 +65,109 @@ class TestPayloadOptimization(unittest.TestCase):
         self.temp_input.close()
 
     def tearDown(self):
-        logger.info("Cleaning up temporary files.")
+        print("Cleaning up test case...")
         os.remove(self.temp_input.name)
 
     def test_load_input_data(self):
-        logger.info("Testing input data loading")
-        stages = po.load_input_data(self.temp_input.name)
+        """Test loading input data from JSON file."""
+        print("\nTesting input data loading...")
+        parameters, stages = load_input_data(self.temp_input.name)
         self.assertEqual(len(stages), 2)
         self.assertEqual(stages[0]["ISP"], 300)
         self.assertEqual(stages[1]["EPSILON"], 0.08)
+        self.assertEqual(parameters["TOTAL_DELTA_V"], 9500)
+        self.assertEqual(parameters["G0"], 9.81)
 
     def test_calculate_mass_ratios(self):
-        logger.info("Testing mass ratio calculation")
+        """Test mass ratio calculation."""
+        print("\nTesting mass ratio calculation...")
         dv = np.array([4000, 5500])
         ISP = [300, 320]
         EPSILON = [0.1, 0.08]
-        ratios = po.calculate_mass_ratios(dv, ISP, EPSILON)
+        G0 = 9.81
+        ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         self.assertEqual(len(ratios), 2)
         for ratio in ratios:
             self.assertGreater(ratio, 0)
 
     def test_calculate_payload_fraction(self):
-        logger.info("Testing payload fraction calculation")
+        """Test payload fraction calculation."""
+        print("\nTesting payload fraction calculation...")
         mass_ratios = [0.5, 0.6]
-        fraction = po.calculate_payload_fraction(mass_ratios)
+        fraction = calculate_payload_fraction(mass_ratios)
         self.assertAlmostEqual(fraction, 0.3, places=5)
 
     def test_payload_fraction_objective(self):
-        logger.info("Testing payload fraction objective")
+        """Test payload fraction objective function."""
+        print("\nTesting payload fraction objective...")
         dv = np.array([4000, 5500])
         G0 = 9.81
         ISP = [300, 320]
         EPSILON = [0.1, 0.08]
-        result = po.payload_fraction_objective(dv, G0, ISP, EPSILON)
+        result = payload_fraction_objective(dv, G0, ISP, EPSILON)
         self.assertIsInstance(result, float)
         self.assertGreater(result, -1)  # Should be negative but greater than -1
 
     def test_solve_with_differential_evolution(self):
         """Test differential evolution solver directly."""
-        logger.info("Testing differential evolution solver")
+        print("\nTesting differential evolution solver...")
         initial_guess = [4000, 5500]
         bounds = [(0, 9500), (0, 9500)]
         G0 = 9.81
         ISP = [300, 320]
         EPSILON = [0.1, 0.08]
         TOTAL_DELTA_V = 9500
-        config = {
-            "optimization": {
-                "differential_evolution": {
-                    "population_size": 15,
-                    "max_iterations": 1000,
-                    "mutation": [0.5, 1.0],
-                    "recombination": 0.7,
-                    "strategy": "best1bin",
-                    "tol": 1e-6
-                }
-            }
-        }
         
-        result = po.solve_with_differential_evolution(
-            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
+        result = solve_with_differential_evolution(
+            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
         )
         
         self.assertEqual(len(result), 2)
         self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=2)
         self.assertTrue(all(dv >= 0 for dv in result))
 
-    def test_optimize_payload_allocation_all_methods(self):
-        logger.info("Testing all optimization methods")
-        G0 = 9.81
-        TOTAL_DELTA_V = 9500
-        ISP = [300, 320]
-        EPSILON = [0.1, 0.08]
-        methods = ["SLSQP"]  # Only test SLSQP as it's the most reliable method
+    def test_all_optimization_methods(self):
+        """Test all optimization methods."""
+        print("\nTesting all optimization methods...")
+        parameters, stages = load_input_data(self.temp_input.name)
         
-        for method in methods:
-            with self.subTest(method=method):
-                optimal_dv, stage_ratios, payload_fraction = po.optimize_payload_allocation(
-                    TOTAL_DELTA_V, ISP, EPSILON, G0, method=method
-                )
-                self.assertEqual(len(optimal_dv), 2)
-                self.assertAlmostEqual(np.sum(optimal_dv), TOTAL_DELTA_V, places=2)
-                self.assertTrue(all(ratio > 0 for ratio in stage_ratios))
+        # Extract parameters
+        G0 = float(parameters["G0"])
+        TOTAL_DELTA_V = float(parameters["TOTAL_DELTA_V"])
+        ISP = [float(stage["ISP"]) for stage in stages]
+        EPSILON = [float(stage["EPSILON"]) for stage in stages]
+        
+        # Initial setup
+        n = len(ISP)
+        initial_guess = np.full(n, TOTAL_DELTA_V / n)
+        max_dv = TOTAL_DELTA_V * 0.9
+        bounds = [(0, max_dv) for _ in range(n)]
+        
+        # Test each solver
+        solvers = [
+            ("SLSQP", solve_with_slsqp),
+            ("Basin-Hopping", solve_with_basin_hopping),
+            ("Differential Evolution", solve_with_differential_evolution)
+        ]
+        
+        for name, solver in solvers:
+            with self.subTest(solver=name):
+                print(f"\nTesting {name} solver...")
+                result = solver(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                
+                # Verify results
+                self.assertEqual(len(result), 2)
+                self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=2)
+                self.assertTrue(all(dv >= 0 for dv in result))
+                
+                # Calculate performance metrics
+                mass_ratios = calculate_mass_ratios(result, ISP, EPSILON, G0)
+                payload_fraction = calculate_payload_fraction(mass_ratios)
+                
+                # Verify performance
+                self.assertTrue(all(ratio > 0 for ratio in mass_ratios))
                 self.assertTrue(0 < payload_fraction < 1)
+                print(f"{name} results: dv={result}, payload_fraction={payload_fraction}")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
