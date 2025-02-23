@@ -6,9 +6,7 @@ This project focuses on optimizing the staging of a multi-stage rocket to maximi
 ## Theoretical Background
 The fundamental equation governing rocket staging is:
 
-```
 ΔV = I_{sp} \cdot g_0 \cdot \ln \left( \frac{m_0}{m_f} \right)
-```
 
 Where:
 - `ΔV` is the total velocity change required for the mission.
@@ -19,13 +17,77 @@ Where:
 
 The mass fraction can also be expressed in terms of the **structural mass ratio** (`ε`):
 
-```
 \frac{m_f}{m_0} = 1 - ε
-```
 
-where `ε` represents the fraction of the initial mass that is structural rather than propellant. The optimization seeks to minimize `ε` while ensuring sufficient Delta-V for the mission.
+## Theory
 
+# Delta-V Logic
+*Author: V H*  
+*February 2025*
 
+## Core Definitions
+
+1. **Payload Fraction (λ)**:
+λ = m_payload/m_0
+Where `m_payload` is the payload mass and `m_0` is the total initial mass.
+
+2. **Total Mass Ratio (R)**:
+R = m_0/m_f
+Where `m_f` is the final mass after propellant burn.
+
+3. **Rocket Equation (Single Stage)**:
+ΔV = v_e · ln(R) = v_e · ln(m_0/m_f)
+Where `v_e = I_sp · g_0` is the exhaust velocity, and `g_0 = 9.81 m/s²`.
+
+## Multi-Stage Rockets
+
+4. **Stage Mass Ratio**:
+R_i = m_0,i/m_f,i
+Where `m_0,i` and `m_f,i` are the initial and final masses of stage i.
+
+5. **Delta-V per Stage**:
+ΔV_i = v_e,i · ln(R_i)
+
+6. **Total Delta-V**:
+ΔV_total = Σ(i=1 to n) ΔV_i = Σ(i=1 to n) v_e,i · ln(R_i)
+Where `n` is the number of stages.
+
+7. **Payload Fraction for Multi-Stage**:
+λ = m_payload/m_0,total = ∏(i=1 to n) m_f,i/m_0,i = ∏(i=1 to n) 1/R_i
+
+8. **Structural Mass and Propellant**:
+R_i = m_0,i/(m_structure,i + m_payload + Σ(j>i) m_0,j)
+Where `ε_i = m_structure,i/m_0,i` is the structural fraction.
+
+## Relating λ to Delta-V
+
+9. **Single-Stage Lambda**:
+ΔV = v_e · ln(1/(λ + ε))
+Where `ε` is the structural fraction.
+
+10. **Multi-Stage Lambda and Delta-V**:
+ΔV_total = Σ(i=1 to n) v_e,i · ln(m_0,i/m_f,i)
+
+11. **Optimal Staging (Simplified)**:
+λ = ∏(i=1 to n) exp(-ΔV_i/v_e)
+Total idealized case:
+ΔV_total = v_e · ln(1/λ)
+
+## Practical Example (Two-Stage)
+
+12. **Two-Stage Payload Fraction**:
+λ = m_payload/m_0,1 = 1/((m_0,1/m_f,1) · (m_0,2/m_f,2))
+
+13. **Two-Stage Delta-V**:
+ΔV_total = v_e,1 · ln(R_1) + v_e,2 · ln(R_2)
+
+### Implementation Notes
+
+The optimization problem seeks to maximize the payload fraction (λ) while satisfying:
+- Total required Delta-V constraint
+- Structural mass fraction limits
+- Stage mass ratio constraints
+- Physical feasibility conditions
 
 ## Implementation Details
 
@@ -210,34 +272,73 @@ This module performs multi-stage rocket optimization to maximize payload fractio
 
 ## Theory
 
-The optimization is based on the rocket equation and mass ratio calculations:
+# Delta-V Logic
+*Author: V H*  
+*February 2025*
 
-### Mass Ratio (λ)
-For each stage i:
+## Core Definitions
 
-```
-λᵢ = exp(-ΔVᵢ/(g₀·ISPᵢ)) - εᵢ
-```
+1. **Payload Fraction (λ)**:
+λ = m_payload/m_0
+Where `m_payload` is the payload mass and `m_0` is the total initial mass.
 
-Where:
-- `ΔVᵢ` = Delta-V contribution of stage i (m/s)
-- `g₀` = Standard gravity (9.81 m/s²)
-- `ISPᵢ` = Specific impulse of stage i (seconds)
-- `εᵢ` = Mass fraction of stage i (dimensionless)
+2. **Total Mass Ratio (R)**:
+R = m_0/m_f
+Where `m_f` is the final mass after propellant burn.
 
-### Payload Fraction
-The total payload fraction is the product of all stage mass ratios:
+3. **Rocket Equation (Single Stage)**:
+ΔV = v_e · ln(R) = v_e · ln(m_0/m_f)
+Where `v_e = I_sp · g_0` is the exhaust velocity, and `g_0 = 9.81 m/s²`.
 
-```
-Payload Fraction = ∏ᵢ λᵢ
-```
+## Multi-Stage Rockets
 
-### Total Delta-V Constraint
-The sum of individual stage delta-Vs must meet the mission requirement:
+4. **Stage Mass Ratio**:
+R_i = m_0,i/m_f,i
+Where `m_0,i` and `m_f,i` are the initial and final masses of stage i.
 
-```
-∑ᵢ ΔVᵢ = Total Required ΔV
-```
+5. **Delta-V per Stage**:
+ΔV_i = v_e,i · ln(R_i)
+
+6. **Total Delta-V**:
+ΔV_total = Σ(i=1 to n) ΔV_i = Σ(i=1 to n) v_e,i · ln(R_i)
+Where `n` is the number of stages.
+
+7. **Payload Fraction for Multi-Stage**:
+λ = m_payload/m_0,total = ∏(i=1 to n) m_f,i/m_0,i = ∏(i=1 to n) 1/R_i
+
+8. **Structural Mass and Propellant**:
+R_i = m_0,i/(m_structure,i + m_payload + Σ(j>i) m_0,j)
+Where `ε_i = m_structure,i/m_0,i` is the structural fraction.
+
+## Relating λ to Delta-V
+
+9. **Single-Stage Lambda**:
+ΔV = v_e · ln(1/(λ + ε))
+Where `ε` is the structural fraction.
+
+10. **Multi-Stage Lambda and Delta-V**:
+ΔV_total = Σ(i=1 to n) v_e,i · ln(m_0,i/m_f,i)
+
+11. **Optimal Staging (Simplified)**:
+λ = ∏(i=1 to n) exp(-ΔV_i/v_e)
+Total idealized case:
+ΔV_total = v_e · ln(1/λ)
+
+## Practical Example (Two-Stage)
+
+12. **Two-Stage Payload Fraction**:
+λ = m_payload/m_0,1 = 1/((m_0,1/m_f,1) · (m_0,2/m_f,2))
+
+13. **Two-Stage Delta-V**:
+ΔV_total = v_e,1 · ln(R_1) + v_e,2 · ln(R_2)
+
+### Implementation Notes
+
+The optimization problem seeks to maximize the payload fraction (λ) while satisfying:
+- Total required Delta-V constraint
+- Structural mass fraction limits
+- Stage mass ratio constraints
+- Physical feasibility conditions
 
 ## Directory Structure
 
