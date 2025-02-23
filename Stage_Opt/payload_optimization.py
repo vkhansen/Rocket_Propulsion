@@ -5,44 +5,36 @@ import sys
 import time
 import json
 import logging
-from pathlib import Path
 import numpy as np
-from scipy.optimize import minimize, differential_evolution, approx_fprime, basinhopping
+from scipy.optimize import minimize, differential_evolution, basinhopping
+import pandas as pd
+from pyswarms.single.global_best import GlobalBestPSO
+import matplotlib.pyplot as plt
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
-import matplotlib.pyplot as plt
-import pandas as pd
-from pyswarms.single.global_best import GlobalBestPSO
-import cma
-from constants import TOTAL_DELTA_V, GRAVITY_LOSS, DRAG_LOSS, BOUNDS
 
 # Load configuration
 def load_config():
-    """Load configuration from JSON file."""
-    config_path = Path(__file__).parent / "config.json"
+    """Load configuration from config.json."""
     try:
-        with open(config_path) as f:
+        with open('config.json', 'r') as f:
             return json.load(f)
     except Exception as e:
-        raise RuntimeError(f"Failed to load configuration: {e}")
+        print(f"Failed to load config.json: {e}")
+        sys.exit(1)
 
-# Set up logging
 def setup_logging(config):
-    """Configure logging based on configuration."""
-    log_config = config["logging"]
+    """Set up logging configuration."""
     logging.basicConfig(
-        filename=log_config["file"],
-        level=getattr(logging, log_config["level"]),
-        format=log_config["format"]
+        level=getattr(logging, config["logging"]["level"]),
+        format=config["logging"]["format"]
     )
     return logging.getLogger(__name__)
 
 # Initialize globals from config
 CONFIG = load_config()
 logger = setup_logging(CONFIG)
-GRAVITY_LOSS = CONFIG["constants"]["gravity_loss"]
-DRAG_LOSS = CONFIG["constants"]["drag_loss"]
 
 def read_input_json(filename):
     """Read and process JSON input file."""
@@ -50,14 +42,12 @@ def read_input_json(filename):
         with open(filename, 'r') as f:
             data = json.load(f)
             
-        stages = data.get('stages', [])
-        if not stages:
-            raise ValueError("No stage data found in JSON file")
-            
-        logger.info(f"Successfully read {len(stages)} stages from {filename}")
-        return stages
+        # Extract global parameters
+        global TOTAL_DELTA_V
+        TOTAL_DELTA_V = float(data["parameters"]["TOTAL_DELTA_V"])
+        return data["stages"]
     except Exception as e:
-        logger.error(f"Failed to read JSON input: {e}")
+        logger.error(f"Failed to read input file: {e}")
         raise
 
 def payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff):
@@ -102,15 +92,11 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
     try:
         start_time = time.time()
         
-        class OptimizationProblem(Problem):
+        class OptimizationProblem:
             def __init__(self):
-                super().__init__(
-                    n_var=len(initial_guess),
-                    n_obj=1,
-                    n_constr=1,
-                    xl=bounds[:, 0],
-                    xu=bounds[:, 1]
-                )
+                self.n_var = len(initial_guess)
+                self.xl = bounds[:, 0]
+                self.xu = bounds[:, 1]
                 self.tol = 1e-6  # tolerance for constraint satisfaction
                 self.history = []  # Store optimization history
 
@@ -139,6 +125,7 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
 
         # Setup and run GA
         problem = OptimizationProblem()
+        from pymoo.algorithms.soo.nonconvex.ga import GA
         algorithm = GA(
             pop_size=config["optimization"]["ga"]["population_size"],
             eliminate_duplicates=True
@@ -193,7 +180,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 self.total_delta_v = total_delta_v
                 self.ISP = isp
                 self.EPSILON = epsilon
-                self.history = []  # Store metrics history
+                self.history = []  # Store optimization history
                 self.execution_time = 0  # Track execution time
                 
             def initialize_population(self):
@@ -463,31 +450,37 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         logger.error(f"Basin-Hopping optimization failed: {e}")
         raise
 
-def solve_with_cmaes(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using CMA-ES."""
+def solve_with_nelder_mead(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Nelder-Mead with bounds handling."""
     try:
         start_time = time.time()
         penalty_coeff = config["optimization"]["penalty_coefficient"]
         
-        def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+        def objective(x):
+            # Apply bounds through penalty
+            lower_bounds = bounds[:, 0]
+            upper_bounds = bounds[:, 1]
+            
+            # Calculate bounds violation penalty
+            lower_violation = np.sum(np.maximum(0, lower_bounds - x)**2)
+            upper_violation = np.sum(np.maximum(0, x - upper_bounds)**2)
+            bounds_penalty = 1e6 * (lower_violation + upper_violation)
+            
+            # Calculate original objective
+            obj_value = payload_fraction_objective(x, G0, ISP, EPSILON, penalty_coeff)
+            
+            return obj_value + bounds_penalty
         
-        # Set up CMA-ES parameters
-        sigma0 = 0.5  # Initial step size
-        options = {
-            'maxiter': config["optimization"]["max_iterations"],
-            'popsize': config["optimization"]["population_size"],
-            'bounds': bounds.T.tolist(),
-            'tolfun': config["optimization"]["tolerance"]
-        }
+        # Run Nelder-Mead optimization
+        result = minimize(objective, initial_guess, method='Nelder-Mead',
+                        options={'maxiter': config["optimization"]["max_iterations"],
+                                'xatol': config["optimization"]["tolerance"],
+                                'fatol': config["optimization"]["tolerance"]})
         
-        es = cma.CMAEvolutionStrategy(initial_guess, sigma0, options)
-        
-        # Run optimization
-        es.optimize(objective)
-        optimal_dv = es.result.xbest
+        # Ensure result is within bounds
+        optimal_dv = np.clip(result.x, bounds[:, 0], bounds[:, 1])
         execution_time = time.time() - start_time
-        payload_fraction = -objective(optimal_dv)
+        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
         mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
         
         return {
@@ -500,7 +493,7 @@ def solve_with_cmaes(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         }
         
     except Exception as e:
-        logger.error(f"CMA-ES optimization failed: {e}")
+        logger.error(f"Nelder-Mead optimization failed: {e}")
         raise
 
 def solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
@@ -573,11 +566,6 @@ def solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, TOTA
         logger.error(f"Dynamic Programming optimization failed: {e}")
         raise
 
-def calculate_payload_mass(dv, ISP, EPSILON):
-    """Calculate payload mass as the product of stage mass ratios."""
-    mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
-    return np.prod(mass_ratios)
-
 def optimize_stages(stages, method='SLSQP'):
     try:
         n = len(stages)
@@ -585,18 +573,19 @@ def optimize_stages(stages, method='SLSQP'):
         ISP = [stage['ISP'] for stage in stages]
         EPSILON = [stage['EPSILON'] for stage in stages]
 
-        TOTAL_DELTA_V = 9300.0 + GRAVITY_LOSS + DRAG_LOSS
+        required_dv = TOTAL_DELTA_V
         penalty_coeff = CONFIG["optimization"]["penalty_coefficient"]
 
-        initial_guess = np.ones(n) * TOTAL_DELTA_V / n
-        max_dv = TOTAL_DELTA_V * np.ones(n)
-        bounds = np.array([(0, mdv) for mdv in max_dv])
+        initial_guess = np.ones(n) * required_dv / n
+        max_dv = required_dv * CONFIG["optimization"]["bounds"]["max_dv_factor"] * np.ones(n)
+        min_dv = CONFIG["optimization"]["bounds"]["min_dv"] * np.ones(n)
+        bounds = np.array([(min_dv[i], max_dv[i]) for i in range(n)])
 
         logger.info(f"Starting optimization with method: {method}")
         start_time = time.time()
 
         if method.upper() == 'SLSQP':
-            constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - TOTAL_DELTA_V}
+            constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - required_dv}
             res = minimize(payload_fraction_objective, initial_guess,
                            args=(G0, ISP, EPSILON, penalty_coeff),
                            method='SLSQP', bounds=bounds, constraints=constraints)
@@ -612,19 +601,19 @@ def optimize_stages(stages, method='SLSQP'):
                 'dv': optimal_dv,
                 'mass_ratios': mass_ratios,
                 'solution': optimal_dv,
-                'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+                'error': abs(np.sum(optimal_dv) - required_dv)
             }
 
         elif method.upper() == 'GA':
-            results = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            results['method'] = method  # Ensure method name matches
+            results = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            results['method'] = method
 
         elif method.upper() == 'ADAPTIVE-GA':
-            results = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            results['method'] = method  # Ensure method name matches
+            results = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            results['method'] = method
 
         elif method.upper() == 'PSO':
-            optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             execution_time = time.time() - start_time
             payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
             mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
@@ -636,23 +625,19 @@ def optimize_stages(stages, method='SLSQP'):
                 'dv': optimal_dv,
                 'mass_ratios': mass_ratios,
                 'solution': optimal_dv,
-                'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+                'error': abs(np.sum(optimal_dv) - required_dv)
             }
 
         elif method.upper() == 'DIFFERENTIAL_EVOLUTION':
-            results = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             results['method'] = method
 
         elif method.upper() == 'BASIN-HOPPING':
-            results = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            results['method'] = method
-
-        elif method.upper() == 'CMA-ES':
-            results = solve_with_cmaes(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             results['method'] = method
 
         elif method.upper() == 'DP':
-            results = solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results = solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             results['method'] = method
 
         else:
@@ -664,6 +649,11 @@ def optimize_stages(stages, method='SLSQP'):
     except Exception as e:
         logger.error(f"Optimization failed: {e}")
         raise
+
+def calculate_payload_mass(dv, ISP, EPSILON):
+    """Calculate payload mass as the product of stage mass ratios."""
+    mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
+    return np.prod(mass_ratios)
 
 def calculate_mass_ratios(dv, ISP, EPSILON):
     """Calculate mass ratios for given solution."""
@@ -742,7 +732,7 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     indices = np.arange(len(solver_names))
     bar_width = 0.15
 
-    required_engine_dv = 9300.0 + GRAVITY_LOSS + DRAG_LOSS
+    required_engine_dv = TOTAL_DELTA_V
 
     plt.figure(figsize=(12, 6))
     for i, res in enumerate(results):
@@ -804,7 +794,7 @@ if __name__ == "__main__":
         stages = read_input_json(input_file)
         
         # Run all optimization methods
-        methods = ['SLSQP', 'differential_evolution', 'GA', 'PSO', 'BASIN-HOPPING', 'CMA-ES', 'dp', 'ADAPTIVE-GA']
+        methods = ['SLSQP', 'differential_evolution', 'GA', 'PSO', 'BASIN-HOPPING', 'DP', 'ADAPTIVE-GA']
         optimization_results = []
         
         for method in methods:

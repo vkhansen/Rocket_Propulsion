@@ -1,7 +1,7 @@
 {
     "parameters": {
         "G0": 9.81,
-        "TOTAL_DELTA_V": 9300
+        "TOTAL_DELTA_V": 9300.0
     },
     "stages": [
         {

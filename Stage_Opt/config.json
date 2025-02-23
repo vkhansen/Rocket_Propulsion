@@ -2,6 +2,12 @@
     "optimization": {
         "penalty_coefficient": 1000.0,
         "tolerance": 1e-6,
+        "population_size": 100,
+        "max_iterations": 200,
+        "bounds": {
+            "min_dv": 0.0,
+            "max_dv_factor": 1.0
+        },
         "ga": {
             "population_size": 100,
             "n_generations": 200
