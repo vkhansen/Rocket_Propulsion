@@ -45,11 +45,12 @@ def main():
         
         # Run optimizations with all methods
         methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA', 'DE']
-        results = []
+        results = {}
         
         for method in methods:
             try:
                 start_time = time.time()
+                optimal_solution = None
                 
                 if method == 'GA':
                     optimal_solution = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
@@ -57,27 +58,33 @@ def main():
                     optimal_solution = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
                 elif method == 'DE':
                     optimal_solution = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                else:
-                    result = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                    results.append(result)
-                    continue
+                elif method == 'BASIN-HOPPING':
+                    optimal_solution = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                else:  # SLSQP
+                    optimal_solution = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
                 
-                # For GA and DE methods, format results consistently with other methods
-                execution_time = time.time() - start_time
-                optimal_solution = np.asarray(optimal_solution).flatten()  # Ensure 1D array
-                mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)
-                payload_fraction = calculate_payload_fraction(mass_ratios)
-                
-                result = {
-                    'method': method,
-                    'time': execution_time,
-                    'dv': [float(x) for x in optimal_solution],
-                    'stage_ratios': [float(x) for x in mass_ratios],
-                    'payload_fraction': float(payload_fraction),
-                    'error': float(abs(np.sum(optimal_solution) - TOTAL_DELTA_V))
-                }
-                results.append(result)
-                logger.info(f"Successfully completed {method} optimization")
+                if optimal_solution is not None:
+                    # Format results consistently
+                    execution_time = time.time() - start_time
+                    optimal_solution = np.asarray(optimal_solution).flatten()  # Ensure 1D array
+                    mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)
+                    payload_fraction = calculate_payload_fraction(mass_ratios)
+                    
+                    results[method] = {
+                        'method': method,
+                        'execution_time': execution_time,  # Consistent key name
+                        'dv': [float(x) for x in optimal_solution],
+                        'stage_ratios': [float(x) for x in mass_ratios],
+                        'payload_fraction': float(payload_fraction),
+                        'error': float(abs(np.sum(optimal_solution) - TOTAL_DELTA_V))
+                    }
+                    
+                    # Log results
+                    logger.info(f"{method} optimization succeeded:")
+                    logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_solution]} m/s")
+                    logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
+                    logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+                    logger.info(f"Successfully completed {method} optimization")
             except Exception as e:
                 logger.error(f"Optimization with {method} failed: {e}")
                 continue

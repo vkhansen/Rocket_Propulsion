@@ -1,5 +1,6 @@
 """LaTeX report generation."""
 import os
+from datetime import datetime
 from ..utils.config import OUTPUT_DIR, logger
 
 def generate_report(results, stages, output_dir=OUTPUT_DIR):

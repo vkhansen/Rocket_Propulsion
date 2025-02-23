@@ -193,13 +193,16 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                     current_sum = np.sum(x)
                     if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
                         # Scale the solution to match total ΔV
-                        x = x * (TOTAL_DELTA_V / current_sum)
-                        # Ensure bounds are satisfied
-                        x = np.clip(x, problem.xl, problem.xu)
-                        # Re-normalize if clipping changed the sum
-                        current_sum = np.sum(x)
-                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                            x = x * (TOTAL_DELTA_V / current_sum)
+                        scale = TOTAL_DELTA_V / current_sum
+                        x = x * scale
+                        # Ensure bounds are satisfied while maintaining proportions
+                        x_clipped = np.clip(x, problem.xl, problem.xu)
+                        if not np.array_equal(x, x_clipped):
+                            # If clipping changed values, rescale while preserving proportions
+                            x = x_clipped
+                            current_sum = np.sum(x)
+                            if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                                x = x * (TOTAL_DELTA_V / current_sum)
                         X[i] = x
                 return X
 
@@ -221,8 +224,9 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                                   for dvi, isp, eps in zip(dv, self.ISP, self.EPSILON)]
                     payload = -np.prod(stage_ratios)  # Negative because GA minimizes
                     
-                    # Add penalty for total ΔV constraint
-                    penalty = 1e6 * abs(np.sum(dv) - self.total_delta_v)
+                    # Add softer penalty for total ΔV constraint
+                    delta_v_error = abs(np.sum(dv) - self.total_delta_v)
+                    penalty = 100.0 * delta_v_error if delta_v_error > 1e-6 else 0.0
                     f.append(payload + penalty)
                     
                 out["F"] = np.column_stack([f])
@@ -254,9 +258,9 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         )
 
         termination = DefaultSingleObjectiveTermination(
-            xtol=1e-6,
-            cvtol=1e-6,
-            ftol=1e-6,
+            xtol=1e-4,  # Relaxed tolerance
+            cvtol=1e-4,  # Relaxed tolerance
+            ftol=1e-4,  # Relaxed tolerance
             period=20,
             n_max_gen=config["optimization"]["ga"]["n_generations"],
             n_max_evals=None
@@ -267,17 +271,22 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             algorithm,
             termination,
             seed=1,
-            verbose=False
+            verbose=True  # Enable verbose output for debugging
         )
 
-        if res.X is None or not res.success:
-            logger.warning(f"GA optimization warning: {res.message}")
+        if res.X is None:
+            logger.warning(f"GA optimization failed to find a solution: {res.message}")
+            return None
+            
+        # Verify the solution meets the total delta-v constraint
+        if abs(np.sum(res.X) - TOTAL_DELTA_V) > 1e-4:
+            logger.warning(f"GA solution violates total delta-v constraint by {abs(np.sum(res.X) - TOTAL_DELTA_V)}")
             return None
             
         return res.X
         
     except Exception as e:
-        logger.error(f"GA optimization failed: {e}")
+        logger.error(f"GA optimization failed with error: {str(e)}")
         return None
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
@@ -363,25 +372,79 @@ class AdaptiveGA:
         try:
             individual = np.asarray(individual).flatten()
             
-            # Check total delta-v constraint
-            if not np.isclose(np.sum(individual), self.total_delta_v, rtol=1e-5):
-                return -np.inf
+            # Check total delta-v constraint with a softer penalty
+            delta_v_error = abs(np.sum(individual) - self.total_delta_v)
+            if delta_v_error > 1e-4:  # Relaxed tolerance
+                penalty = 100.0 * delta_v_error
+            else:
+                penalty = 0.0
                 
-            # Check bounds constraints
-            if np.any(individual < self.bounds_low) or np.any(individual > self.bounds_high):
-                return -np.inf
+            # Check bounds constraints with a softer penalty
+            bounds_violation = np.sum(np.maximum(0, self.bounds_low - individual)) + \
+                             np.sum(np.maximum(0, individual - self.bounds_high))
+            if bounds_violation > 0:
+                penalty += 100.0 * bounds_violation
                 
             # Calculate payload fraction
             mass_ratios = calculate_mass_ratios(individual, self.ISP, self.EPSILON)
             if mass_ratios is None:
                 return -np.inf
+                
             payload_fraction = calculate_payload_fraction(mass_ratios)
             
-            return float(payload_fraction)  # Ensure we return a float
+            # Return fitness with penalty
+            return float(payload_fraction) - penalty
             
         except Exception as e:
             logger.error(f"Error in fitness evaluation: {e}")
             return -np.inf
+
+    def mutation(self, individual):
+        """Perform adaptive mutation with repair."""
+        try:
+            if np.random.random() > self.mutation_rate:
+                return individual.copy()
+                
+            # Calculate adaptive mutation strength based on bounds and current fitness
+            mutation_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
+                              (1.0 - len(self.history) / self.config["n_generations"])
+            
+            # Apply mutation with varying strength per dimension
+            mutation = np.random.normal(0, mutation_strength, self.n_vars)
+            
+            # Apply mutation and repair
+            mutated = individual + mutation
+            
+            # Repair bounds violations while maintaining proportions
+            if np.any(mutated < self.bounds_low) or np.any(mutated > self.bounds_high):
+                # Clip to bounds
+                mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
+                
+            # Repair total delta-v constraint while preserving relative proportions
+            current_sum = np.sum(mutated)
+            if abs(current_sum - self.total_delta_v) > 1e-6:
+                scale = self.total_delta_v / current_sum
+                mutated = mutated * scale
+                
+                # If scaling caused bounds violations, iteratively repair
+                iteration = 0
+                while (np.any(mutated < self.bounds_low) or \
+                       np.any(mutated > self.bounds_high)) and \
+                       iteration < 10:
+                    # Clip to bounds
+                    mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
+                    # Rescale to meet total delta-v
+                    current_sum = np.sum(mutated)
+                    if abs(current_sum - self.total_delta_v) > 1e-6:
+                        scale = self.total_delta_v / current_sum
+                        mutated = mutated * scale
+                    iteration += 1
+            
+            return mutated
+            
+        except Exception as e:
+            logger.error(f"Error in mutation: {e}")
+            return individual.copy()
 
     def selection(self, population, fitnesses, tournament_size=3):
         """Tournament selection with elitism."""
@@ -413,16 +476,31 @@ class AdaptiveGA:
             if np.random.random() > self.crossover_rate:
                 return parent1.copy(), parent2.copy()
                 
-            # Arithmetic crossover
-            alpha = np.random.random()
+            # Arithmetic crossover with random weights per dimension
+            alpha = np.random.random(self.n_vars)
             child1 = alpha * parent1 + (1 - alpha) * parent2
             child2 = (1 - alpha) * parent1 + alpha * parent2
             
-            # Repair to maintain total delta-v
-            child1 = np.clip(child1, self.bounds_low, self.bounds_high)
-            child2 = np.clip(child2, self.bounds_low, self.bounds_high)
-            child1 = child1 * (self.total_delta_v / np.sum(child1))
-            child2 = child2 * (self.total_delta_v / np.sum(child2))
+            # Repair to maintain total delta-v and bounds
+            for child in [child1, child2]:
+                # Clip to bounds
+                child = np.clip(child, self.bounds_low, self.bounds_high)
+                # Rescale to meet total delta-v
+                current_sum = np.sum(child)
+                if abs(current_sum - self.total_delta_v) > 1e-6:
+                    scale = self.total_delta_v / current_sum
+                    child = child * scale
+                    # If scaling caused bounds violations, iteratively repair
+                    iteration = 0
+                    while (np.any(child < self.bounds_low) or \
+                           np.any(child > self.bounds_high)) and \
+                           iteration < 10:
+                        child = np.clip(child, self.bounds_low, self.bounds_high)
+                        current_sum = np.sum(child)
+                        if abs(current_sum - self.total_delta_v) > 1e-6:
+                            scale = self.total_delta_v / current_sum
+                            child = child * scale
+                        iteration += 1
             
             return child1, child2
             
@@ -430,26 +508,37 @@ class AdaptiveGA:
             logger.error(f"Error in crossover: {e}")
             return parent1.copy(), parent2.copy()
 
-    def mutation(self, individual):
-        """Perform adaptive mutation with repair."""
+    def calculate_diversity(self, population):
+        """Calculate population diversity using multiple metrics."""
         try:
-            if np.random.random() > self.mutation_rate:
-                return individual.copy()
+            # Standard deviation across dimensions
+            std_diversity = np.mean(np.std(population, axis=0))
+            
+            # Average pairwise Euclidean distance
+            n_samples = min(len(population), 10)  # Limit computation for large populations
+            if n_samples < len(population):
+                idx = np.random.choice(len(population), n_samples, replace=False)
+                sample_pop = population[idx]
+            else:
+                sample_pop = population
                 
-            # Calculate adaptive mutation strength
-            mutation_strength = (self.bounds_high - self.bounds_low) * 0.1
-            mutation = np.random.normal(0, mutation_strength, self.n_vars)
+            distances = []
+            for i in range(len(sample_pop)):
+                for j in range(i + 1, len(sample_pop)):
+                    dist = np.linalg.norm(sample_pop[i] - sample_pop[j])
+                    distances.append(dist)
             
-            # Apply mutation and repair
-            mutated = individual + mutation
-            mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
-            mutated = mutated * (self.total_delta_v / np.sum(mutated))
-            
-            return mutated
+            if distances:
+                distance_diversity = np.mean(distances)
+            else:
+                distance_diversity = 0.0
+                
+            # Combine metrics
+            return (std_diversity + distance_diversity) / 2
             
         except Exception as e:
-            logger.error(f"Error in mutation: {e}")
-            return individual.copy()
+            logger.error(f"Error in diversity calculation: {e}")
+            return 0.0
 
     def update_parameters(self, population, fitnesses, generations_without_improvement):
         """Update adaptive parameters based on current state."""
@@ -480,10 +569,6 @@ class AdaptiveGA:
         else:
             self.crossover_rate = max(self.crossover_rate * 0.9, self.config["min_crossover_rate"])
 
-    def calculate_diversity(self, population):
-        """Calculate population diversity using standard deviation."""
-        return np.mean(np.std(population, axis=0))
-
     def optimize(self):
         """Run the optimization process."""
         try:
@@ -492,40 +577,60 @@ class AdaptiveGA:
             best_fitness = -np.inf
             best_solution = None
             generations_without_improvement = 0
-
+            
+            # Track best solution history
+            best_history = []
+            
             for generation in range(self.config["n_generations"]):
                 # Evaluate population
                 fitnesses = np.array([self.evaluate_fitness(ind) for ind in population])
-                current_best_fitness = np.max(fitnesses)
+                valid_mask = np.isfinite(fitnesses)
+                
+                if not np.any(valid_mask):
+                    logger.warning(f"No valid solutions in generation {generation}")
+                    continue
+                
+                current_best_fitness = np.max(fitnesses[valid_mask])
                 current_best_idx = np.argmax(fitnesses)
                 
                 # Update best solution
                 if current_best_fitness > best_fitness:
+                    improvement = current_best_fitness - best_fitness
                     best_fitness = current_best_fitness
                     best_solution = population[current_best_idx].copy()
                     generations_without_improvement = 0
+                    best_history.append((generation, best_fitness, best_solution.copy()))
+                    
+                    logger.info(f"Generation {generation}: New best solution found")
+                    logger.info(f"Fitness improvement: {improvement:.6f}")
+                    logger.info(f"Current best fitness: {best_fitness:.6f}")
                 else:
                     generations_without_improvement += 1
                 
                 # Check for convergence
                 if generations_without_improvement >= self.config["stagnation_threshold"]:
+                    logger.info(f"Optimization converged after {generation} generations")
                     break
                 
                 # Evolution
                 selected = self.selection(population, fitnesses)
                 new_population = []
                 
-                # Crossover and mutation
-                for i in range(0, self.pop_size - 1, 2):
-                    parent1, parent2 = selected[i], selected[i+1]
+                # Ensure we keep the best solution (elitism)
+                new_population.append(best_solution.copy())
+                
+                # Crossover and mutation for the rest of the population
+                while len(new_population) < self.pop_size:
+                    idx1, idx2 = np.random.choice(len(selected), 2, replace=False)
+                    parent1, parent2 = selected[idx1], selected[idx2]
                     child1, child2 = self.crossover(parent1, parent2)
                     child1 = self.mutation(child1)
                     child2 = self.mutation(child2)
                     new_population.extend([child1, child2])
                 
-                # Handle odd population size
-                if len(new_population) < self.pop_size:
-                    new_population.append(selected[-1])
+                # Trim population to exact size if needed
+                if len(new_population) > self.pop_size:
+                    new_population = new_population[:self.pop_size]
                 
                 population = np.array(new_population)
                 self.update_parameters(population, fitnesses, generations_without_improvement)
@@ -535,17 +640,23 @@ class AdaptiveGA:
             if best_solution is not None:
                 # Calculate final metrics
                 mass_ratios = calculate_mass_ratios(best_solution, self.ISP, self.EPSILON)
-                payload_fraction = calculate_payload_fraction(mass_ratios)
-                
-                return {
-                    'method': 'GA-Adaptive',
-                    'optimal_dv': best_solution.tolist(),
-                    'stage_ratios': mass_ratios.tolist(),
-                    'payload_fraction': float(payload_fraction),
-                    'execution_time': self.execution_time,
-                    'history': self.history
-                }
+                if mass_ratios is not None:
+                    payload_fraction = calculate_payload_fraction(mass_ratios)
+                    
+                    # Add convergence history to results
+                    convergence_history = [(gen, fit) for gen, fit, _ in best_history]
+                    
+                    return {
+                        'method': 'GA-Adaptive',
+                        'optimal_dv': best_solution.tolist(),
+                        'stage_ratios': mass_ratios.tolist(),
+                        'payload_fraction': float(payload_fraction),
+                        'execution_time': self.execution_time,
+                        'history': self.history,
+                        'convergence_history': convergence_history
+                    }
             
+            logger.warning("Optimization failed to find a valid solution")
             return None
             
         except Exception as e:
