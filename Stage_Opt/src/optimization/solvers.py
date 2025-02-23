@@ -188,6 +188,8 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
+        start_time = time.time()
+        
         # Convert bounds to numpy arrays
         bounds = np.array(bounds)
         xl = bounds[:, 0]
@@ -273,15 +275,37 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             verbose=False
         )
 
+        execution_time = time.time() - start_time
+
         if res.X is None or not res.success:
             logger.warning(f"GA optimization warning: {res.message}")
-            return initial_guess
+            return None
             
-        return res.X
+        # Calculate final metrics
+        optimal_dv = res.X
+        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
+        
+        # Log results
+        logger.info(f"GA optimization succeeded:")
+        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
+        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
+        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+        logger.info(f"  Time: {execution_time:.3f} seconds")
+        
+        # Return results in standard format
+        return {
+            'method': 'GA',
+            'time': execution_time,
+            'dv': [float(x) for x in optimal_dv],
+            'stage_ratios': [float(x) for x in stage_ratios],
+            'payload_fraction': float(payload_fraction),
+            'error': float(abs(np.sum(optimal_dv) - TOTAL_DELTA_V))
+        }
         
     except Exception as e:
         logger.error(f"GA optimization failed: {e}")
-        return initial_guess
+        return None
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""

@@ -74,9 +74,17 @@ def optimize_stages(parameters, stages, method='SLSQP'):
                     'execution_time': time.time() - start_time
                 }
         elif method.upper() == 'GA':
-            optimal_solution = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            if optimal_solution is not None:
-                solver_result = optimal_solution
+            solver_result = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            if solver_result is not None:
+                logger.info(f"GA results:")
+                logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in solver_result['dv']]} m/s")
+                logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in solver_result['stage_ratios']]}")
+                logger.info(f"  Payload fraction: {solver_result['payload_fraction']:.3f}")
+                logger.info(f"  Time: {solver_result['time']:.3f} seconds")
+                return solver_result
+            else:
+                logger.error(f"Method {method} failed to produce valid results")
+                return None
         elif method.upper() == 'GA-ADAPTIVE':
             solver_result = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'PSO':
@@ -115,11 +123,12 @@ def main():
                 result = optimize_stages(parameters, stages, method)
                 if result is not None:
                     results[method] = result
-                    logger.info(f"{method} results:")
-                    logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result['optimal_dv']]} m/s")
-                    logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in result['stage_ratios']]}")
-                    logger.info(f"  Payload fraction: {result['payload_fraction']:.3f}")
-                    logger.info(f"  Time: {result['execution_time']:.3f} seconds")
+                    if method.upper() != 'GA':
+                        logger.info(f"{method} results:")
+                        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result['optimal_dv']]} m/s")
+                        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in result['stage_ratios']]}")
+                        logger.info(f"  Payload fraction: {result['payload_fraction']:.3f}")
+                        logger.info(f"  Time: {result['execution_time']:.3f} seconds")
                 
             except Exception as e:
                 logger.error(f"Method {method} failed: {e}")
