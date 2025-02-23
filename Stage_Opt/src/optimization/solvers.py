@@ -186,11 +186,12 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         problem.ISP = ISP
         problem.EPSILON = EPSILON
 
+        ga_config = config["optimization"]["ga"]
         algorithm = GA(
-            pop_size=config["optimization"]["population_size"],
+            pop_size=ga_config["population_size"],
             eliminate_duplicates=True,
-            mutation=PolynomialMutation(prob=0.2, eta=20),
-            crossover=SBX(prob=0.9, eta=15),
+            mutation=PolynomialMutation(prob=ga_config["mutation_prob"], eta=ga_config["mutation_eta"]),
+            crossover=SBX(prob=ga_config["crossover_prob"], eta=ga_config["crossover_eta"]),
             repair=RepairDeltaV()
         )
 
@@ -199,7 +200,7 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             cvtol=1e-6,
             ftol=1e-6,
             period=20,
-            n_max_gen=config["optimization"]["max_iterations"],
+            n_max_gen=ga_config["n_generations"],
             n_max_evals=None
         )
         
@@ -242,15 +243,16 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             return -payload_fraction + penalty  # Negative because DE minimizes
         
         # Run differential evolution
+        de_config = config["optimization"]["differential_evolution"]
         result = differential_evolution(
             objective,
             bounds,
-            strategy='best1bin',
-            maxiter=config["optimization"]["max_iterations"],
-            popsize=config["optimization"]["population_size"],
-            tol=1e-6,
-            mutation=(0.5, 1.0),
-            recombination=0.7,
+            strategy=de_config["strategy"],
+            maxiter=de_config["max_iterations"],
+            popsize=de_config["population_size"],
+            tol=de_config["tol"],
+            mutation=de_config["mutation"],
+            recombination=de_config["recombination"],
             seed=None,
             disp=False,
             polish=True,
@@ -268,406 +270,190 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
-    start_time = time.time()
-    
     try:
-        logger.info(f"Starting Adaptive GA optimization with parameters:")
-        logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
-        
-        # Initialize adaptive GA
-        ga_config = config["optimization"]["adaptive_ga"]
-        aga = AdaptiveGA(
-            config=config,
-            n_vars=len(initial_guess),
-            bounds=bounds,
-            total_delta_v=TOTAL_DELTA_V,
-            isp=ISP,
-            epsilon=EPSILON
-        )
-        
-        # Run optimization
-        result = aga.optimize()
-        
-        if result is None:
-            logger.error("Adaptive GA optimization failed")
-            return None
-            
-        # Calculate performance metrics
-        execution_time = time.time() - start_time
-        optimal_dv = result['optimal_dv']
-        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
-        
-        logger.info(f"Adaptive GA optimization succeeded:")
-        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
-        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
-        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-        
-        return {
-            'method': 'Adaptive GA',
-            'optimal_dv': optimal_dv,
-            'stage_ratios': stage_ratios,
-            'payload_fraction': float(payload_fraction),
-            'execution_time': execution_time,
-            'history': result['history']
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in Adaptive GA optimization: {e}")
-        return None
-
-class AdaptiveGA:
-    def __init__(self, config, n_vars, bounds, total_delta_v, isp, epsilon):
-        """Initialize the Adaptive GA."""
-        self.config = config["optimization"]["adaptive_ga"]
-        self.n_vars = n_vars
-        self.bounds = np.array(bounds)  # Convert bounds to numpy array
-        self.bounds_low = np.array([b[0] for b in bounds])
-        self.bounds_high = np.array([b[1] for b in bounds])
-        self.pop_size = self.config["initial_pop_size"]
-        self.mutation_rate = self.config["initial_mutation_rate"]
-        self.crossover_rate = self.config["initial_crossover_rate"]
-        self.best_fitness_history = []
-        self.diversity_history = []
-        self.stagnation_counter = 0
-        self.total_delta_v = total_delta_v
-        self.ISP = isp
-        self.EPSILON = epsilon
-        self.history = []  # Store optimization history
-        self.execution_time = 0  # Track execution time
-        
-    def initialize_population(self):
-        """Initialize population with smart initialization strategies."""
-        population = []
-        n_equal = self.pop_size // 3
-        
-        # Strategy 1: Equal distribution
-        for _ in range(n_equal):
-            sol = np.full(self.n_vars, self.total_delta_v / self.n_vars)
-            sol += np.random.normal(0, self.total_delta_v * 0.05, self.n_vars)
-            sol = np.clip(sol, self.bounds_low, self.bounds_high)
-            sol = sol * (self.total_delta_v / np.sum(sol))
-            population.append(sol)
-            
-        # Strategy 2: ISP-weighted distribution
-        n_isp = (self.pop_size - n_equal) // 2
-        for _ in range(n_isp):
-            weights = np.array(self.ISP) / np.sum(self.ISP)
-            sol = weights * self.total_delta_v
-            sol += np.random.normal(0, self.total_delta_v * 0.05, self.n_vars)
-            sol = np.clip(sol, self.bounds_low, self.bounds_high)
-            sol = sol * (self.total_delta_v / np.sum(sol))
-            population.append(sol)
-            
-        # Strategy 3: Random distribution
-        while len(population) < self.pop_size:
-            sol = np.random.uniform(self.bounds_low, self.bounds_high, self.n_vars)
-            sol = sol * (self.total_delta_v / np.sum(sol))
-            population.append(sol)
-            
-        return np.array(population)
-
-    def evaluate_fitness(self, individual):
-        """Evaluate the fitness of an individual."""
-        try:
-            individual = np.asarray(individual).flatten()
-            
-            # Check total delta-v constraint with a softer penalty
-            delta_v_error = abs(np.sum(individual) - self.total_delta_v)
-            if delta_v_error > 1e-4:  # Relaxed tolerance
-                penalty = 100.0 * delta_v_error
-            else:
-                penalty = 0.0
+        class AdaptiveGA:
+            def __init__(self, config, bounds):
+                aga_config = config["optimization"]["adaptive_ga"]
+                self.pop_size = aga_config["initial_pop_size"]
+                self.max_pop_size = aga_config["max_pop_size"]
+                self.min_pop_size = aga_config["min_pop_size"]
+                self.mutation_rate = aga_config["initial_mutation_rate"]
+                self.max_mutation_rate = aga_config["max_mutation_rate"]
+                self.min_mutation_rate = aga_config["min_mutation_rate"]
+                self.crossover_rate = aga_config["initial_crossover_rate"]
+                self.max_crossover_rate = aga_config["max_crossover_rate"]
+                self.min_crossover_rate = aga_config["min_crossover_rate"]
+                self.diversity_threshold = aga_config["diversity_threshold"]
+                self.stagnation_threshold = aga_config["stagnation_threshold"]
+                self.n_generations = aga_config["n_generations"]
+                self.elite_size = aga_config["elite_size"]
+                self.bounds = bounds
+                self.history = []
+                self.n_vars = len(bounds)
+                self.bounds_low = bounds[:, 0]
+                self.bounds_high = bounds[:, 1]
+                self.best_fitness = float('inf')
+                self.stagnation_counter = 0
                 
-            # Check bounds constraints with a softer penalty
-            bounds_violation = np.sum(np.maximum(0, self.bounds_low - individual)) + \
-                             np.sum(np.maximum(0, individual - self.bounds_high))
-            if bounds_violation > 0:
-                penalty += 100.0 * bounds_violation
+            def initialize_population(self):
+                """Initialize population with random solutions."""
+                return np.random.uniform(
+                    self.bounds_low, 
+                    self.bounds_high, 
+                    size=(self.pop_size, self.n_vars)
+                )
                 
-            # Calculate payload fraction
-            mass_ratios = calculate_mass_ratios(individual, self.ISP, self.EPSILON)
-            if mass_ratios is None:
-                return -np.inf
+            def repair_solution(self, solution):
+                """Repair solution to satisfy constraints."""
+                total = np.sum(solution)
+                if abs(total - TOTAL_DELTA_V) > 1e-6:
+                    solution = solution * (TOTAL_DELTA_V / total)
+                    solution = np.clip(solution, self.bounds_low, self.bounds_high)
+                    # Re-normalize if clipping changed the sum
+                    total = np.sum(solution)
+                    if abs(total - TOTAL_DELTA_V) > 1e-6:
+                        solution = solution * (TOTAL_DELTA_V / total)
+                return solution
                 
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Return fitness with penalty
-            return float(payload_fraction) - penalty
-            
-        except Exception as e:
-            logger.error(f"Error in fitness evaluation: {e}")
-            return -np.inf
-
-    def mutation(self, individual):
-        """Perform adaptive mutation with repair."""
-        try:
-            if np.random.random() > self.mutation_rate:
-                return individual.copy()
-                
-            # Calculate adaptive mutation strength based on bounds and current fitness
-            mutation_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
-                              (1.0 - len(self.history) / self.config["n_generations"])
-            
-            # Apply mutation with varying strength per dimension
-            mutation = np.random.normal(0, mutation_strength, self.n_vars)
-            
-            # Apply mutation and repair
-            mutated = individual + mutation
-            
-            # Repair bounds violations while maintaining proportions
-            if np.any(mutated < self.bounds_low) or np.any(mutated > self.bounds_high):
-                # Clip to bounds
-                mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
-                
-            # Repair total delta-v constraint while preserving relative proportions
-            current_sum = np.sum(mutated)
-            if abs(current_sum - self.total_delta_v) > 1e-6:
-                scale = self.total_delta_v / current_sum
-                mutated = mutated * scale
-                
-                # If scaling caused bounds violations, iteratively repair
-                iteration = 0
-                while (np.any(mutated < self.bounds_low) or \
-                       np.any(mutated > self.bounds_high)) and \
-                       iteration < 10:
-                    # Clip to bounds
-                    mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
-                    # Rescale to meet total delta-v
-                    current_sum = np.sum(mutated)
-                    if abs(current_sum - self.total_delta_v) > 1e-6:
-                        scale = self.total_delta_v / current_sum
-                        mutated = mutated * scale
-                    iteration += 1
-            
-            return mutated
-            
-        except Exception as e:
-            logger.error(f"Error in mutation: {e}")
-            return individual.copy()
-
-    def selection(self, population, fitnesses, tournament_size=3):
-        """Tournament selection with elitism."""
-        try:
-            population = np.asarray(population)
-            fitnesses = np.asarray(fitnesses).flatten()
-            
-            # Keep the best solution (elitism)
-            elite_idx = np.argmax(fitnesses)
-            elite = population[elite_idx].copy()
-            selected = [elite]
-            
-            # Tournament selection for the rest
-            while len(selected) < self.pop_size:
-                tournament_idx = np.random.choice(len(population), tournament_size, replace=False)
-                tournament_fitnesses = fitnesses[tournament_idx]
-                winner_idx = tournament_idx[np.argmax(tournament_fitnesses)]
-                selected.append(population[winner_idx].copy())
-                
-            return np.array(selected)
-            
-        except Exception as e:
-            logger.error(f"Error in selection: {e}")
-            return population  # Return original population if error occurs
-
-    def crossover(self, parent1, parent2):
-        """Perform arithmetic crossover with repair."""
-        try:
-            if np.random.random() > self.crossover_rate:
-                return parent1.copy(), parent2.copy()
-                
-            # Calculate adaptive crossover strength based on bounds and current fitness
-            crossover_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
-                              (1.0 - len(self.history) / self.config["n_generations"])
-            
-            # Apply crossover with varying strength per dimension
-            alpha = np.random.rand(self.n_vars)
-            child1 = alpha * parent1 + (1 - alpha) * parent2
-            child2 = (1 - alpha) * parent1 + alpha * parent2
-            
-            # Repair to maintain total delta-v and bounds
-            for child in [child1, child2]:
-                # Clip to bounds
-                child = np.clip(child, self.bounds_low, self.bounds_high)
-                # Rescale to meet total delta-v
-                current_sum = np.sum(child)
-                if abs(current_sum - self.total_delta_v) > 1e-6:
-                    scale_factor = self.total_delta_v / current_sum
-                    child *= scale_factor
-                    # If scaling caused bounds violations, iteratively repair
-                    iteration = 0
-                    while (np.any(child < self.bounds_low) or \
-                           np.any(child > self.bounds_high)) and \
-                           iteration < 10:
-                        child = np.clip(child, self.bounds_low, self.bounds_high)
-                        current_sum = np.sum(child)
-                        if abs(current_sum - self.total_delta_v) > 1e-6:
-                            scale_factor = self.total_delta_v / current_sum
-                            child *= scale_factor
-                        iteration += 1
-            
-            return child1, child2
-            
-        except Exception as e:
-            logger.error(f"Error in crossover: {e}")
-            return parent1.copy(), parent2.copy()
-
-    def calculate_diversity(self, population):
-        """Calculate population diversity using multiple metrics."""
-        try:
-            # Standard deviation across dimensions
-            std_diversity = np.mean(np.std(population, axis=0))
-            
-            # Average pairwise Euclidean distance
-            n_samples = min(len(population), 10)  # Limit computation for large populations
-            if n_samples < len(population):
-                idx = np.random.choice(len(population), n_samples, replace=False)
-                sample_pop = population[idx]
-            else:
-                sample_pop = population
-                
-            distances = []
-            for i in range(len(sample_pop)):
-                for j in range(i + 1, len(sample_pop)):
-                    dist = np.linalg.norm(sample_pop[i] - sample_pop[j])
-                    distances.append(dist)
-            
-            if distances:
-                distance_diversity = np.mean(distances)
-            else:
-                distance_diversity = 0.0
-                
-            # Combine metrics
-            return (std_diversity + distance_diversity) / 2
-            
-        except Exception as e:
-            logger.error(f"Error in diversity calculation: {e}")
-            return 0.0
-
-    def update_parameters(self, population, fitnesses, generations_without_improvement):
-        """Update adaptive parameters based on current state."""
-        diversity = self.calculate_diversity(population)
-        mean_fitness = np.mean(fitnesses)
-        best_fitness = np.max(fitnesses)
-        
-        # Record metrics
-        self.history.append({
-            'generation': len(self.history),
-            'best_fitness': best_fitness,
-            'mean_fitness': mean_fitness,
-            'diversity': diversity,
-            'mutation_rate': self.mutation_rate,
-            'crossover_rate': self.crossover_rate,
-            'population_size': self.pop_size
-        })
-        
-        # Adjust mutation rate based on diversity
-        if diversity < self.config["diversity_threshold"]:
-            self.mutation_rate = min(self.mutation_rate * 1.5, self.config["max_mutation_rate"])
-        else:
-            self.mutation_rate = max(self.mutation_rate * 0.9, self.config["min_mutation_rate"])
-        
-        # Adjust crossover rate based on fitness improvement
-        if generations_without_improvement > 5:
-            self.crossover_rate = min(self.crossover_rate * 1.1, self.config["max_crossover_rate"])
-        else:
-            self.crossover_rate = max(self.crossover_rate * 0.9, self.config["min_crossover_rate"])
-
-    def optimize(self):
-        """Run the optimization process."""
-        try:
-            start_time = time.time()
-            population = self.initialize_population()
-            best_fitness = -np.inf
-            best_solution = None
-            generations_without_improvement = 0
-            
-            # Track best solution history
-            best_history = []
-            
-            for generation in range(self.config["n_generations"]):
-                # Evaluate population
-                fitnesses = np.array([self.evaluate_fitness(ind) for ind in population])
-                valid_mask = np.isfinite(fitnesses)
-                
-                if not np.any(valid_mask):
-                    logger.warning(f"No valid solutions in generation {generation}")
-                    continue
-                
-                current_best_fitness = np.max(fitnesses[valid_mask])
-                current_best_idx = np.argmax(fitnesses)
-                
-                # Update best solution
-                if current_best_fitness > best_fitness:
-                    improvement = current_best_fitness - best_fitness
-                    best_fitness = current_best_fitness
-                    best_solution = population[current_best_idx].copy()
-                    generations_without_improvement = 0
-                    best_history.append((generation, best_fitness, best_solution.copy()))
-                    
-                    logger.info(f"Generation {generation}: New best solution found")
-                    logger.info(f"Fitness improvement: {improvement:.6f}")
-                    logger.info(f"Current best fitness: {best_fitness:.6f}")
-                else:
-                    generations_without_improvement += 1
-                
-                # Check for convergence
-                if generations_without_improvement >= self.config["stagnation_threshold"]:
-                    logger.info(f"Optimization converged after {generation} generations")
-                    break
-                
-                # Evolution
-                selected = self.selection(population, fitnesses)
-                new_population = []
-                
-                # Ensure we keep the best solution (elitism)
-                new_population.append(best_solution.copy())
-                
-                # Crossover and mutation for the rest of the population
-                while len(new_population) < self.pop_size:
-                    idx1, idx2 = np.random.choice(len(selected), 2, replace=False)
-                    parent1, parent2 = selected[idx1], selected[idx2]
-                    child1, child2 = self.crossover(parent1, parent2)
-                    child1 = self.mutation(child1)
-                    child2 = self.mutation(child2)
-                    new_population.extend([child1, child2])
-                
-                # Trim population to exact size if needed
-                if len(new_population) > self.pop_size:
-                    new_population = new_population[:self.pop_size]
-                
-                population = np.array(new_population)
-                self.update_parameters(population, fitnesses, generations_without_improvement)
-            
-            self.execution_time = time.time() - start_time
-            
-            if best_solution is not None:
-                # Calculate final metrics
-                mass_ratios = calculate_mass_ratios(best_solution, self.ISP, self.EPSILON)
-                if mass_ratios is not None:
+            def evaluate_population(self, population):
+                """Evaluate fitness of population."""
+                fitness = []
+                for solution in population:
+                    mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
                     payload_fraction = calculate_payload_fraction(mass_ratios)
+                    penalty = 1e6 * abs(np.sum(solution) - TOTAL_DELTA_V)
+                    fitness.append(-payload_fraction + penalty)  # Negative because we minimize
+                return np.array(fitness)
+                
+            def select_parents(self, population, fitness):
+                """Tournament selection."""
+                tournament_size = 3
+                idx1 = np.random.randint(0, len(population), tournament_size)
+                idx2 = np.random.randint(0, len(population), tournament_size)
+                parent1 = population[idx1[np.argmin(fitness[idx1])]]
+                parent2 = population[idx2[np.argmin(fitness[idx2])]]
+                return parent1, parent2
+                
+            def crossover(self, parent1, parent2):
+                """Adaptive arithmetic crossover."""
+                if np.random.random() > self.crossover_rate:
+                    return parent1.copy(), parent2.copy()
                     
-                    # Add convergence history to results
-                    convergence_history = [(gen, fit) for gen, fit, _ in best_history]
+                # Calculate adaptive crossover strength
+                crossover_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
+                                  (1.0 - len(self.history) / self.n_generations)
+                
+                # Apply crossover with varying strength per dimension
+                alpha = np.random.rand(self.n_vars)
+                child1 = alpha * parent1 + (1 - alpha) * parent2
+                child2 = (1 - alpha) * parent1 + alpha * parent2
+                
+                return child1, child2
+                
+            def mutate(self, solution):
+                """Adaptive Gaussian mutation."""
+                if np.random.random() > self.mutation_rate:
+                    return solution
                     
-                    return {
-                        'method': 'GA-Adaptive',
-                        'optimal_dv': best_solution.tolist(),
-                        'stage_ratios': mass_ratios.tolist(),
-                        'payload_fraction': float(payload_fraction),
-                        'execution_time': self.execution_time,
-                        'history': self.history,
-                        'convergence_history': convergence_history
-                    }
-            
-            logger.warning("Optimization failed to find a valid solution")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error in optimization: {e}")
-            return None
+                # Calculate adaptive mutation strength
+                mutation_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
+                                 (1.0 - len(self.history) / self.n_generations)
+                
+                # Apply mutation
+                mutation = np.random.normal(0, mutation_strength, self.n_vars)
+                mutated = solution + mutation
+                mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
+                return mutated
+                
+            def update_parameters(self, population, fitness):
+                """Update adaptive parameters."""
+                # Calculate population diversity
+                mean_solution = np.mean(population, axis=0)
+                diversity = np.mean([np.linalg.norm(sol - mean_solution) for sol in population])
+                normalized_diversity = diversity / np.linalg.norm(self.bounds_high - self.bounds_low)
+                
+                # Update mutation rate based on diversity
+                if normalized_diversity < self.diversity_threshold:
+                    self.mutation_rate = min(self.max_mutation_rate,
+                                          self.mutation_rate * 1.1)
+                else:
+                    self.mutation_rate = max(self.min_mutation_rate,
+                                          self.mutation_rate * 0.9)
+                
+                # Update crossover rate based on fitness improvement
+                if len(self.history) > 0 and min(fitness) < self.best_fitness:
+                    self.crossover_rate = min(self.max_crossover_rate,
+                                           self.crossover_rate * 1.1)
+                    self.stagnation_counter = 0
+                else:
+                    self.crossover_rate = max(self.min_crossover_rate,
+                                           self.crossover_rate * 0.9)
+                    self.stagnation_counter += 1
+                
+                # Update population size based on stagnation
+                if self.stagnation_counter >= self.stagnation_threshold:
+                    self.pop_size = max(self.min_pop_size,
+                                     int(self.pop_size * 0.9))
+                    self.stagnation_counter = 0
+                
+                # Record best fitness
+                self.best_fitness = min(min(fitness), self.best_fitness)
+                
+            def optimize(self):
+                """Main optimization loop."""
+                population = self.initialize_population()
+                
+                for gen in range(self.n_generations):
+                    # Evaluate population
+                    fitness = self.evaluate_population(population)
+                    best_idx = np.argmin(fitness)
+                    self.history.append(fitness[best_idx])
+                    
+                    # Update adaptive parameters
+                    self.update_parameters(population, fitness)
+                    
+                    # Create new population
+                    new_population = []
+                    
+                    # Elitism
+                    elite_idx = np.argsort(fitness)[:self.elite_size]
+                    new_population.extend(population[elite_idx])
+                    
+                    # Generate offspring
+                    while len(new_population) < self.pop_size:
+                        # Select parents
+                        parent1, parent2 = self.select_parents(population, fitness)
+                        
+                        # Crossover
+                        child1, child2 = self.crossover(parent1, parent2)
+                        
+                        # Mutation
+                        child1 = self.mutate(child1)
+                        child2 = self.mutate(child2)
+                        
+                        # Repair
+                        child1 = self.repair_solution(child1)
+                        child2 = self.repair_solution(child2)
+                        
+                        new_population.extend([child1, child2])
+                    
+                    # Trim population to current size
+                    population = np.array(new_population[:self.pop_size])
+                
+                # Return best solution
+                final_fitness = self.evaluate_population(population)
+                best_idx = np.argmin(final_fitness)
+                return population[best_idx], {'history': self.history}
+
+        # Run optimization
+        optimizer = AdaptiveGA(config, np.array(bounds))
+        optimal_dv, result = optimizer.optimize()
+        
+        return optimal_dv
+
+    except Exception as e:
+        logger.error(f"Error in optimization: {e}")
+        return initial_guess
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
