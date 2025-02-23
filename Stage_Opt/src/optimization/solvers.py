@@ -68,10 +68,24 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         def objective(dv):
             return payload_fraction_objective(dv, G0, ISP, EPSILON)
             
-        def constraint(dv):
-            return float(np.sum(dv) - TOTAL_DELTA_V)
+        def total_dv_constraint(dv):
+            return np.sum(dv) - TOTAL_DELTA_V
             
-        constraints = {'type': 'eq', 'fun': constraint}
+        def min_dv_constraint_stage1(dv):
+            return dv[0] - 0.15 * TOTAL_DELTA_V  # First stage must be at least 15%
+            
+        def min_dv_constraint_other_stages(dv):
+            return dv[1:] - 0.01 * TOTAL_DELTA_V  # Other stages must be at least 1%
+            
+        def max_dv_constraint_stage1(dv):
+            return 0.8 * TOTAL_DELTA_V - dv[0]  # First stage must be at most 80%
+            
+        constraints = [
+            {'type': 'eq', 'fun': total_dv_constraint},
+            {'type': 'ineq', 'fun': min_dv_constraint_stage1},
+            {'type': 'ineq', 'fun': min_dv_constraint_other_stages},
+            {'type': 'ineq', 'fun': max_dv_constraint_stage1}
+        ]
         
         result = minimize(
             objective,
@@ -327,11 +341,38 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         strategy = de_config.get('strategy', 'best1bin')
         tol = de_config.get('tol', 1e-6)
         
+        # Set minimum delta-v per stage (15% of total delta-v for first stage, 1% for others)
+        MIN_DELTA_V_FIRST = TOTAL_DELTA_V * 0.15
+        MIN_DELTA_V_OTHERS = TOTAL_DELTA_V * 0.01
+        n_stages = len(initial_guess)
+        
+        def enforce_stage_constraints(x):
+            """Enforce minimum delta-v for each stage while maintaining total delta-v."""
+            x = np.array(x)
+            # First ensure minimum values for first stage
+            x[0] = max(x[0], MIN_DELTA_V_FIRST)  # First stage minimum
+            x[1:] = np.maximum(x[1:], MIN_DELTA_V_OTHERS)  # Other stages minimum
+            
+            # Calculate remaining delta-v to distribute
+            remaining_dv = TOTAL_DELTA_V - x[0]  # Reserve first stage
+            if remaining_dv < (n_stages - 1) * MIN_DELTA_V_OTHERS:
+                # If not enough remaining for other stages, redistribute
+                x[0] = TOTAL_DELTA_V - (n_stages - 1) * MIN_DELTA_V_OTHERS
+                x[1:] = MIN_DELTA_V_OTHERS
+            else:
+                # Distribute remaining to other stages proportionally
+                current_sum = np.sum(x[1:])
+                if current_sum > 0:
+                    x[1:] *= remaining_dv / current_sum
+            
+            return x
+        
         def objective(x):
-            # Scale to meet total delta-v constraint
-            scale = TOTAL_DELTA_V / np.sum(x)
-            x_scaled = x * scale
-            return payload_fraction_objective(x_scaled, G0, ISP, EPSILON)
+            x_constrained = enforce_stage_constraints(x)
+            return payload_fraction_objective(x_constrained, G0, ISP, EPSILON)
+        
+        # Modify bounds for first stage
+        bounds[0] = (MIN_DELTA_V_FIRST, TOTAL_DELTA_V * 0.8)  # 15% to 80% of total ΔV
         
         result = differential_evolution(
             objective,
@@ -346,12 +387,10 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         )
         
         if result.success:
-            # Scale solution to meet total delta-v constraint
-            scale = TOTAL_DELTA_V / np.sum(result.x)
-            return result.x * scale
+            return enforce_stage_constraints(result.x)
         else:
             logger.warning(f"DE optimization did not converge: {result.message}")
-            return initial_guess
+            return enforce_stage_constraints(initial_guess)
             
     except Exception as e:
         logger.error(f"Differential Evolution optimization failed: {str(e)}")
@@ -366,50 +405,42 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         c1 = config.get('c1', 2.0)  # Cognitive parameter
         c2 = config.get('c2', 2.0)  # Social parameter
         
-        # Set minimum delta-v per stage (1% of total delta-v)
-        MIN_DELTA_V = TOTAL_DELTA_V * 0.01
+        # Set minimum delta-v per stage (15% of total delta-v for first stage, 1% for others)
+        MIN_DELTA_V_FIRST = TOTAL_DELTA_V * 0.15
+        MIN_DELTA_V_OTHERS = TOTAL_DELTA_V * 0.01
         n_stages = len(initial_guess)
         
         def enforce_min_delta_v(particles):
             """Enforce minimum delta-v for each stage while maintaining total delta-v."""
-            # First ensure minimum values
-            particles = np.maximum(particles, MIN_DELTA_V)
+            # Handle single particle case
+            if len(particles.shape) == 1:
+                particles = particles.reshape(1, -1)
             
-            # Then scale to meet total delta-v constraint
-            sums = np.sum(particles, axis=1)
-            scale_factors = TOTAL_DELTA_V / sums
-            particles = particles * scale_factors.reshape(-1, 1)
+            # First ensure minimum values for first stage
+            particles[:, 0] = np.maximum(particles[:, 0], MIN_DELTA_V_FIRST)
             
-            # If scaling made any values too small, redistribute the excess
-            below_min_mask = particles < MIN_DELTA_V
-            while np.any(below_min_mask):
-                # Set values below minimum to minimum
-                particles[below_min_mask] = MIN_DELTA_V
+            # Ensure minimum values for other stages
+            particles[:, 1:] = np.maximum(particles[:, 1:], MIN_DELTA_V_OTHERS)
+            
+            # Redistribute excess while maintaining first stage minimum
+            for i in range(len(particles)):
+                # Calculate remaining delta-v after first stage
+                remaining_dv = TOTAL_DELTA_V - particles[i, 0]
                 
-                # Recalculate totals and scale remaining values
-                for i in range(len(particles)):
-                    below_min = below_min_mask[i]
-                    if np.any(below_min):
-                        # Calculate remaining delta-v to distribute
-                        remaining_dv = TOTAL_DELTA_V - np.sum(particles[i][below_min])
-                        # Get indices not at minimum
-                        above_min = ~below_min
-                        if np.any(above_min):
-                            # Distribute remaining dv proportionally
-                            current_sum = np.sum(particles[i][above_min])
-                            if current_sum > 0:
-                                scale = remaining_dv / current_sum
-                                particles[i][above_min] *= scale
-                
-                # Update mask for next iteration
-                below_min_mask = particles < MIN_DELTA_V
-                
-                # Break if we can't satisfy constraints
-                if np.all(below_min_mask):
-                    particles = np.full_like(particles, TOTAL_DELTA_V / n_stages)
-                    break
+                if remaining_dv < (n_stages - 1) * MIN_DELTA_V_OTHERS:
+                    # If not enough remaining for other stages, adjust first stage
+                    particles[i, 0] = TOTAL_DELTA_V - (n_stages - 1) * MIN_DELTA_V_OTHERS
+                    particles[i, 1:] = MIN_DELTA_V_OTHERS
+                else:
+                    # Distribute remaining to other stages proportionally
+                    current_sum = np.sum(particles[i, 1:])
+                    if current_sum > 0:
+                        particles[i, 1:] *= remaining_dv / current_sum
             
             return particles
+        
+        # Modify bounds for first stage
+        bounds[0] = (MIN_DELTA_V_FIRST, TOTAL_DELTA_V * 0.8)  # 15% to 80% of total ΔV
         
         # Initialize particles
         particles = np.random.uniform(
