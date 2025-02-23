@@ -15,7 +15,7 @@ from src.optimization.solvers import (
     solve_with_pso
 )
 from src.visualization.plots import plot_results
-from src.reporting.latex import generate_latex_report
+from src.reporting.latex import generate_report
 
 
 def main():
@@ -82,9 +82,9 @@ def main():
         if results:
             plot_results(results)
             try:
-                generate_latex_report(results)
+                generate_report(results)
             except Exception as e:
-                logger.error(f"Error generating LaTeX report: {str(e)}")
+                logger.error(f"Error generating report: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error in main routine: {str(e)}")
