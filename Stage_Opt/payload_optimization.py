@@ -346,7 +346,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 # Use the payload fraction as the fitness (higher is better)
                 mass_ratios = calculate_mass_ratios(individual, self.ISP, self.EPSILON)
                 payload_fraction = calculate_payload_fraction(mass_ratios)
-                penalty = 0
+                
+                # Add penalty for constraint violations
+                penalty = 0.0
                 for i, dv in enumerate(individual):
                     if dv < self.bounds[i, 0] or dv > self.bounds[i, 1]:
                         penalty += 1000 * abs(dv - np.clip(dv, self.bounds[i, 0], self.bounds[i, 1]))
@@ -735,14 +737,47 @@ if __name__ == "__main__":
         input_file = sys.argv[1]
         stages = load_input_data(input_file)
         
-        # Run optimizations
-        methods = ['SLSQP', 'GA', 'BASIN-HOPPING']
+        # Run optimizations with all methods
+        methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA']
         results = []
         
+        # Initial setup for optimization
+        n = len(stages)
+        initial_guess = np.full(n, TOTAL_DELTA_V / n)
+        max_dv = TOTAL_DELTA_V * 0.9
+        bounds = np.array([(0, max_dv) for _ in range(n)])
+        ISP = [float(stage['ISP']) for stage in stages]
+        EPSILON = [float(stage['EPSILON']) for stage in stages]
+        G0 = float(stages[0]['G0'])
+
         for method in methods:
             try:
-                result = optimize_stages(stages, method)
+                start_time = time.time()
+                
+                if method == 'GA':
+                    optimal_solution = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                elif method == 'ADAPTIVE-GA':
+                    optimal_solution = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                else:
+                    result = optimize_stages(stages, method)
+                    results.append(result)
+                    continue
+                
+                # For GA methods, format results consistently with other methods
+                execution_time = time.time() - start_time
+                mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)
+                payload_fraction = calculate_payload_fraction(mass_ratios)
+                
+                result = {
+                    'method': method,
+                    'time': execution_time,
+                    'dv': [float(x) for x in optimal_solution],
+                    'stage_ratios': [float(x) for x in mass_ratios],
+                    'payload_fraction': float(payload_fraction),
+                    'error': 0.0
+                }
                 results.append(result)
+                logger.info(f"Successfully completed {method} optimization")
             except Exception as e:
                 logger.error(f"Optimization with {method} failed: {e}")
                 continue
