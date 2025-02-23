@@ -6,6 +6,8 @@ from ..utils.config import logger
 def payload_fraction_objective(dv, G0, ISP, EPSILON):
     """Calculate the payload fraction objective using the corrected physics model."""
     try:
+        logger.debug(f"Evaluating payload fraction objective with dv={dv}")
+        
         # Pass G0 to calculate_mass_ratios so that the negative exponent is used
         mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
@@ -17,7 +19,10 @@ def payload_fraction_objective(dv, G0, ISP, EPSILON):
                 penalty += 100.0 * (0.1 - ratio) ** 2
                 
         # Negative for minimization
-        return float(-payload_fraction + penalty)
+        result = float(-payload_fraction + penalty)
+        logger.debug(f"Payload fraction objective: {result} (payload={payload_fraction}, penalty={penalty})")
+        return result
+        
     except Exception as e:
         logger.error(f"Error in payload fraction calculation: {e}")
         return 1e6  # Large but finite penalty
@@ -25,6 +30,8 @@ def payload_fraction_objective(dv, G0, ISP, EPSILON):
 def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
     """Calculate objective with penalty for constraint violation."""
     try:
+        logger.debug(f"Evaluating objective with penalty: dv={dv}")
+        
         # Base objective
         base_obj = payload_fraction_objective(dv, G0, ISP, EPSILON)
         
@@ -33,7 +40,10 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
         constraint_violation = abs(dv_sum - TOTAL_DELTA_V)
         penalty = 1e3 * constraint_violation  # Reduced penalty coefficient
         
-        return float(base_obj + penalty)
+        result = float(base_obj + penalty)
+        logger.debug(f"Objective with penalty: {result} (base={base_obj}, penalty={penalty})")
+        return result
+        
     except Exception as e:
         logger.error(f"Error in objective calculation: {e}")
         return 1e6  # Large but finite penalty
