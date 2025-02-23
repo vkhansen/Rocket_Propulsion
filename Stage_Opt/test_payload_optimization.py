@@ -8,6 +8,7 @@ import logging
 import sys
 import csv
 import math
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +28,7 @@ from src.optimization.solvers import (
     solve_with_slsqp,
     solve_with_basin_hopping,
     solve_with_differential_evolution,
-    solve_with_ga as solve_with_genetic_algorithm,
+    solve_with_ga,
     solve_with_adaptive_ga,
     solve_with_pso
 )
@@ -38,50 +39,40 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 class TestPayloadOptimization(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        print("\nStarting TestPayloadOptimization suite.")
-        
-    def setUp(self):
-        print("\nSetting up test case...")
-        # Create a temporary input data file
-        self.input_data = {
-            "parameters": {
-                "TOTAL_DELTA_V": 9300,  # Updated to match current implementation
-                "G0": 9.81
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "ISP": 300,
-                    "EPSILON": 0.06
-                },
-                {
-                    "stage": 2,
-                    "ISP": 348,
-                    "EPSILON": 0.04
-                }
-            ]
-        }
-        
-        # Write temporary files
-        self.temp_input = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".json")
-        json.dump(self.input_data, self.temp_input)
-        self.temp_input.close()
+    """Test cases for payload optimization functions."""
 
-    def tearDown(self):
-        print("Cleaning up test case...")
-        os.remove(self.temp_input.name)
+    def setUp(self):
+        """Set up test cases."""
+        # Load data from JSON file
+        input_file = Path(__file__).parent / 'input_data.json'
+        with open(input_file, 'r') as f:
+            data = json.load(f)
+        
+        # Load parameters
+        self.G0 = data['parameters']['G0']
+        self.TOTAL_DELTA_V = data['parameters']['TOTAL_DELTA_V']
+        
+        # Load stage data
+        self.stages = data['stages']
+        self.num_stages = len(self.stages)
+        
+        # Extract ISP and EPSILON arrays
+        self.ISP = np.array([stage['ISP'] for stage in self.stages])
+        self.EPSILON = np.array([stage['EPSILON'] for stage in self.stages])
+        
+        # Set up optimization parameters
+        self.initial_guess = np.ones(self.num_stages) * self.TOTAL_DELTA_V / self.num_stages
+        self.bounds = [(0, self.TOTAL_DELTA_V) for _ in range(self.num_stages)]
 
     def test_load_input_data(self):
         """Test loading input data from JSON file."""
         print("\nTesting input data loading...")
-        parameters, stages = load_input_data(self.temp_input.name)
-        self.assertEqual(len(stages), 2)
-        self.assertEqual(stages[0]["ISP"], 300)
-        self.assertEqual(stages[1]["EPSILON"], 0.04)
-        self.assertEqual(parameters["TOTAL_DELTA_V"], 9300)
-        self.assertEqual(parameters["G0"], 9.81)
+        parameters, stages = load_input_data('input_data.json')
+        self.assertEqual(len(stages), len(self.stages))
+        self.assertEqual(stages[0]["ISP"], self.stages[0]["ISP"])
+        self.assertEqual(stages[1]["EPSILON"], self.stages[1]["EPSILON"])
+        self.assertEqual(parameters["TOTAL_DELTA_V"], self.TOTAL_DELTA_V)
+        self.assertEqual(parameters["G0"], self.G0)
 
     def test_calculate_mass_ratios(self):
         """Test mass ratio calculation."""
@@ -117,125 +108,176 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_solve_with_differential_evolution(self):
         """Test differential evolution solver."""
         print("\nTesting differential evolution solver...")
-        initial_guess = np.array([4650, 4650])
-        bounds = [(0, 9300), (0, 9300)]
-        G0 = 9.81
-        ISP = [300, 348]
-        EPSILON = [0.06, 0.04]
-        TOTAL_DELTA_V = 9300
-        
         result = solve_with_differential_evolution(
-            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
         )
         result = np.array(result)
         
         # Verify solution constraints
-        self.assertEqual(len(result), 2)
-        self.assertTrue(all(0 <= dv <= TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=5)
+        self.assertEqual(len(result), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, ISP, EPSILON, G0)
+        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
 
-    def test_solve_with_ga(self):
+    def test_solve_with_genetic_algorithm(self):
         """Test genetic algorithm solver."""
         print("\nTesting genetic algorithm solver...")
-        initial_guess = np.array([4650, 4650])  # Convert to numpy array
-        bounds = [(0, 9300), (0, 9300)]
-        G0 = 9.81
-        ISP = [300, 348]
-        EPSILON = [0.06, 0.04]
-        TOTAL_DELTA_V = 9300
-        
-        result = solve_with_genetic_algorithm(
-            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+        result = solve_with_ga(
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)  # Convert result to numpy array
+        result = np.array(result)
         
-        # Verify solution bounds and constraints
-        self.assertEqual(len(result), 2)
-        self.assertTrue(all(0 <= dv <= TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=5)
+        # Verify solution constraints
+        self.assertEqual(len(result), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        
+        # Calculate payload fraction to verify solution quality
+        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        self.assertTrue(0 <= payload_fraction <= 1)
 
     def test_solve_with_adaptive_ga(self):
         """Test adaptive genetic algorithm solver."""
         print("\nTesting adaptive genetic algorithm solver...")
-        initial_guess = np.array([4650, 4650])  # Convert to numpy array
-        bounds = [(0, 9300), (0, 9300)]
-        G0 = 9.81
-        ISP = [300, 348]
-        EPSILON = [0.06, 0.04]
-        TOTAL_DELTA_V = 9300
-        
         result = solve_with_adaptive_ga(
-            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)  # Convert result to numpy array
+        result = np.array(result)
         
-        # Should return initial guess on failure
-        np.testing.assert_array_almost_equal(result, initial_guess)
+        # Verify solution constraints
+        self.assertEqual(len(result), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        
+        # Calculate payload fraction to verify solution quality
+        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        self.assertTrue(0 <= payload_fraction <= 1)
 
     def test_solve_with_pso(self):
         """Test particle swarm optimization solver."""
         print("\nTesting PSO solver...")
-        initial_guess = np.array([4650, 4650])  # Convert to numpy array
-        bounds = [(0, 9300), (0, 9300)]
-        G0 = 9.81
-        ISP = [300, 348]
-        EPSILON = [0.06, 0.04]
-        TOTAL_DELTA_V = 9300
-        
         result = solve_with_pso(
-            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)  # Convert result to numpy array
+        result = np.array(result)
         
-        self.assertEqual(len(result), 2)
-        # PSO may not always converge to exact TOTAL_DELTA_V, so we check if values are within reasonable bounds
-        self.assertTrue(all(0 <= dv <= TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=5)
+        # Verify solution constraints
+        self.assertEqual(len(result), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, ISP, EPSILON, G0)
+        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
 
-    def test_all_optimization_methods(self):
-        """Test all optimization methods."""
-        print("\nTesting all optimization methods...")
-        initial_guess = np.array([4650, 4650])  # Convert to numpy array
-        bounds = [(0, 9300), (0, 9300)]
-        G0 = 9.81
-        ISP = [300, 348]
-        EPSILON = [0.06, 0.04]
-        TOTAL_DELTA_V = 9300
-        
-        # Test all solvers
+    def test_all_solvers(self):
+        """Test all solvers and compare results."""
+        print("\nTesting and comparing all solvers...")
         solvers = [
             solve_with_slsqp,
             solve_with_basin_hopping,
             solve_with_differential_evolution,
-            solve_with_genetic_algorithm,
+            solve_with_ga,
             solve_with_adaptive_ga,
             solve_with_pso
         ]
         
+        results = []
+        payload_fractions = []
+        
         for solver in solvers:
-            print(f"\nTesting {solver.__name__}...")
-            result = solver(
-                initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
-            )
-            result = np.array(result)  # Convert result to numpy array
+            if solver in [solve_with_differential_evolution]:
+                result = solver(
+                    self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+                    self.TOTAL_DELTA_V, CONFIG
+                )
+            else:
+                result = solver(
+                    self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+                    self.TOTAL_DELTA_V, CONFIG
+                )
+            result = np.array(result)
+            results.append(result)
             
-            # Basic validation for all solvers
-            self.assertEqual(len(result), 2)
-            self.assertTrue(all(0 <= dv <= TOTAL_DELTA_V for dv in result))
+            # Calculate payload fraction
+            mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            payload_fractions.append(payload_fraction)
             
-            # Some solvers may return initial guess on failure, which is fine
-            if not np.allclose(result, initial_guess):
-                self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=5)
+            # Print results
+            print(f"\n{solver.__name__}:")
+            print(f"Delta-V split: {result}")
+            print(f"Payload fraction: {payload_fraction}")
+            
+            # Verify constraints
+            self.assertEqual(len(result), self.num_stages)
+            self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+            self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+            self.assertTrue(0 <= payload_fraction <= 1)
+
+    def test_lambda_calculations(self):
+        """Test lambda calculations."""
+        print("\nTesting lambda calculations...")
+        lambda_values = calculate_mass_ratios(self.initial_guess, self.ISP, self.EPSILON, self.G0)
+        self.assertEqual(len(lambda_values), self.num_stages)
+        self.assertTrue(all(lv > 0 for lv in lambda_values))
+
+    def test_delta_v_split(self):
+        """Test delta-v split calculations."""
+        print("\nTesting delta-v split calculations...")
+        delta_v_split = self.initial_guess
+        self.assertEqual(len(delta_v_split), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in delta_v_split))
+        self.assertAlmostEqual(np.sum(delta_v_split), self.TOTAL_DELTA_V, places=0)
+
+    def test_solve_with_slsqp(self):
+        """Test SLSQP solver."""
+        print("\nTesting SLSQP solver...")
+        result = solve_with_slsqp(
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
+        )
+        result = np.array(result)
+        
+        # Verify solution constraints
+        self.assertEqual(len(result), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        
+        # Calculate payload fraction to verify solution quality
+        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        self.assertTrue(0 <= payload_fraction <= 1)
+
+    def test_solve_with_basin_hopping(self):
+        """Test basin hopping solver."""
+        print("\nTesting basin hopping solver...")
+        result = solve_with_basin_hopping(
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
+        )
+        result = np.array(result)
+        
+        # Verify solution constraints
+        self.assertEqual(len(result), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
+        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        
+        # Calculate payload fraction to verify solution quality
+        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        self.assertTrue(0 <= payload_fraction <= 1)
 
 class TestCSVOutputs(unittest.TestCase):
     @classmethod

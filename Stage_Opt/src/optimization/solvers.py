@@ -230,6 +230,31 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.error(f"GA optimization failed: {str(e)}")
         return initial_guess
 
+def enforce_stage_constraints(x, TOTAL_DELTA_V):
+    """Enforce minimum and maximum ΔV constraints for each stage."""
+    # First stage: 15% to 80% of total ΔV
+    min_dv1 = 0.15 * TOTAL_DELTA_V
+    max_dv1 = 0.80 * TOTAL_DELTA_V
+    x[0] = np.clip(x[0], min_dv1, max_dv1)
+    
+    # Other stages: minimum 1% of total ΔV
+    min_dv_other = 0.01 * TOTAL_DELTA_V
+    x[1:] = np.clip(x[1:], min_dv_other, TOTAL_DELTA_V)
+    
+    # Scale to meet total ΔV
+    scale = TOTAL_DELTA_V / np.sum(x)
+    x = x * scale
+    
+    # Re-enforce first stage constraints after scaling
+    x[0] = np.clip(x[0], min_dv1, max_dv1)
+    remaining_dv = TOTAL_DELTA_V - x[0]
+    if len(x) > 1:
+        # Distribute remaining ΔV proportionally among other stages
+        other_stage_ratios = x[1:] / np.sum(x[1:])
+        x[1:] = other_stage_ratios * remaining_dv
+    
+    return x
+
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
     try:
@@ -249,17 +274,21 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         n_generations = ada_ga_config.get('n_generations', 200)
         elite_size = ada_ga_config.get('elite_size', 2)
         
-        population = np.random.uniform(
-            low=[b[0] for b in bounds],
-            high=[b[1] for b in bounds],
-            size=(initial_pop_size, len(initial_guess))
-        )
+        # Initialize population with valid solutions
+        population = np.zeros((initial_pop_size, len(initial_guess)))
+        for i in range(initial_pop_size):
+            x = np.random.uniform(
+                low=[b[0] for b in bounds],
+                high=[b[1] for b in bounds],
+                size=len(initial_guess)
+            )
+            population[i] = enforce_stage_constraints(x, TOTAL_DELTA_V)
         
         # Add initial guess to population
-        population[0] = initial_guess
+        population[0] = enforce_stage_constraints(initial_guess.copy(), TOTAL_DELTA_V)
         
-        best_solution = initial_guess
-        best_fitness = payload_fraction_objective(initial_guess, G0, ISP, EPSILON)
+        best_solution = population[0].copy()
+        best_fitness = payload_fraction_objective(best_solution, G0, ISP, EPSILON)
         stagnation_counter = 0
         current_pop_size = initial_pop_size
         current_mutation_rate = initial_mutation_rate
@@ -268,11 +297,6 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         for generation in range(n_generations):
             # Evaluate fitness
             fitness = np.array([payload_fraction_objective(ind, G0, ISP, EPSILON) for ind in population])
-            
-            # Ensure fitness values are positive
-            if np.any(fitness <= 0):
-                logger.warning("Non-positive fitness values encountered. Adjusting to small positive values.")
-                fitness = np.clip(fitness, 1e-6, None)
             
             # Update best solution
             min_idx = np.argmin(fitness)
@@ -283,7 +307,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             else:
                 stagnation_counter += 1
             
-            # Adaptive population size
+            # Adaptive parameters
             if stagnation_counter >= stagnation_threshold:
                 current_pop_size = min(max_pop_size, current_pop_size + 10)
                 current_mutation_rate = min(max_mutation_rate, current_mutation_rate * 1.2)
@@ -293,10 +317,12 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 current_mutation_rate = max(min_mutation_rate, current_mutation_rate * 0.9)
             
             # Selection
+            selection_probs = 1/fitness
+            selection_probs = selection_probs / np.sum(selection_probs)
             parents_idx = np.random.choice(
                 len(population),
                 size=current_pop_size,
-                p=1/fitness/np.sum(1/fitness)
+                p=selection_probs
             )
             parents = population[parents_idx]
             
@@ -305,22 +331,17 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             for i in range(0, len(offspring)-1, 2):
                 if np.random.random() < current_crossover_rate:
                     alpha = np.random.random()
-                    offspring[i] = alpha * parents[i] + (1-alpha) * parents[i+1]
-                    offspring[i+1] = (1-alpha) * parents[i] + alpha * parents[i+1]
+                    child1 = alpha * parents[i] + (1-alpha) * parents[i+1]
+                    child2 = (1-alpha) * parents[i] + alpha * parents[i+1]
+                    offspring[i] = enforce_stage_constraints(child1, TOTAL_DELTA_V)
+                    offspring[i+1] = enforce_stage_constraints(child2, TOTAL_DELTA_V)
             
             # Mutation
-            mutation_mask = np.random.random(offspring.shape) < current_mutation_rate
-            mutation = np.random.normal(0, 0.1, offspring.shape)
-            offspring[mutation_mask] += mutation[mutation_mask]
-            
-            # Enforce bounds and constraints
-            for j in range(len(initial_guess)):
-                offspring[:, j] = np.clip(offspring[:, j], bounds[j][0], bounds[j][1])
-            
-            # Scale to meet total delta-v constraint
-            sums = np.sum(offspring, axis=1)
-            scale_factors = TOTAL_DELTA_V / sums
-            offspring = offspring * scale_factors.reshape(-1, 1)
+            for i in range(len(offspring)):
+                if np.random.random() < current_mutation_rate:
+                    mutation = np.random.normal(0, 0.1, len(initial_guess))
+                    mutated = offspring[i] + mutation
+                    offspring[i] = enforce_stage_constraints(mutated, TOTAL_DELTA_V)
             
             # Elitism
             if elite_size > 0:
@@ -331,9 +352,10 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             
             # Check convergence
             if np.std(fitness) < 1e-6:
+                logger.info(f"Adaptive GA converged after {generation} generations")
                 break
         
-        return best_solution
+        return enforce_stage_constraints(best_solution, TOTAL_DELTA_V)
         
     except Exception as e:
         logger.error(f"Error in optimization: {str(e)}")
@@ -356,29 +378,37 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         MIN_DELTA_V_OTHERS = TOTAL_DELTA_V * 0.01
         n_stages = len(initial_guess)
         
-        def enforce_stage_constraints(x):
+        def enforce_min_delta_v(particles):
             """Enforce minimum delta-v for each stage while maintaining total delta-v."""
-            x = np.array(x)
+            # Handle single particle case
+            if len(particles.shape) == 1:
+                particles = particles.reshape(1, -1)
+            
             # First ensure minimum values for first stage
-            x[0] = max(x[0], MIN_DELTA_V_FIRST)  # First stage minimum
-            x[1:] = np.maximum(x[1:], MIN_DELTA_V_OTHERS)  # Other stages minimum
+            particles[:, 0] = np.maximum(particles[:, 0], MIN_DELTA_V_FIRST)
             
-            # Calculate remaining delta-v to distribute
-            remaining_dv = TOTAL_DELTA_V - x[0]  # Reserve first stage
-            if remaining_dv < (n_stages - 1) * MIN_DELTA_V_OTHERS:
-                # If not enough remaining for other stages, redistribute
-                x[0] = TOTAL_DELTA_V - (n_stages - 1) * MIN_DELTA_V_OTHERS
-                x[1:] = MIN_DELTA_V_OTHERS
-            else:
-                # Distribute remaining to other stages proportionally
-                current_sum = np.sum(x[1:])
-                if current_sum > 0:
-                    x[1:] *= remaining_dv / current_sum
+            # Ensure minimum values for other stages
+            particles[:, 1:] = np.maximum(particles[:, 1:], MIN_DELTA_V_OTHERS)
             
-            return x
+            # Redistribute excess while maintaining first stage minimum
+            for i in range(len(particles)):
+                # Calculate remaining delta-v after first stage
+                remaining_dv = TOTAL_DELTA_V - particles[i, 0]
+                
+                if remaining_dv < (n_stages - 1) * MIN_DELTA_V_OTHERS:
+                    # If not enough remaining for other stages, adjust first stage
+                    particles[i, 0] = TOTAL_DELTA_V - (n_stages - 1) * MIN_DELTA_V_OTHERS
+                    particles[i, 1:] = MIN_DELTA_V_OTHERS
+                else:
+                    # Distribute remaining to other stages proportionally
+                    current_sum = np.sum(particles[i, 1:])
+                    if current_sum > 0:
+                        particles[i, 1:] *= remaining_dv / current_sum
+            
+            return particles
         
         def objective(x):
-            x_constrained = enforce_stage_constraints(x)
+            x_constrained = enforce_min_delta_v(x)
             return payload_fraction_objective(x_constrained, G0, ISP, EPSILON)
         
         # Modify bounds for first stage
@@ -397,14 +427,23 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         )
         
         if result.success:
-            return enforce_stage_constraints(result.x)
+            solution = enforce_min_delta_v(result.x)
+            if len(solution.shape) > 1:
+                solution = solution[0]  # Take first solution if multiple returned
+            return solution
         else:
             logger.warning(f"DE optimization did not converge: {result.message}")
-            return enforce_stage_constraints(initial_guess)
+            solution = enforce_min_delta_v(initial_guess)
+            if len(solution.shape) > 1:
+                solution = solution[0]
+            return solution
             
     except Exception as e:
         logger.error(f"Differential Evolution optimization failed: {str(e)}")
-        return initial_guess
+        solution = enforce_min_delta_v(initial_guess)
+        if len(solution.shape) > 1:
+            solution = solution[0]
+        return solution
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
@@ -490,6 +529,12 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
             
             # Update personal and global bests
             values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+            
+            # Ensure fitness values are positive
+            if np.any(values <= 0):
+                logger.warning("Non-positive fitness values encountered. Adjusting to small positive values.")
+                values = np.clip(values, 1e-6, None)
+            
             improved = values < personal_best_val
             personal_best_pos[improved] = particles[improved]
             personal_best_val[improved] = values[improved]
