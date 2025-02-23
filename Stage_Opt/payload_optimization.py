@@ -458,28 +458,14 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                     self.update_parameters(population, fitnesses, generations_without_improvement)
                 
                 self.execution_time = time.time() - start_time
-                return best_solution, best_fitness
-
+                return best_solution
+        
         # Create and run adaptive GA, passing TOTAL_DELTA_V, ISP, and EPSILON
         ga = AdaptiveGA(config, len(initial_guess), bounds, TOTAL_DELTA_V, ISP, EPSILON)
-        optimal_solution, best_fitness = ga.optimize()
+        optimal_solution = ga.optimize()
         
-        # Calculate metrics for the optimal solution
-        mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-        
-        # Return results in format expected by plotting functions
-        return {
-            'method': 'ADAPTIVE-GA',
-            'time': ga.execution_time,
-            'solution': optimal_solution,
-            'fitness': best_fitness,
-            'mass_ratios': mass_ratios,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_solution,  # For delta-v breakdown plot
-            'error': abs(np.sum(optimal_solution) - TOTAL_DELTA_V),  # Constraint violation
-            'history': ga.history  # For convergence plots
-        }
+        # Return just the optimal solution for consistency with other methods
+        return optimal_solution
         
     except Exception as e:
         logger.error(f"Adaptive GA optimization failed: {e}")
@@ -765,6 +751,7 @@ if __name__ == "__main__":
                 
                 # For GA methods, format results consistently with other methods
                 execution_time = time.time() - start_time
+                optimal_solution = np.asarray(optimal_solution).flatten()  # Ensure 1D array
                 mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)
                 payload_fraction = calculate_payload_fraction(mass_ratios)
                 
@@ -774,7 +761,7 @@ if __name__ == "__main__":
                     'dv': [float(x) for x in optimal_solution],
                     'stage_ratios': [float(x) for x in mass_ratios],
                     'payload_fraction': float(payload_fraction),
-                    'error': 0.0
+                    'error': float(abs(np.sum(optimal_solution) - TOTAL_DELTA_V))
                 }
                 results.append(result)
                 logger.info(f"Successfully completed {method} optimization")
