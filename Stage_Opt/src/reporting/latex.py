@@ -201,40 +201,115 @@ Method & {Payload Fraction} & {Error} & {Time (\si{\second})} \\
 \end{tabular}
 \end{table}
 
-\subsection{Detailed Stage Results}
+\subsection{Stage-by-Stage Analysis}
+
+% Individual Stage Comparisons
 """
-        # Add detailed results for each method
-        for method, result in valid_results.items():
+        # Get number of stages from first result
+        num_stages = len(next(iter(valid_results.values()))['dv'])
+        
+        # Generate comparison table for each stage
+        for stage in range(num_stages):
             report_content += f"""
 \\begin{{table}}[H]
 \\centering
-\\caption{{{method} Stage Results}}
-\\begin{{tabular}}{{cS[table-format=4.1]S[table-format=1.4]S[table-format=3.1]}}
+\\caption{{Stage {stage + 1} Comparison Across Methods}}
+\\begin{{tabular}}{{lS[table-format=4.1]S[table-format=1.4]S[table-format=3.1]}}
 \\toprule
-Stage & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambda$)}} & {{Contribution (\\%)}} \\\\
+Method & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambda$)}} & {{Contribution (\\%)}} \\\\
 \\midrule
 """
-            total_dv = sum(result['dv'])
-            for i, (dv, ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
-                contribution = (dv / total_dv * 100) if total_dv > 0 else 0
-                report_content += f"{i+1} & {dv:.1f} & {ratio:.4f} & {contribution:.1f} \\\\\n"
+            # Add data for each method
+            for method, result in valid_results.items():
+                dv = result['dv'][stage]
+                ratio = result['stage_ratios'][stage]
+                contribution = (dv / sum(result['dv']) * 100)
+                report_content += f"{method:<12} & {dv:.1f} & {ratio:.4f} & {contribution:.1f} \\\\\n"
             
-            report_content += r"""\midrule
-\multicolumn{2}{l}{Total $\Delta V$:} & \multicolumn{2}{r}{\SI{""" + f"{total_dv:.1f}" + r"""}{\meter\per\second}} \\
-\multicolumn{2}{l}{Payload Fraction:} & \multicolumn{2}{r}{""" + f"{result['payload_fraction']:.4f}" + r"""} \\
-\bottomrule
+            report_content += r"""\bottomrule
 \end{tabular}
 \end{table}
 """
 
+        # Overall Stage Distribution Analysis
+        report_content += r"""
+% Overall Stage Distribution Analysis
+\begin{table}[H]
+\centering
+\caption{Stage Distribution Summary}
+\begin{tabular}{l"""
+
+        # Add columns for each stage plus total lambda
+        for _ in range(num_stages):
+            report_content += "S[table-format=4.1]"
+        report_content += "S[table-format=1.4]}\n\\toprule\nMethod"
+
+        # Add headers for each stage
+        for i in range(num_stages):
+            report_content += f" & {{Stage {i+1} (\\%)}}"
+        report_content += " & {Total $\\lambda$} \\\\\n\\midrule\n"
+
+        # Add data for each method
+        for method, result in valid_results.items():
+            total_dv = sum(result['dv'])
+            report_content += f"{method:<12}"
+            
+            # Add percentage for each stage
+            for dv in result['dv']:
+                stage_percent = (dv / total_dv * 100)
+                report_content += f" & {stage_percent:.1f}"
+            
+            # Add total lambda
+            report_content += f" & {result['payload_fraction']:.4f} \\\\\n"
+
+        report_content += r"""\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Key Observations:}
+\begin{itemize}
+"""
+        # Add observations about stage distribution patterns
+        even_split_value = 100.0 / num_stages
+        even_split_threshold = 5.0  # 5% threshold for considering distribution even
+        
+        even_split_methods = [m for m, r in valid_results.items() 
+                            if all(abs(dv/sum(r['dv'])*100 - even_split_value) < even_split_threshold 
+                                 for dv in r['dv'])]
+        uneven_methods = [m for m, r in valid_results.items() 
+                         if any(abs(dv/sum(r['dv'])*100 - even_split_value) >= even_split_threshold 
+                              for dv in r['dv'])]
+        
+        if even_split_methods:
+            # Create the split text pattern (e.g., "33.3/33.3/33.3")
+            split_pattern = "/".join([f"{even_split_value:.1f}"] * num_stages)
+            report_content += r"\item " + f"Methods with even ΔV distribution (≈{split_pattern}): {', '.join(even_split_methods)}\n"
+        if uneven_methods:
+            report_content += r"\item " + f"Methods with uneven distribution: {', '.join(uneven_methods)}\n"
+            
+        # Find method with best mass ratio for each stage
+        for i in range(num_stages):
+            best_stage = max(valid_results.items(), key=lambda x: x[1]['stage_ratios'][i])[0]
+            report_content += r"\item " + f"Best Stage {i+1} mass ratio: {best_stage}\n"
+        
+        report_content += r"""\end{itemize}
+
+"""
         report_content += r"\end{document}"
 
-        # Write the report
-        with open(report_path, 'w') as f:
-            f.write(report_content)
+        # Write the report with UTF-8 encoding
+        try:
+            with open(report_path, 'w', encoding='utf-8') as f:
+                # Replace Unicode Delta with LaTeX Delta
+                report_content = report_content.replace('Δ', '$\\Delta$')
+                f.write(report_content)
             
-        logger.info(f"LaTeX report generated: {report_path}")
-        return report_path
+            logger.info(f"LaTeX report generated: {report_path}")
+            return report_path
+            
+        except Exception as e:
+            logger.error(f"Error generating LaTeX report: {e}")
+            return None
         
     except Exception as e:
         logger.error(f"Error generating LaTeX report: {e}")
