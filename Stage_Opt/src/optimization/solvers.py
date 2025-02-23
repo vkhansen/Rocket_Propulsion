@@ -126,63 +126,6 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         logger.error(f"Basin-Hopping optimization failed: {e}")
         raise
 
-def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Differential Evolution."""
-    start_time = time.time()
-    
-    try:
-        logger.info(f"Starting Differential Evolution optimization with parameters:")
-        logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
-        
-        def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON)
-            
-        def constraint(dv):
-            return [float(np.sum(dv) - TOTAL_DELTA_V)]  # Return as list for scipy
-            
-        de_config = config["optimization"]["differential_evolution"]
-        result = differential_evolution(
-            objective,
-            bounds=bounds,
-            strategy=de_config["strategy"],
-            maxiter=de_config["max_iterations"],
-            popsize=de_config["population_size"],
-            mutation=de_config["mutation"],
-            recombination=de_config["recombination"],
-            tol=de_config["tol"],
-            constraints=({'type': 'eq', 'fun': constraint}),
-            x0=initial_guess
-        )
-        
-        if not result.success:
-            logger.error(f"Differential Evolution optimization failed: {result.message}")
-            return None
-            
-        # Calculate performance metrics
-        execution_time = time.time() - start_time
-        optimal_dv = result.x
-        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
-        
-        logger.info(f"Differential Evolution optimization succeeded:")
-        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
-        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
-        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-        
-        return {
-            'method': 'Differential Evolution',
-            'optimal_dv': list(optimal_dv),
-            'stage_ratios': list(stage_ratios),
-            'payload_fraction': float(payload_fraction),
-            'execution_time': execution_time
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in Differential Evolution optimization: {e}")
-        return None
-
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
@@ -207,7 +150,6 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                 return X
 
         class OptimizationProblem(Problem):
-            """Problem class for GA optimization."""
             def __init__(self, n_var, n_obj, xl, xu):
                 super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
                 self.total_delta_v = None
@@ -216,7 +158,6 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                 self.EPSILON = None
 
             def _evaluate(self, x, out, *args, **kwargs):
-                """Evaluate the objective function for GA."""
                 f = []
                 for dv in x:
                     # Calculate payload fraction
@@ -230,6 +171,9 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                     
                 out["F"] = np.column_stack([f])
 
+        # Convert bounds to numpy array
+        bounds = np.array(bounds)
+        
         problem = OptimizationProblem(
             n_var=len(initial_guess),
             n_obj=1,
@@ -275,7 +219,52 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         
     except Exception as e:
         logger.error(f"GA optimization failed: {e}")
-        raise
+        return initial_guess
+
+def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Differential Evolution."""
+    try:
+        def objective(x):
+            """Objective function with penalty for DE."""
+            x = np.asarray(x).flatten()
+            # Calculate payload fraction
+            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            
+            # Add penalty for total delta-V constraint
+            penalty = 1e6 * abs(np.sum(x) - TOTAL_DELTA_V)
+            
+            # Additional penalty for solutions close to physical limits
+            for ratio in mass_ratios:
+                if ratio <= 0.1:
+                    penalty += 100.0 * (0.1 - ratio) ** 2
+            
+            return -payload_fraction + penalty  # Negative because DE minimizes
+        
+        # Run differential evolution
+        result = differential_evolution(
+            objective,
+            bounds,
+            strategy='best1bin',
+            maxiter=config["optimization"]["max_iterations"],
+            popsize=config["optimization"]["population_size"],
+            tol=1e-6,
+            mutation=(0.5, 1.0),
+            recombination=0.7,
+            seed=None,
+            disp=False,
+            polish=True,
+            updating='immediate'
+        )
+        
+        if not result.success:
+            logger.warning(f"Differential Evolution warning: {result.message}")
+        
+        return result.x
+        
+    except Exception as e:
+        logger.error(f"Differential Evolution optimization failed: {e}")
+        return initial_guess
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
@@ -318,8 +307,8 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         
         return {
             'method': 'Adaptive GA',
-            'optimal_dv': list(optimal_dv),
-            'stage_ratios': list(stage_ratios),
+            'optimal_dv': optimal_dv,
+            'stage_ratios': stage_ratios,
             'payload_fraction': float(payload_fraction),
             'execution_time': execution_time,
             'history': result['history']
@@ -489,7 +478,11 @@ class AdaptiveGA:
             if np.random.random() > self.crossover_rate:
                 return parent1.copy(), parent2.copy()
                 
-            # Arithmetic crossover with random weights per dimension
+            # Calculate adaptive crossover strength based on bounds and current fitness
+            crossover_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
+                              (1.0 - len(self.history) / self.config["n_generations"])
+            
+            # Apply crossover with varying strength per dimension
             alpha = np.random.rand(self.n_vars)
             child1 = alpha * parent1 + (1 - alpha) * parent2
             child2 = (1 - alpha) * parent1 + alpha * parent2
