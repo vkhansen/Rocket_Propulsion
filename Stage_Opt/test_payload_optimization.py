@@ -24,7 +24,10 @@ from src.optimization.objective import payload_fraction_objective, objective_wit
 from src.optimization.solvers import (
     solve_with_slsqp,
     solve_with_basin_hopping,
-    solve_with_differential_evolution
+    solve_with_differential_evolution,
+    solve_with_genetic_algorithm,
+    solve_with_adaptive_ga,
+    solve_with_pso
 )
 from src.utils.config import CONFIG
 
@@ -126,6 +129,87 @@ class TestPayloadOptimization(unittest.TestCase):
         self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=2)
         self.assertTrue(all(dv >= 0 for dv in result))
 
+    def test_solve_with_genetic_algorithm(self):
+        """Test genetic algorithm solver directly."""
+        print("\nTesting genetic algorithm solver...")
+        initial_guess = [4000, 5500]
+        bounds = [(0, 9500), (0, 9500)]
+        G0 = 9.81
+        ISP = [300, 320]
+        EPSILON = [0.1, 0.08]
+        TOTAL_DELTA_V = 9500
+        
+        result = solve_with_genetic_algorithm(
+            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+        )
+        
+        self.assertIsInstance(result, dict)
+        self.assertIn('optimal_dv', result)
+        self.assertIn('stage_ratios', result)
+        self.assertIn('payload_fraction', result)
+        self.assertIn('time', result)
+        self.assertIn('history', result)
+        
+        optimal_dv = result['optimal_dv']
+        self.assertEqual(len(optimal_dv), 2)
+        self.assertAlmostEqual(sum(optimal_dv), TOTAL_DELTA_V, places=2)
+        self.assertTrue(all(dv >= 0 for dv in optimal_dv))
+        self.assertTrue(0 < result['payload_fraction'] < 1)
+
+    def test_solve_with_adaptive_ga(self):
+        """Test adaptive genetic algorithm solver directly."""
+        print("\nTesting adaptive genetic algorithm solver...")
+        initial_guess = [4000, 5500]
+        bounds = [(0, 9500), (0, 9500)]
+        G0 = 9.81
+        ISP = [300, 320]
+        EPSILON = [0.1, 0.08]
+        TOTAL_DELTA_V = 9500
+        
+        result = solve_with_adaptive_ga(
+            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+        )
+        
+        self.assertIsInstance(result, dict)
+        self.assertIn('optimal_dv', result)
+        self.assertIn('stage_ratios', result)
+        self.assertIn('payload_fraction', result)
+        self.assertIn('time', result)
+        self.assertIn('history', result)
+        
+        optimal_dv = result['optimal_dv']
+        self.assertEqual(len(optimal_dv), 2)
+        self.assertAlmostEqual(sum(optimal_dv), TOTAL_DELTA_V, places=2)
+        self.assertTrue(all(dv >= 0 for dv in optimal_dv))
+        self.assertTrue(0 < result['payload_fraction'] < 1)
+
+    def test_solve_with_pso(self):
+        """Test particle swarm optimization solver directly."""
+        print("\nTesting PSO solver...")
+        initial_guess = [4000, 5500]
+        bounds = [(0, 9500), (0, 9500)]
+        G0 = 9.81
+        ISP = [300, 320]
+        EPSILON = [0.1, 0.08]
+        TOTAL_DELTA_V = 9500
+        
+        result = solve_with_pso(
+            initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+        )
+        
+        self.assertIsInstance(result, dict)
+        self.assertIn('optimal_dv', result)
+        self.assertIn('stage_ratios', result)
+        self.assertIn('payload_fraction', result)
+        self.assertIn('time', result)
+        self.assertIn('history', result)
+        
+        optimal_dv = result['optimal_dv']
+        self.assertEqual(len(optimal_dv), 2)
+        self.assertAlmostEqual(sum(optimal_dv), TOTAL_DELTA_V, places=2)
+        self.assertTrue(all(dv >= 0 for dv in optimal_dv))
+        self.assertTrue(0 < result['payload_fraction'] < 1)
+
     def test_all_optimization_methods(self):
         """Test all optimization methods."""
         print("\nTesting all optimization methods...")
@@ -147,7 +231,10 @@ class TestPayloadOptimization(unittest.TestCase):
         solvers = [
             ("SLSQP", solve_with_slsqp),
             ("Basin-Hopping", solve_with_basin_hopping),
-            ("Differential Evolution", solve_with_differential_evolution)
+            ("Differential Evolution", solve_with_differential_evolution),
+            ("Genetic Algorithm", solve_with_genetic_algorithm),
+            ("Adaptive GA", solve_with_adaptive_ga),
+            ("PSO", solve_with_pso)
         ]
         
         for name, solver in solvers:
@@ -156,12 +243,29 @@ class TestPayloadOptimization(unittest.TestCase):
                 result = solver(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
                 
                 # Verify results
-                self.assertEqual(len(result), 2)
-                self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=2)
-                self.assertTrue(all(dv >= 0 for dv in result))
+                if name in ["Genetic Algorithm", "Adaptive GA", "PSO"]:
+                    self.assertIsInstance(result, dict)
+                    self.assertIn('optimal_dv', result)
+                    self.assertIn('stage_ratios', result)
+                    self.assertIn('payload_fraction', result)
+                    self.assertIn('time', result)
+                    self.assertIn('history', result)
+                    
+                    optimal_dv = result['optimal_dv']
+                    self.assertEqual(len(optimal_dv), 2)
+                    self.assertAlmostEqual(sum(optimal_dv), TOTAL_DELTA_V, places=2)
+                    self.assertTrue(all(dv >= 0 for dv in optimal_dv))
+                    self.assertTrue(0 < result['payload_fraction'] < 1)
+                else:
+                    self.assertEqual(len(result), 2)
+                    self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=2)
+                    self.assertTrue(all(dv >= 0 for dv in result))
                 
                 # Calculate performance metrics
-                mass_ratios = calculate_mass_ratios(result, ISP, EPSILON, G0)
+                if name in ["Genetic Algorithm", "Adaptive GA", "PSO"]:
+                    mass_ratios = result['stage_ratios']
+                else:
+                    mass_ratios = calculate_mass_ratios(result, ISP, EPSILON, G0)
                 payload_fraction = calculate_payload_fraction(mass_ratios)
                 
                 # Verify performance

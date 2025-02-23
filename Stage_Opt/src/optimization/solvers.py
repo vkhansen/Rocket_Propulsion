@@ -561,16 +561,22 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         
         # Calculate final results
         execution_time = time.time() - start_time
-        stage_ratios = calculate_mass_ratios(gbest_pos, G0, ISP)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
-        
-        return {
-            'optimal_dv': gbest_pos.tolist(),
-            'stage_ratios': stage_ratios.tolist(),
-            'payload_fraction': float(payload_fraction),
-            'time': execution_time,
-            'history': history
-        }
+        try:
+            stage_ratios = calculate_mass_ratios(gbest_pos, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(stage_ratios)
+            
+            return {
+                'method': 'PSO',
+                'optimal_dv': gbest_pos.tolist(),
+                'stage_ratios': stage_ratios.tolist(),
+                'payload_fraction': float(payload_fraction),
+                'execution_time': execution_time,
+                'history': history
+            }
+            
+        except Exception as e:
+            logger.error(f"Error calculating mass ratios: {e}")
+            return None
         
     except Exception as e:
         logger.error(f"Error in PSO solver: {e}")
