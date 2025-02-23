@@ -6,20 +6,24 @@ This project focuses on optimizing the staging of a multi-stage rocket to maximi
 ## Theoretical Background
 The fundamental equation governing rocket staging is:
 
-\[ \Delta V = I_{sp} \cdot g_0 \cdot \ln \left( \frac{m_0}{m_f} \right) \]
+```
+ΔV = I_{sp} \cdot g_0 \cdot \ln \left( \frac{m_0}{m_f} \right)
+```
 
 Where:
-- \( \Delta V \) is the total velocity change required for the mission.
-- \( I_{sp} \) is the **specific impulse** of each stage, a measure of fuel efficiency.
-- \( g_0 \) is the standard gravitational acceleration (9.81 m/s²).
-- \( m_0 \) is the initial mass (including fuel and structure).
-- \( m_f \) is the final mass after stage separation.
+- `ΔV` is the total velocity change required for the mission.
+- `I_{sp}` is the **specific impulse** of each stage, a measure of fuel efficiency.
+- `g_0` is the standard gravitational acceleration (9.81 m/s²).
+- `m_0` is the initial mass (including fuel and structure).
+- `m_f` is the final mass after stage separation.
 
-The mass fraction can also be expressed in terms of the **structural mass ratio** (\( \epsilon \)):
+The mass fraction can also be expressed in terms of the **structural mass ratio** (`ε`):
 
-\[ \frac{m_f}{m_0} = 1 - \epsilon \]
+```
+\frac{m_f}{m_0} = 1 - ε
+```
 
-where \( \epsilon \) represents the fraction of the initial mass that is structural rather than propellant. The optimization seeks to minimize \( \epsilon \) while ensuring sufficient Delta-V for the mission.
+where `ε` represents the fraction of the initial mass that is structural rather than propellant. The optimization seeks to minimize `ε` while ensuring sufficient Delta-V for the mission.
 
 
 
@@ -157,27 +161,45 @@ This module performs multi-stage rocket optimization to maximize payload fractio
 
 The optimization is based on the rocket equation and mass ratio calculations:
 
-- **Mass Ratio (λ)**: For each stage i, λᵢ = exp(-ΔVᵢ/(g₀·ISPᵢ)) - εᵢ
-  - ΔVᵢ: Delta-V contribution of stage i
-  - g₀: Standard gravity (9.81 m/s²)
-  - ISPᵢ: Specific impulse of stage i
-  - εᵢ: Mass fraction of stage i
+### Mass Ratio (λ)
+For each stage i:
 
-- **Payload Fraction**: Product of all stage mass ratios
-- **Total Delta-V**: Sum of individual stage delta-Vs must meet mission requirement
+```
+λᵢ = exp(-ΔVᵢ/(g₀·ISPᵢ)) - εᵢ
+```
+
+Where:
+- `ΔVᵢ` = Delta-V contribution of stage i (m/s)
+- `g₀` = Standard gravity (9.81 m/s²)
+- `ISPᵢ` = Specific impulse of stage i (seconds)
+- `εᵢ` = Mass fraction of stage i (dimensionless)
+
+### Payload Fraction
+The total payload fraction is the product of all stage mass ratios:
+
+```
+Payload Fraction = ∏ᵢ λᵢ
+```
+
+### Total Delta-V Constraint
+The sum of individual stage delta-Vs must meet the mission requirement:
+
+```
+∑ᵢ ΔVᵢ = Total Required ΔV
+```
 
 ## Directory Structure
 
 ```
 Stage_Opt/
 ├── input/                  # Input configuration files
-├── output/                 # Generated results and reports
+├── output/                # Generated results and reports
 ├── src/                   # Source code
-│   ├── optimization/      # Optimization algorithms
-│   ├── reporting/        # CSV and LaTeX report generation
-│   ├── utils/           # Utility functions and configuration
-│   └── visualization/   # Plotting and visualization tools
-└── tests/               # Test suite
+│   ├── optimization/     # Optimization algorithms
+│   ├── reporting/       # CSV and LaTeX report generation
+│   ├── utils/          # Utility functions and configuration
+│   └── visualization/  # Plotting and visualization tools
+└── tests/              # Test suite
 ```
 
 ## Key Components
