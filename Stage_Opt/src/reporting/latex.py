@@ -12,7 +12,7 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
             return None
             
         # Filter out failed optimizations
-        valid_results = {k: v for k, v in results.items() if v is not None and 'optimal_dv' in v and 'stage_ratios' in v}
+        valid_results = {k: v for k, v in results.items() if v is not None and 'dv' in v and 'stage_ratios' in v}
         if not valid_results:
             logger.error("No valid optimization results for report")
             return None
@@ -145,8 +145,8 @@ Method & {Payload Fraction} & {Error} & {Time (\si{\second})} \\
 Stage & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambda$)}} & {{Contribution (\\%)}} \\\\
 \\midrule
 """
-            total_dv = sum(result['optimal_dv'])
-            for i, (dv, ratio) in enumerate(zip(result['optimal_dv'], result['stage_ratios'])):
+            total_dv = sum(result['dv'])
+            for i, (dv, ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
                 contribution = (dv / total_dv * 100) if total_dv > 0 else 0
                 report_content += f"{i+1} & {dv:.1f} & {ratio:.4f} & {contribution:.1f} \\\\\n"
             
