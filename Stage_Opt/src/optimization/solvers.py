@@ -664,100 +664,128 @@ class AdaptiveGA:
             return None
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Particle Swarm Optimization (PSO)."""
+    """Solve using Particle Swarm Optimization (PSO).
+    
+    Args:
+        initial_guess (list): Initial solution guess
+        bounds (list): List of tuples defining bounds for each variable
+        G0 (float): Gravitational constant
+        ISP (list): List of specific impulses for each stage
+        EPSILON (list): List of structural coefficients for each stage
+        TOTAL_DELTA_V (float): Total required delta-V
+        config (dict): Configuration parameters
+        
+    Returns:
+        dict: Dictionary containing optimization results
+    """
+    start_time = time.time()
+    
     try:
-        start_time = time.time()
-        n_particles = config["optimization"]["pso"]["n_particles"]
-        n_iterations = config["optimization"]["pso"]["n_iterations"]
-        c1 = config["optimization"]["pso"]["c1"]  # cognitive parameter
-        c2 = config["optimization"]["pso"]["c2"]  # social parameter
-        w = config["optimization"]["pso"]["w"]    # inertia weight
+        n_particles = config.get('pso_particles', 50)
+        n_iterations = config.get('pso_iterations', 100)
+        c1 = config.get('pso_c1', 2.0)  # Cognitive parameter
+        c2 = config.get('pso_c2', 2.0)  # Social parameter
+        w = config.get('pso_w', 0.7)     # Inertia weight
         
-        n_vars = len(initial_guess)
-        
-        # Initialize particles and velocities
+        # Initialize particles
         particles = np.random.uniform(
             low=[b[0] for b in bounds],
             high=[b[1] for b in bounds],
-            size=(n_particles, n_vars)
+            size=(n_particles, len(initial_guess))
         )
-        velocities = np.zeros((n_particles, n_vars))
         
-        # Initialize personal best positions and values
-        pbest_pos = particles.copy()
-        pbest_val = np.array([
+        # Initialize velocities
+        velocity_bounds = [(-(b[1] - b[0]), (b[1] - b[0])) for b in bounds]
+        velocities = np.random.uniform(
+            low=[b[0] for b in velocity_bounds],
+            high=[b[1] for b in velocity_bounds],
+            size=(n_particles, len(initial_guess))
+        )
+        
+        # Initialize personal best positions and scores
+        personal_best_pos = particles.copy()
+        personal_best_scores = np.array([
             objective_with_penalty(p, G0, ISP, EPSILON, TOTAL_DELTA_V)
             for p in particles
         ])
         
         # Initialize global best
-        gbest_idx = np.argmin(pbest_val)
-        gbest_pos = pbest_pos[gbest_idx].copy()
-        gbest_val = pbest_val[gbest_idx]
+        global_best_idx = np.argmin(personal_best_scores)
+        global_best_pos = personal_best_pos[global_best_idx].copy()
+        global_best_score = personal_best_scores[global_best_idx]
         
-        # Optimization history
+        # Optimization loop
         history = []
-        
-        # Main PSO loop
-        for _ in range(n_iterations):
+        for iteration in range(n_iterations):
             # Update velocities
-            r1, r2 = np.random.rand(2)
-            velocities = (w * velocities +
-                        c1 * r1 * (pbest_pos - particles) +
-                        c2 * r2 * (gbest_pos - particles))
+            r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
+            cognitive_velocity = c1 * r1 * (personal_best_pos - particles)
+            social_velocity = c2 * r2 * (global_best_pos - particles)
+            velocities = w * velocities + cognitive_velocity + social_velocity
+            
+            # Clip velocities to bounds
+            for i, bounds in enumerate(velocity_bounds):
+                velocities[:, i] = np.clip(velocities[:, i], bounds[0], bounds[1])
             
             # Update positions
             particles += velocities
             
-            # Enforce bounds
-            particles = np.clip(particles,
-                              [b[0] for b in bounds],
-                              [b[1] for b in bounds])
+            # Clip positions to bounds and repair solutions
+            for i, bounds in enumerate(bounds):
+                particles[:, i] = np.clip(particles[:, i], bounds[0], bounds[1])
             
-            # Enforce total delta-v constraint
-            sums = np.sum(particles, axis=1)
-            scale = TOTAL_DELTA_V / sums
-            particles = particles * scale[:, None]
+            # Repair total delta-V constraint
+            for i in range(n_particles):
+                current_sum = np.sum(particles[i])
+                if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                    scale_factor = TOTAL_DELTA_V / current_sum
+                    particles[i] *= scale_factor
             
-            # Evaluate particles
-            values = np.array([
+            # Evaluate new positions
+            scores = np.array([
                 objective_with_penalty(p, G0, ISP, EPSILON, TOTAL_DELTA_V)
                 for p in particles
             ])
             
             # Update personal bests
-            improved = values < pbest_val
-            pbest_pos[improved] = particles[improved]
-            pbest_val[improved] = values[improved]
+            improved = scores < personal_best_scores
+            personal_best_pos[improved] = particles[improved]
+            personal_best_scores[improved] = scores[improved]
             
             # Update global best
-            min_idx = np.argmin(values)
-            if values[min_idx] < gbest_val:
-                gbest_pos = particles[min_idx].copy()
-                gbest_val = values[min_idx]
+            min_score_idx = np.argmin(scores)
+            if scores[min_score_idx] < global_best_score:
+                global_best_score = scores[min_score_idx]
+                global_best_pos = particles[min_score_idx].copy()
             
             # Store history
-            history.append(gbest_val)
+            history.append({
+                'iteration': iteration,
+                'best_score': float(global_best_score),
+                'mean_score': float(np.mean(scores)),
+                'std_score': float(np.std(scores))
+            })
+            
+            # Early stopping if converged
+            if iteration > 10 and abs(history[-1]['best_score'] - history[-10]['best_score']) < 1e-8:
+                break
         
-        # Calculate final results
+        # Calculate final metrics
         execution_time = time.time() - start_time
-        try:
-            stage_ratios = calculate_mass_ratios(gbest_pos, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(stage_ratios)
-            
-            return {
-                'method': 'PSO',
-                'optimal_dv': gbest_pos.tolist(),
-                'stage_ratios': stage_ratios.tolist(),
-                'payload_fraction': float(payload_fraction),
-                'execution_time': execution_time,
-                'history': history
-            }
-            
-        except Exception as e:
-            logger.error(f"Error calculating mass ratios: {e}")
-            return None
+        optimal_dv = global_best_pos
+        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
+        
+        return {
+            'method': 'PSO',
+            'optimal_dv': list(optimal_dv),
+            'stage_ratios': list(stage_ratios),
+            'payload_fraction': float(payload_fraction),
+            'execution_time': execution_time,
+            'history': history,
+            'error': float(abs(np.sum(optimal_dv) - TOTAL_DELTA_V))
+        }
         
     except Exception as e:
-        logger.error(f"Error in PSO solver: {e}")
-        return None
+        logger.error(f"PSO optimization failed: {str(e)}")
+        raise

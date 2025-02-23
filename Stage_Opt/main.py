@@ -11,7 +11,8 @@ from src.optimization.solvers import (
     solve_with_basin_hopping,
     solve_with_differential_evolution,
     solve_with_ga,
-    solve_with_adaptive_ga
+    solve_with_adaptive_ga,
+    solve_with_pso
 )
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_latex_report
@@ -20,58 +21,49 @@ from src.reporting.latex import generate_latex_report
 def main():
     """Main optimization routine."""
     try:
-        if len(sys.argv) != 2:
-            print(f"Usage: {sys.argv[0]} input_data.json")
-            sys.exit(1)
-        
-        # Load input data
-        input_file = sys.argv[1]
+        input_file = sys.argv[1] if len(sys.argv) > 1 else "input_data.json"
         parameters, stages = load_input_data(input_file)
         
-        # Extract global parameters
-        global TOTAL_DELTA_V
         TOTAL_DELTA_V = float(parameters['TOTAL_DELTA_V'])
         G0 = float(parameters.get('G0', 9.81))
-        
-        # Extract stage parameters
         ISP = [float(stage['ISP']) for stage in stages]
         EPSILON = [float(stage['EPSILON']) for stage in stages]
+        
         n_stages = len(stages)
+        initial_guess = np.array([TOTAL_DELTA_V / n_stages] * n_stages)
+        bounds = [(0, TOTAL_DELTA_V) for _ in range(n_stages)]
         
-        # Initial setup for optimization
-        initial_guess = np.full(n_stages, TOTAL_DELTA_V / n_stages)
-        max_dv = TOTAL_DELTA_V * 0.9
-        bounds = np.array([(0, max_dv) for _ in range(n_stages)])
-        
-        # Run optimizations with all methods
-        methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA', 'DE']
         results = {}
         
-        for method in methods:
+        methods = [
+            ("SLSQP", solve_with_slsqp),
+            ("BASIN-HOPPING", solve_with_basin_hopping),
+            ("GA", solve_with_ga),
+            ("ADAPTIVE-GA", solve_with_adaptive_ga),
+            ("DE", solve_with_differential_evolution),
+            ("PSO", solve_with_pso)
+        ]
+        
+        for method_name, solver in methods:
             try:
-                start_time = time.time()
-                optimal_solution = None
+                logger.info(f"Starting {method_name} optimization with parameters:")
+                logger.info(f"Initial guess: {initial_guess}")
+                logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
+                logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
                 
-                if method == 'GA':
-                    optimal_solution = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                elif method == 'ADAPTIVE-GA':
-                    optimal_solution = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                elif method == 'DE':
-                    optimal_solution = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                elif method == 'BASIN-HOPPING':
-                    optimal_solution = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                else:  # SLSQP
-                    optimal_solution = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                start_time = time.time()
+                optimal_solution = solver(
+                    initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
+                )
                 
                 if optimal_solution is not None:
-                    # Format results consistently
                     execution_time = time.time() - start_time
                     optimal_solution = np.asarray(optimal_solution).flatten()  # Ensure 1D array
                     mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)
                     payload_fraction = calculate_payload_fraction(mass_ratios)
                     
-                    results[method] = {
-                        'method': method,
+                    results[method_name] = {
+                        'method': method_name,
                         'execution_time': execution_time,  # Consistent key name
                         'dv': [float(x) for x in optimal_solution],
                         'stage_ratios': [float(x) for x in mass_ratios],
@@ -79,23 +71,23 @@ def main():
                         'error': float(abs(np.sum(optimal_solution) - TOTAL_DELTA_V))
                     }
                     
-                    # Log results
-                    logger.info(f"{method} optimization succeeded:")
+                    logger.info(f"{method_name} optimization succeeded:")
                     logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_solution]} m/s")
                     logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
                     logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-                    logger.info(f"Successfully completed {method} optimization")
+                    logger.info(f"Successfully completed {method_name} optimization")
             except Exception as e:
-                logger.error(f"Optimization with {method} failed: {e}")
-                continue
+                logger.error(f"Optimization with {method_name} failed: {e}")
         
-        # Generate plots and report
         if results:
             plot_results(results)
-            generate_latex_report(results)
+            try:
+                generate_latex_report(results)
+            except Exception as e:
+                logger.error(f"Error generating LaTeX report: {str(e)}")
         
     except Exception as e:
-        logger.error(f"Error in main routine: {e}")
+        logger.error(f"Error in main routine: {str(e)}")
         raise
 
 
