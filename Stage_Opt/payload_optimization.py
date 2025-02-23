@@ -50,42 +50,31 @@ def read_input_json(filename):
         logger.error(f"Failed to read input file: {e}")
         raise
 
-def payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff):
-    """Calculate payload fraction objective."""
-    try:
-        n = len(dv)
-        mf = np.ones(n)  # mass fractions
-        for i in range(n-1, -1, -1):
-            mf[i] = np.exp(-dv[i]/(ISP[i]*9.81))
-        
-        # Calculate stage mass ratios
-        mass_ratios = []
-        for i in range(n):
-            eps = EPSILON[i]
-            mf_i = mf[i]
-            ratio = eps/(1-mf_i*(1-eps))
-            mass_ratios.append(ratio)
-            
-        payload_fraction = np.prod(mass_ratios)
-        return -payload_fraction  # Negative because we want to maximize
-    except Exception as e:
-        logger.error(f"Error in payload fraction calculation: {e}")
-        return float('inf')
+def payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff=None):
+    """
+    Reverted payload fraction objective (first method):
+    For each stage, compute the stage ratio as:
+        f_i = exp(-dv_i / (G0 * ISP_i)) - EPSILON_i
+    Return the negative product of all stage ratios.
+    """
+    dv = np.asarray(dv).flatten()  # Ensure dv is 1D
+    product = 1.0
+    for i, dvi in enumerate(dv):
+        f_i = np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i]
+        if f_i <= 0:
+            return 1e6  # High penalty if stage ratio is not positive
+        product *= f_i
+    return -product
 
-def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol=1e-6):
-    """Objective function with penalty for constraint violation."""
-    try:
-        constraint_violation = abs(np.sum(dv) - TOTAL_DELTA_V)
-        obj_value = payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
-        penalty = penalty_coeff * constraint_violation
-        
-        if constraint_violation > tol:
-            logger.warning(f"Constraint violation: {constraint_violation}")
-            
-        return obj_value + penalty
-    except Exception as e:
-        logger.error(f"Error in penalty calculation: {e}")
-        return float('inf')
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff=1e6, tol=1e-6):
+    """
+    Objective wrapper that adds a penalty if the equality constraint
+    sum(dv) == TOTAL_DELTA_V is not met.
+    """
+    dv = np.asarray(dv).flatten()
+    constraint_error = abs(np.sum(dv) - TOTAL_DELTA_V)
+    penalty = penalty_coeff * constraint_error if constraint_error > tol else 0.0
+    return payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
 
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
@@ -388,7 +377,7 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         penalty_coeff = config["optimization"]["penalty_coefficient"]
         
         def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+            return payload_fraction_objective(dv, G0, ISP, EPSILON)
         
         result = differential_evolution(objective, bounds, 
                                      popsize=config["optimization"]["population_size"],
@@ -420,7 +409,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         penalty_coeff = config["optimization"]["penalty_coefficient"]
         
         def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+            return payload_fraction_objective(dv, G0, ISP, EPSILON)
         
         minimizer_kwargs = {
             "method": "L-BFGS-B",
@@ -467,7 +456,7 @@ def solve_with_nelder_mead(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             bounds_penalty = 1e6 * (lower_violation + upper_violation)
             
             # Calculate original objective
-            obj_value = payload_fraction_objective(x, G0, ISP, EPSILON, penalty_coeff)
+            obj_value = payload_fraction_objective(x, G0, ISP, EPSILON)
             
             return obj_value + bounds_penalty
         
@@ -480,7 +469,7 @@ def solve_with_nelder_mead(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         # Ensure result is within bounds
         optimal_dv = np.clip(result.x, bounds[:, 0], bounds[:, 1])
         execution_time = time.time() - start_time
-        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
+        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
         mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
         
         return {
@@ -587,11 +576,11 @@ def optimize_stages(stages, method='SLSQP'):
         if method.upper() == 'SLSQP':
             constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - required_dv}
             res = minimize(payload_fraction_objective, initial_guess,
-                           args=(G0, ISP, EPSILON, penalty_coeff),
+                           args=(G0, ISP, EPSILON),
                            method='SLSQP', bounds=bounds, constraints=constraints)
             optimal_dv = res.x
             execution_time = time.time() - start_time
-            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
+            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
             mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
             
             results = {
@@ -615,7 +604,7 @@ def optimize_stages(stages, method='SLSQP'):
         elif method.upper() == 'PSO':
             optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             execution_time = time.time() - start_time
-            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
+            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
             mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
             
             results = {
@@ -726,35 +715,47 @@ def plot_results(results):
     plot_execution_time(results)
     plot_objective_error(results)
 
-def plot_dv_breakdown(results, filename="dv_breakdown.png"):
+def plot_dv_breakdown(results_df):
     """Plot ΔV breakdown for each optimization method."""
-    solver_names = [res["method"] for res in results]
-    indices = np.arange(len(solver_names))
-    bar_width = 0.15
-
-    required_engine_dv = TOTAL_DELTA_V
-
-    plt.figure(figsize=(12, 6))
-    for i, res in enumerate(results):
-        dv = res["dv"]
-        mass_ratios = res["mass_ratios"]
-        total_dv = np.sum(dv)
+    try:
+        plt.figure(figsize=(12, 6))
         
-        # Plot stacked bars for each stage
-        plt.bar(i, dv[0], bar_width, label='Stage 1' if i == 0 else "", color='dodgerblue')
-        plt.bar(i, dv[1], bar_width, bottom=dv[0], label='Stage 2' if i == 0 else "", color='orange')
+        # Get number of stages from the first row's dv array
+        n_stages = len(eval(results_df[0]['dv']))
         
-        # Add total value on top
-        plt.text(i, total_dv + 50, f"{total_dv:.0f}", ha='center', va='bottom', fontsize=9)
-    
-    plt.axhline(required_engine_dv, color='red', linestyle='--', linewidth=2, label='Required Engine ΔV')
-    plt.xticks(indices, solver_names)
-    plt.ylabel("Engine-Provided ΔV (m/s)")
-    plt.title("ΔV Breakdown per Method")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(filename)
-    plt.close()
+        # Set up the bar positions
+        n_methods = len(results_df)
+        bar_width = 0.8 / n_stages  # Adjust width based on number of stages
+        method_positions = np.arange(n_methods)
+        
+        # Create bars for each stage
+        for i in range(n_stages):
+            # Extract ΔV values for this stage across all methods
+            stage_dvs = [eval(row['dv'])[i] for row in results_df]
+            
+            # Calculate position for this stage's bars
+            positions = method_positions + (i - n_stages/2 + 0.5) * bar_width
+            
+            # Plot bars for this stage
+            plt.bar(positions, stage_dvs, bar_width, 
+                   label=f'Stage {i+1}',
+                   alpha=0.7)
+        
+        plt.xlabel('Optimization Method')
+        plt.ylabel('ΔV (m/s)')
+        plt.title('ΔV Breakdown by Stage and Method')
+        plt.xticks(method_positions, [row['method'] for row in results_df], rotation=45)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save plot
+        plt.savefig('dv_breakdown.png')
+        plt.close()
+        
+    except Exception as e:
+        logger.error(f"Error in plotting ΔV breakdown: {e}")
+        raise
 
 def plot_execution_time(results, filename="execution_time.png"):
     """Plot execution time for each optimization method."""
