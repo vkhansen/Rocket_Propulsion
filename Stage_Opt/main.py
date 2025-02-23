@@ -132,12 +132,13 @@ def optimize_stages(parameters, stages, method='SLSQP'):
         return None
 
 def main():
-    """Main function."""
+    """Main function to run optimization and generate results."""
     try:
+        # Parse command line arguments
         if len(sys.argv) != 2:
-            print(f"Usage: {sys.argv[0]} input_data.json")
+            print("Usage: python main.py <input_file>")
             sys.exit(1)
-        
+            
         # Load input data
         input_file = sys.argv[1]
         parameters, stages = load_input_data(input_file)
@@ -145,49 +146,66 @@ def main():
         # Initialize results list
         results = []
         
-        # Run optimizations with all methods
-        methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'GA-ADAPTIVE', 'PSO']
-        
         # Initial setup for optimization
         n = len(stages)
-        initial_guess = np.full(n, parameters['TOTAL_DELTA_V'] / n)
-        max_dv = parameters['TOTAL_DELTA_V'] * 0.9
-        bounds = np.array([(0, max_dv) for _ in range(n)])
-        ISP = [float(stage['ISP']) for stage in stages]
-        EPSILON = [float(stage['EPSILON']) for stage in stages]
-        G0 = float(stages[0]['G0'])
-        TOTAL_DELTA_V = float(parameters['TOTAL_DELTA_V'])
-
-        for method in methods:
-            try:
-                start_time = time.time()
-                solver_result = None
-                
-                if method == 'GA':
-                    solver_result = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                elif method == 'GA-ADAPTIVE':
-                    solver_result = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                elif method == 'PSO':
-                    solver_result = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                elif method == 'BASIN-HOPPING':
-                    solver_result = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                else:  # SLSQP
-                    solver_result = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-                
-                execution_time = time.time() - start_time
-                logger.info(f"Optimization completed in {execution_time:.3f} seconds")
-                
-                if solver_result is not None:
-                    # Add execution time if not present
-                    if isinstance(solver_result, dict) and 'time' not in solver_result:
-                        solver_result['time'] = execution_time
-                    results.append(solver_result)
-                else:
-                    logger.error(f"Method {method} failed to produce valid results")
-                    
-            except Exception as e:
-                logger.error(f"Method {method} failed: {e}")
-                continue
+        g0 = parameters['g0']
+        isp = [stage['isp'] for stage in stages]
+        epsilon = [stage['epsilon'] for stage in stages]
+        dv_total = parameters['total_dv']
+        x0 = np.array([dv_total/n] * n)  # Equal split initial guess
+        
+        # Calculate bounds
+        bounds = []
+        for _ in range(n):
+            bounds.append([0, dv_total])
+        bounds = np.array(bounds)
+        
+        # Run SLSQP optimization
+        logger.info("Starting SLSQP optimization")
+        slsqp_result = solve_with_slsqp(x0, bounds, g0, isp, epsilon, dv_total, parameters)
+        if slsqp_result:
+            results.append(slsqp_result)
+        else:
+            logger.error("Method SLSQP failed to produce valid results")
+            
+        # Run Basin-Hopping optimization
+        logger.info("Starting Basin-Hopping optimization")
+        basin_result = solve_with_basin_hopping(x0, bounds, g0, isp, epsilon, dv_total, parameters)
+        if basin_result:
+            results.append(basin_result)
+        else:
+            logger.error("Method Basin-Hopping failed to produce valid results")
+        
+        # Run GA optimization
+        logger.info("Starting GA optimization")
+        ga_result = solve_with_ga(n, g0, isp, epsilon, dv_total, x0, bounds)
+        if ga_result:
+            results.append(ga_result)
+        else:
+            logger.error("Method GA failed to produce valid results")
+        
+        # Run Adaptive GA optimization
+        logger.info("Starting Adaptive GA optimization with parameters:")
+        logger.info(f"Initial guess: {x0}")
+        logger.info(f"G0: {g0}, ISP: {isp}, EPSILON: {epsilon}")
+        logger.info(f"TOTAL_DELTA_V: {dv_total}")
+        
+        adaptive_ga_result = solve_with_adaptive_ga(x0, bounds, g0, isp, epsilon, dv_total, parameters)
+        if adaptive_ga_result:
+            results.append(adaptive_ga_result)
+            logger.info("Adaptive GA optimization succeeded:")
+            logger.info(f"  Delta-V: {[f'{x:.2f}' for x in adaptive_ga_result['dv']]} m/s")
+            logger.info(f"  Mass ratios: {[f'{x:.3f}' for x in adaptive_ga_result['stage_ratios']]}")
+            logger.info(f"  Payload fraction: {adaptive_ga_result['payload_fraction']:.3f}")
+            logger.info(f"  Time: {adaptive_ga_result['time']:.3f} seconds")
+        
+        # Run PSO optimization
+        logger.info("Starting PSO optimization")
+        pso_result = solve_with_pso(x0, bounds, g0, isp, epsilon, dv_total, parameters)
+        if pso_result:
+            results.append(pso_result)
+        else:
+            logger.error("Method PSO failed to produce valid results")
         
         # Generate plots if we have results
         if results:
@@ -204,8 +222,7 @@ def main():
         logger.info("Optimization completed successfully")
         
     except Exception as e:
-        logger.error(f"Program failed: {e}")
-        sys.exit(1)
+        logger.error(f"Error in main: {e}")
 
 if __name__ == "__main__":
     main()

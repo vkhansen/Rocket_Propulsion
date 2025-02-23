@@ -180,149 +180,99 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         logger.error(f"Differential Evolution optimization failed: {e}")
         raise
 
-def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Genetic Algorithm."""
+def solve_with_ga(n, g0, isp, epsilon, dv_total, x0, bounds):
+    """Genetic Algorithm solver for stage optimization."""
     try:
-        logger.info(f"Starting GA optimization with parameters:")
-        logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
-        
-        start_time = time.time()
-        
-        # Convert bounds to numpy arrays
-        bounds = np.array(bounds)
-        xl = bounds[:, 0]
-        xu = bounds[:, 1]
-        
-        class RepairDeltaV(Repair):
-            def _do(self, problem, X, **kwargs):
-                if len(X.shape) == 1:
-                    X = X.reshape(1, -1)
-                    
-                for i in range(len(X)):
-                    x = X[i]
-                    current_sum = np.sum(x)
-                    if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                        # Scale the solution to match total ΔV
-                        x = x * (TOTAL_DELTA_V / current_sum)
-                        # Ensure bounds are satisfied
-                        x = np.clip(x, problem.xl, problem.xu)
-                        # Re-normalize if clipping changed the sum
-                        current_sum = np.sum(x)
-                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                            x = x * (TOTAL_DELTA_V / current_sum)
-                        X[i] = x
-                return X
-
-        class OptimizationProblem(Problem):
-            def __init__(self, n_var, n_obj, xl, xu):
-                super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
-                self.total_delta_v = TOTAL_DELTA_V
-                self.G0 = G0
-                self.ISP = ISP
-                self.EPSILON = EPSILON
-
-            def _evaluate(self, x, out, *args, **kwargs):
-                f = []
-                for dv in x:
-                    # Calculate payload fraction with better numerical stability
-                    stage_ratios = []
-                    for dvi, isp, eps in zip(dv, self.ISP, self.EPSILON):
-                        # Prevent numerical issues in exponential
-                        if dvi < 0 or isp <= 0:
-                            ratio = 0.0
-                        else:
-                            try:
-                                ratio = np.exp(-dvi / (self.G0 * isp)) - eps
-                                if ratio <= 0:
-                                    ratio = 0.0
-                            except:
-                                ratio = 0.0
-                        stage_ratios.append(ratio)
-                    
-                    # Calculate payload fraction
-                    payload = np.prod(stage_ratios)
-                    
-                    # Add penalty for total ΔV constraint
-                    penalty = 1e6 * abs(np.sum(dv) - self.total_delta_v)
-                    
-                    # Add penalty for negative or zero ratios
-                    if any(r <= 0 for r in stage_ratios):
-                        penalty += 1e6
-                    
-                    f.append(-payload + penalty)  # Negative because GA minimizes
-                    
-                out["F"] = np.column_stack([f])
-
-        problem = OptimizationProblem(
-            n_var=len(initial_guess),
-            n_obj=1,
-            xl=xl,
-            xu=xu
-        )
-
-        algorithm = GA(
-            pop_size=config["optimization"]["ga"]["population_size"],
-            eliminate_duplicates=True,
-            mutation=PolynomialMutation(
-                prob=config["optimization"]["ga"]["mutation_prob"],
-                eta=config["optimization"]["ga"]["mutation_eta"]
-            ),
-            crossover=SBX(
-                prob=config["optimization"]["ga"]["crossover_prob"],
-                eta=config["optimization"]["ga"]["crossover_eta"]
-            ),
-            repair=RepairDeltaV()
-        )
-
-        termination = DefaultSingleObjectiveTermination(
-            xtol=1e-6,
-            cvtol=1e-6,
-            ftol=1e-6,
-            period=20,
-            n_max_gen=config["optimization"]["ga"]["n_generations"],
-            n_max_evals=None
-        )
-        
-        res = pymoo_minimize(
-            problem,
-            algorithm,
-            termination,
-            seed=1,
-            verbose=False
-        )
-
-        execution_time = time.time() - start_time
-
-        if res.X is None or not res.success:
-            logger.warning(f"GA optimization warning: {res.message}")
-            return None
-            
-        # Calculate final metrics
-        optimal_dv = res.X
-        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
-        
-        # Log results
-        logger.info(f"GA optimization succeeded:")
-        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
-        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
-        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-        logger.info(f"  Time: {execution_time:.3f} seconds")
-        
-        # Return results in standard format
-        return {
-            'method': 'GA',
-            'time': execution_time,
-            'dv': [float(x) for x in optimal_dv],
-            'stage_ratios': [float(x) for x in stage_ratios],
-            'payload_fraction': float(payload_fraction),
-            'error': float(abs(np.sum(optimal_dv) - TOTAL_DELTA_V))
+        # Create config dictionary
+        config = {
+            'n': n,
+            'g0': g0,
+            'isp': isp,
+            'epsilon': epsilon,
+            'total_dv': dv_total,
+            'initial_guess': x0,
+            'bounds': bounds
         }
         
+        # Define problem with proper bounds and repair
+        problem = get_problem_definition(config)
+        
+        # Configure algorithm with safe numerical parameters
+        algorithm = GA(
+            pop_size=50,
+            eliminate_duplicates=True,
+            n_offsprings=20,
+            sampling=FloatRandomSampling(),
+            crossover=SBX(prob=0.9, eta=15),  # Reduced eta for more exploration
+            mutation=PM(prob=0.2, eta=20),    # Increased probability and eta
+            repair=ClipRepair(),              # Ensure values stay within bounds
+        )
+
+        # Create termination criteria
+        termination = get_termination(config)
+
+        # Run optimization with error catching
+        try:
+            res = minimize(
+                problem,
+                algorithm,
+                termination,
+                seed=42,
+                save_history=True,
+                verbose=False
+            )
+            
+            if res.X is None or not np.isfinite(res.X).all():
+                logger.warning("GA optimization produced invalid results")
+                return None
+                
+            # Extract results and validate
+            dv_values = res.X
+            if not np.isclose(np.sum(dv_values), dv_total, rtol=1e-3):
+                logger.warning(f"GA solution does not meet ΔV constraint: {np.sum(dv_values)} != {dv_total}")
+                return None
+                
+            # Calculate mass ratios using safe operations
+            stage_ratios = []
+            for i, dv in enumerate(dv_values):
+                try:
+                    ratio = np.exp(dv / (g0 * isp[i]))
+                    if not np.isfinite(ratio) or ratio <= 1.0:
+                        logger.warning(f"Invalid mass ratio calculated: {ratio}")
+                        return None
+                    stage_ratios.append(ratio)
+                except Exception as e:
+                    logger.warning(f"Error calculating mass ratio: {e}")
+                    return None
+            
+            # Calculate payload fraction
+            try:
+                payload_fraction = 1.0
+                for i, ratio in enumerate(stage_ratios):
+                    payload_fraction *= (1 - epsilon[i]) / ratio
+                if not (0 < payload_fraction < 1):
+                    logger.warning(f"Invalid payload fraction: {payload_fraction}")
+                    return None
+            except Exception as e:
+                logger.warning(f"Error calculating payload fraction: {e}")
+                return None
+            
+            # Return results in standardized format
+            return {
+                'method': 'GA',
+                'dv': [float(x) for x in dv_values],
+                'stage_ratios': [float(x) for x in stage_ratios],
+                'payload_fraction': float(payload_fraction),
+                'time': float(res.exec_time),
+                'error': None
+            }
+            
+        except Exception as e:
+            logger.warning(f"GA optimization error: {e}")
+            return None
+            
     except Exception as e:
-        logger.error(f"GA optimization failed: {e}")
+        logger.warning(f"GA solver setup error: {e}")
         return None
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
@@ -694,92 +644,4 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         
     except Exception as e:
         logger.error(f"Error in PSO solver: {e}")
-        return None
-
-def solve_with_ga(config):
-    """Genetic Algorithm solver for stage optimization."""
-    try:
-        # Extract parameters
-        total_dv = config['total_dv']
-        initial_guess = config.get('initial_guess', np.array([total_dv/2, total_dv/2]))
-        
-        # Define problem with proper bounds and repair
-        problem = get_problem_definition(config)
-        
-        # Configure algorithm with safe numerical parameters
-        algorithm = GA(
-            pop_size=50,
-            eliminate_duplicates=True,
-            n_offsprings=20,
-            sampling=FloatRandomSampling(),
-            crossover=SBX(prob=0.9, eta=15),  # Reduced eta for more exploration
-            mutation=PM(prob=0.2, eta=20),    # Increased probability and eta
-            repair=ClipRepair(),              # Ensure values stay within bounds
-        )
-
-        # Create termination criteria
-        termination = get_termination(config)
-
-        # Run optimization with error catching
-        try:
-            res = minimize(
-                problem,
-                algorithm,
-                termination,
-                seed=42,
-                save_history=True,
-                verbose=False
-            )
-            
-            if res.X is None or not np.isfinite(res.X).all():
-                logger.warning("GA optimization produced invalid results")
-                return None
-                
-            # Extract results and validate
-            dv_values = res.X
-            if not np.isclose(np.sum(dv_values), total_dv, rtol=1e-3):
-                logger.warning(f"GA solution does not meet ΔV constraint: {np.sum(dv_values)} != {total_dv}")
-                return None
-                
-            # Calculate mass ratios using safe operations
-            stage_ratios = []
-            for i, dv in enumerate(dv_values):
-                try:
-                    ratio = np.exp(dv / (config['g0'] * config['isp'][i]))
-                    if not np.isfinite(ratio) or ratio <= 1.0:
-                        logger.warning(f"Invalid mass ratio calculated: {ratio}")
-                        return None
-                    stage_ratios.append(ratio)
-                except Exception as e:
-                    logger.warning(f"Error calculating mass ratio: {e}")
-                    return None
-            
-            # Calculate payload fraction
-            try:
-                payload_fraction = 1.0
-                for i, ratio in enumerate(stage_ratios):
-                    payload_fraction *= (1 - config['epsilon'][i]) / ratio
-                if not (0 < payload_fraction < 1):
-                    logger.warning(f"Invalid payload fraction: {payload_fraction}")
-                    return None
-            except Exception as e:
-                logger.warning(f"Error calculating payload fraction: {e}")
-                return None
-            
-            # Return results in standardized format
-            return {
-                'method': 'GA',
-                'dv': [float(x) for x in dv_values],
-                'stage_ratios': [float(x) for x in stage_ratios],
-                'payload_fraction': float(payload_fraction),
-                'time': float(res.exec_time),
-                'error': None
-            }
-            
-        except Exception as e:
-            logger.warning(f"GA optimization error: {e}")
-            return None
-            
-    except Exception as e:
-        logger.warning(f"GA solver setup error: {e}")
         return None
