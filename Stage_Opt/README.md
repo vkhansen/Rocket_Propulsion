@@ -21,7 +21,7 @@ The mass fraction can also be expressed in terms of the **structural mass ratio*
 
 where \( \epsilon \) represents the fraction of the initial mass that is structural rather than propellant. The optimization seeks to minimize \( \epsilon \) while ensuring sufficient Delta-V for the mission.
 
-The goal of the optimization is to determine the optimal **mass distribution per stage** to minimize structural mass while maximizing the payload fraction.
+
 
 ## Implementation Details
 
