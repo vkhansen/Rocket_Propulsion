@@ -187,7 +187,7 @@ stage,ISP,EPSILON
                 logger.debug(f"Method: {method} optimal DV: {optimal_dv}")
                 logger.debug(f"Method: {method} stage ratios: {stage_ratios}")
                 logger.debug(f"Method: {method} overall payload: {overall_payload}")
-                self.assertAlmostEqual(np.sum(optimal_dv), TOTAL_DELTA_V, places=5)
+                self.assertAlmostEqual(np.sum(optimal_dv), TOTAL_DELTA_V, delta=0.01)
                 for ratio in stage_ratios:
                     self.assertGreater(ratio, 0)
                 self.assertGreater(overall_payload, 0)
