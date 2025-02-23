@@ -492,11 +492,111 @@ def calculate_mass_ratios(dv, ISP, EPSILON):
 def generate_report(results, output_file):
     """Generate LaTeX report."""
     try:
-        # Report generation code here...
-        logger.info(f"Report generated successfully: {output_file}")
+        # Generate plots
+        plot_results(results)
+        
+        # Generate LaTeX report
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write('\\documentclass{article}\n')
+            f.write('\\usepackage{graphicx}\n')  # For including images
+            f.write('\\begin{document}\n')
+            f.write('\\section{Optimization Results}\n')
+            
+            # Add results table
+            f.write('\\begin{table}[h]\n')
+            f.write('\\centering\n')
+            f.write('\\begin{tabular}{|l|c|c|c|}\n')
+            f.write('\\hline\n')
+            f.write('Method & Time (s) & Payload Fraction & Error \\\\\n')
+            f.write('\\hline\n')
+            
+            for result in results:
+                method = result['method'].replace('_', '\\_')  # Escape underscores for LaTeX
+                f.write(f"{method} & {result['time']:.3f} & {result['payload_fraction']:.4f} & {result.get('error', 'N/A')} \\\\\n")
+            
+            f.write('\\hline\n')
+            f.write('\\end{tabular}\n')
+            f.write('\\caption{Optimization Results}\n')
+            f.write('\\end{table}\n')
+            
+            # Include plots
+            f.write('\\begin{figure}[h]\n')
+            f.write('\\centering\n')
+            f.write('\\includegraphics[width=0.8\\textwidth]{dv_breakdown.png}\n')
+            f.write('\\caption{$\\Delta$V Breakdown per Method}\n')
+            f.write('\\end{figure}\n')
+            
+            f.write('\\end{document}\n')
+        
+        logger.info("Report generated successfully: " + output_file)
+        
     except Exception as e:
         logger.error(f"Report generation failed: {e}")
         raise
+
+def plot_results(results):
+    """Generate plots for optimization results."""
+    plot_dv_breakdown(results)
+    plot_execution_time(results)
+    plot_objective_error(results)
+
+def plot_dv_breakdown(results, filename="dv_breakdown.png"):
+    """Plot ΔV breakdown for each optimization method."""
+    solver_names = [res["method"] for res in results]
+    indices = np.arange(len(solver_names))
+    bar_width = 0.15
+
+    required_engine_dv = 9300.0 + GRAVITY_LOSS + DRAG_LOSS
+
+    plt.figure(figsize=(12, 6))
+    for i, res in enumerate(results):
+        dv = res["dv"]
+        mass_ratios = res["mass_ratios"]
+        total_dv = np.sum(dv)
+        
+        # Plot stacked bars for each stage
+        plt.bar(i, dv[0], bar_width, label='Stage 1' if i == 0 else "", color='dodgerblue')
+        plt.bar(i, dv[1], bar_width, bottom=dv[0], label='Stage 2' if i == 0 else "", color='orange')
+        
+        # Add total value on top
+        plt.text(i, total_dv + 50, f"{total_dv:.0f}", ha='center', va='bottom', fontsize=9)
+    
+    plt.axhline(required_engine_dv, color='red', linestyle='--', linewidth=2, label='Required Engine ΔV')
+    plt.xticks(indices, solver_names)
+    plt.ylabel("Engine-Provided ΔV (m/s)")
+    plt.title("ΔV Breakdown per Method")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+def plot_execution_time(results, filename="execution_time.png"):
+    """Plot execution time for each optimization method."""
+    solver_names = [res["method"] for res in results]
+    times = [res["time"] for res in results]
+    
+    plt.figure(figsize=(10, 5))
+    plt.bar(solver_names, times, color='skyblue', alpha=0.8)
+    plt.xlabel("Optimization Method")
+    plt.ylabel("Execution Time (s)")
+    plt.title("Solver Execution Time")
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+def plot_objective_error(results, filename="objective_error.png"):
+    """Plot objective error for each optimization method."""
+    solver_names = [res["method"] for res in results]
+    errors = [res.get("error", np.nan) for res in results]  # Use np.nan for methods without error
+    
+    plt.figure(figsize=(10, 5))
+    plt.bar(solver_names, errors, color='salmon', alpha=0.8)
+    plt.xlabel("Optimization Method")
+    plt.ylabel("Final Objective Error")
+    plt.title("Solver Accuracy (Lower is Better)")
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
 
 if __name__ == "__main__":
     try:
