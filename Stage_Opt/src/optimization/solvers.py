@@ -11,13 +11,49 @@ from pymoo.termination.default import DefaultSingleObjectiveTermination
 
 from .objective import payload_fraction_objective, objective_with_penalty
 from ..utils.config import logger
+from ..utils.data import calculate_mass_ratios, calculate_payload_fraction
+
+class DeltaVRepair(Repair):
+    """Repair operator to ensure delta-v sum constraint."""
+    def __init__(self, total_delta_v):
+        super().__init__()
+        self.total_delta_v = total_delta_v
+
+    def _do(self, problem, X, **kwargs):
+        """Repair the solution to meet the total delta-v constraint."""
+        X = np.maximum(X, 0)  # Ensure non-negative values
+        sums = np.sum(X, axis=1)
+        scale = self.total_delta_v / sums
+        X = X * scale[:, None]
+        return X
+
+class RocketOptimizationProblem(Problem):
+    """Problem definition for rocket stage optimization."""
+    def __init__(self, n_var, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V):
+        super().__init__(
+            n_var=n_var,
+            n_obj=1,
+            n_constr=1,
+            xl=np.array([b[0] for b in bounds]),
+            xu=np.array([b[1] for b in bounds])
+        )
+        self.G0 = G0
+        self.ISP = ISP
+        self.EPSILON = EPSILON
+        self.TOTAL_DELTA_V = TOTAL_DELTA_V
+
+    def _evaluate(self, x, out, *args, **kwargs):
+        """Evaluate the objective and constraints."""
+        f = np.array([payload_fraction_objective(dv, self.G0, self.ISP, self.EPSILON) for dv in x])
+        g = np.array([np.sum(dv) - self.TOTAL_DELTA_V for dv in x])
+        out["F"] = f
+        out["G"] = g
 
 def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Sequential Least Squares Programming (SLSQP)."""
     try:
         logger.info(f"Starting SLSQP optimization with parameters:")
         logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"Bounds: {bounds}")
         logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
@@ -44,7 +80,13 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         if not result.success:
             logger.warning(f"SLSQP optimization warning: {result.message}")
         else:
-            logger.info(f"SLSQP optimization succeeded with x: {result.x}")
+            # Calculate performance metrics
+            mass_ratios = calculate_mass_ratios(result.x, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            logger.info(f"SLSQP optimization succeeded:")
+            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.x]} m/s")
+            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
+            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
             
         return result.x
         
@@ -57,7 +99,6 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
     try:
         logger.info(f"Starting Basin-Hopping optimization with parameters:")
         logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"Bounds: {bounds}")
         logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
@@ -85,7 +126,13 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         if not result.lowest_optimization_result.success:
             logger.warning(f"Basin-Hopping optimization warning: {result.message}")
         else:
-            logger.info(f"Basin-Hopping optimization succeeded with x: {result.x}")
+            # Calculate performance metrics
+            mass_ratios = calculate_mass_ratios(result.x, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            logger.info(f"Basin-Hopping optimization succeeded:")
+            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.x]} m/s")
+            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
+            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
             
         return result.x
         
@@ -98,7 +145,6 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
     try:
         logger.info(f"Starting Differential Evolution optimization with parameters:")
         logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"Bounds: {bounds}")
         logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
@@ -119,10 +165,74 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         if not result.success:
             logger.warning(f"Differential Evolution optimization warning: {result.message}")
         else:
-            logger.info(f"Differential Evolution optimization succeeded with x: {result.x}")
+            # Calculate performance metrics
+            mass_ratios = calculate_mass_ratios(result.x, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            logger.info(f"Differential Evolution optimization succeeded:")
+            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.x]} m/s")
+            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
+            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
             
         return result.x
         
     except Exception as e:
         logger.error(f"Differential Evolution optimization failed: {e}")
+        raise
+
+def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Genetic Algorithm from pymoo."""
+    try:
+        logger.info(f"Starting Genetic Algorithm optimization with parameters:")
+        logger.info(f"Initial guess: {initial_guess}")
+        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
+        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
+
+        problem = RocketOptimizationProblem(
+            n_var=len(initial_guess),
+            bounds=bounds,
+            G0=G0,
+            ISP=ISP,
+            EPSILON=EPSILON,
+            TOTAL_DELTA_V=TOTAL_DELTA_V
+        )
+
+        algorithm = GA(
+            pop_size=config["optimization"]["genetic_algorithm"]["population_size"],
+            sampling=initial_guess,
+            crossover=SBX(prob=0.9, eta=15),
+            mutation=PolynomialMutation(eta=20),
+            repair=DeltaVRepair(TOTAL_DELTA_V),
+            eliminate_duplicates=True
+        )
+
+        termination = DefaultSingleObjectiveTermination(
+            xtol=config["optimization"]["genetic_algorithm"]["xtol"],
+            ftol=config["optimization"]["genetic_algorithm"]["ftol"],
+            period=config["optimization"]["genetic_algorithm"]["period"],
+            n_max_gen=config["optimization"]["genetic_algorithm"]["max_generations"]
+        )
+
+        result = pymoo_minimize(
+            problem,
+            algorithm,
+            termination,
+            seed=1,
+            verbose=True
+        )
+
+        if not result.success:
+            logger.warning(f"Genetic Algorithm optimization warning: {result.message}")
+        else:
+            # Calculate performance metrics
+            mass_ratios = calculate_mass_ratios(result.X, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            logger.info(f"Genetic Algorithm optimization succeeded:")
+            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.X]} m/s")
+            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
+            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+
+        return result.X
+
+    except Exception as e:
+        logger.error(f"Genetic Algorithm optimization failed: {e}")
         raise
