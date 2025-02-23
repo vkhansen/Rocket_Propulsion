@@ -16,6 +16,9 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PolynomialMutation
 from pymoo.core.repair import Repair
 from pymoo.termination.default import DefaultSingleObjectiveTermination
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in power")
 
 # Load configuration
 def load_config():
