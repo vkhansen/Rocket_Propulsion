@@ -210,38 +210,62 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
         )
         optimal_dv = res.x
     elif method.upper() == 'GA':
-        # Use the penalized objective within the GA evaluation with custom initialization to ensure a minimum delta-V for the first stage.
-        # Set a minimum lower bound for the first stage as 10% of TOTAL_DELTA_V
-        min_bounds = np.zeros(n)
-        min_bounds[0] = TOTAL_DELTA_V * 0.1
-
         class OptimizationProblem(Problem):
             def __init__(self):
-                # Use custom lower bounds for the first stage, and 0 for others
-                super().__init__(n_var=n, n_obj=1, xl=min_bounds, xu=max_dv)
+                # Use standard bounds without stage-specific constraints
+                super().__init__(n_var=n, n_obj=1, xl=np.zeros(n), xu=max_dv)
 
             def _evaluate(self, x, out, *args, **kwargs):
-                out["F"] = np.apply_along_axis(lambda dv: objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), 1, x)
+                # Evaluate both the objective and how balanced the solution is
+                base_objective = objective_with_penalty(x, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol)
+                
+                # Add a soft penalty for very unbalanced solutions
+                stage_ratios = [np.exp(-dv / (G0 * isp)) - eps for dv, isp, eps in zip(x, ISP, EPSILON)]
+                ratio_spread = max(stage_ratios) - min(stage_ratios)
+                balance_penalty = ratio_spread * penalty_coeff * 0.1  # Softer penalty for imbalance
+                
+                out["F"] = base_objective + balance_penalty
 
         problem = OptimizationProblem()
 
-        # Set GA population size to 200
-        pop_size = 200
+        # Increase population size for better exploration
+        pop_size = 400
 
-        # Custom initial population that respects the minimum for the first stage
-        custom_pop = np.random.uniform(0, 1, size=(pop_size, n))
-        # For first stage, sample between min_bounds[0] and max_dv[0]
-        custom_pop[:, 0] = np.random.uniform(min_bounds[0], max_dv[0], size=pop_size)
-        # Scale each individual's allocation so that the sum equals TOTAL_DELTA_V
-        custom_pop = (custom_pop.T / custom_pop.sum(axis=1) * TOTAL_DELTA_V).T
+        # Generate smarter initial population
+        custom_pop = np.zeros((pop_size, n))
+        for i in range(pop_size):
+            if i < pop_size // 3:
+                # First third: roughly equal distribution
+                custom_pop[i] = np.full(n, TOTAL_DELTA_V / n) + np.random.normal(0, TOTAL_DELTA_V * 0.05, n)
+            elif i < 2 * pop_size // 3:
+                # Second third: weighted by ISP (higher ISP gets more Delta-V)
+                weights = np.array(ISP) / sum(ISP)
+                custom_pop[i] = weights * TOTAL_DELTA_V + np.random.normal(0, TOTAL_DELTA_V * 0.05, n)
+            else:
+                # Last third: weighted by structural efficiency (lower EPSILON gets more Delta-V)
+                weights = (1 - np.array(EPSILON)) / sum(1 - np.array(EPSILON))
+                custom_pop[i] = weights * TOTAL_DELTA_V + np.random.normal(0, TOTAL_DELTA_V * 0.05, n)
+            
+            # Ensure non-negative values and total Delta-V constraint
+            custom_pop[i] = np.maximum(custom_pop[i], 0)
+            custom_pop[i] = custom_pop[i] * TOTAL_DELTA_V / custom_pop[i].sum()
 
-        algorithm = GA(pop_size=pop_size, eliminate_duplicates=True)
-        # Set the custom initialization if supported
-        algorithm.initial_population = custom_pop
+        algorithm = GA(
+            pop_size=pop_size,
+            eliminate_duplicates=True,
+            mutation=0.15,     # Slightly higher mutation for more exploration
+            crossover=0.85,    # High crossover rate for better exploitation
+            survival='auto',   # Let the algorithm adapt survival selection
+            sampling=custom_pop  # Use our smart initial population
+        )
 
-        # Increase termination generation count
-        res_obj = pymoo_minimize(problem, algorithm, termination=('n_gen', 200))
-        res = res_obj.X  # GA returns the best solution directly
+        res_obj = pymoo_minimize(
+            problem,
+            algorithm,
+            termination=('n_gen', 400),  # More generations for better convergence
+            seed=42  # Set seed for reproducibility
+        )
+        res = res_obj.X
         optimal_dv = res
     elif method.lower() == 'newton':
         jacobian = lambda x: approx_fprime(x, lambda dv: objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), 1e-8)
