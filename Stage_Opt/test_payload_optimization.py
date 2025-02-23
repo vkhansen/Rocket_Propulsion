@@ -255,6 +255,16 @@ class TestCSVOutputs(unittest.TestCase):
             reader = csv.DictReader(f)
             rows = list(reader)
             
+        # Get number of stages from input data
+        with open('input_data.json') as f:
+            data = json.load(f)
+            n_stages = len(data['stages'])
+            
+        # Expected rows = num_stages × num_methods
+        expected_rows = n_stages * 6  # 6 optimization methods
+        self.assertEqual(len(rows), expected_rows,
+                        f"Expected {expected_rows} rows ({n_stages} stages × 6 methods)")
+        
         # Verify columns
         expected_columns = ['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)', 'Method']
         self.assertListEqual(reader.fieldnames, expected_columns)
@@ -263,10 +273,10 @@ class TestCSVOutputs(unittest.TestCase):
         methods = set(row['Method'] for row in rows)
         num_methods = len(methods)
         
-        # Each method should have 2 stages
-        expected_rows = num_methods * 2  # 2 stages per method
+        # Each method should have n_stages stages
+        expected_rows = num_methods * n_stages  # n_stages stages per method
         self.assertEqual(len(rows), expected_rows, 
-                       f"Expected {expected_rows} rows (2 stages × {num_methods} methods)")
+                       f"Expected {expected_rows} rows ({n_stages} stages × {num_methods} methods)")
 
     def test_lambda_calculations(self):
         """Verify λ calculations against manual computations."""
@@ -295,7 +305,13 @@ class TestCSVOutputs(unittest.TestCase):
 
     def test_delta_v_split(self):
         """Verify delta-V split sums to total delta-V."""
-        total_delta_v = 9300  # As defined in the input data
+        # Load total delta-V from input data
+        with open('input_data.json') as f:
+            data = json.load(f)
+            total_delta_v = float(data['parameters']['TOTAL_DELTA_V'])
+            n_stages = len(data['stages'])
+            
+        # Read stage results and verify delta-V sum
         with open(self.stage_results_path) as f:
             reader = csv.DictReader(f)
             # Group by method and calculate total delta-V for each
@@ -304,8 +320,8 @@ class TestCSVOutputs(unittest.TestCase):
                 method = row['Method']
                 if method not in method_totals:
                     method_totals[method] = 0
-                if row['Stage'] in ('1', '2'):
-                    method_totals[method] += float(row['Delta-V (m/s)'])
+                # Sum all stages
+                method_totals[method] += float(row['Delta-V (m/s)'])
         
         # Verify total delta-V for each method
         for method, total in method_totals.items():
@@ -330,8 +346,7 @@ class TestCSVOutputs(unittest.TestCase):
                 method = row['Method']
                 if method not in method_rows:
                     method_rows[method] = []
-                if row['Stage'] in ('1', '2'):
-                    method_rows[method].append(row)
+                method_rows[method].append(row)
             
             # Calculate lambda product for each method
             for method, method_data in method_rows.items():

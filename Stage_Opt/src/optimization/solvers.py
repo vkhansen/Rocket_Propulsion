@@ -69,23 +69,31 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             return payload_fraction_objective(dv, G0, ISP, EPSILON)
             
         def total_dv_constraint(dv):
+            # Ensure exact total delta-V
             return np.sum(dv) - TOTAL_DELTA_V
             
-        def min_dv_constraint_stage1(dv):
-            return dv[0] - 0.15 * TOTAL_DELTA_V  # First stage must be at least 15%
+        def min_dv_constraints(dv):
+            # First stage: minimum 15%
+            min_dv1 = dv[0] - 0.15 * TOTAL_DELTA_V
+            # Other stages: minimum 1% each
+            min_dv_others = np.minimum(0, dv[1:] - 0.01 * TOTAL_DELTA_V)
+            return np.concatenate(([min_dv1], min_dv_others))
             
-        def min_dv_constraint_other_stages(dv):
-            return dv[1:] - 0.01 * TOTAL_DELTA_V  # Other stages must be at least 1%
-            
-        def max_dv_constraint_stage1(dv):
-            return 0.8 * TOTAL_DELTA_V - dv[0]  # First stage must be at most 80%
+        def max_dv_constraint(dv):
+            # First stage: maximum 80%
+            return 0.8 * TOTAL_DELTA_V - dv[0]
             
         constraints = [
             {'type': 'eq', 'fun': total_dv_constraint},
-            {'type': 'ineq', 'fun': min_dv_constraint_stage1},
-            {'type': 'ineq', 'fun': min_dv_constraint_other_stages},
-            {'type': 'ineq', 'fun': max_dv_constraint_stage1}
+            {'type': 'ineq', 'fun': min_dv_constraints},
+            {'type': 'ineq', 'fun': max_dv_constraint}
         ]
+        
+        # Set tight tolerance for constraint satisfaction
+        options = {
+            'ftol': 1e-8,
+            'maxiter': config["optimization"]["max_iterations"]
+        }
         
         result = minimize(
             objective,
@@ -93,16 +101,18 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             method='SLSQP',
             bounds=bounds,
             constraints=constraints,
-            options={
-                'ftol': config["optimization"]["tolerance"],
-                'maxiter': config["optimization"]["max_iterations"]
-            }
+            options=options
         )
         
         if not result.success:
             logger.warning(f"SLSQP optimization warning: {result.message}")
-            
-        return result.x
+        
+        # Ensure exact total delta-V by scaling
+        x = result.x
+        scale = TOTAL_DELTA_V / np.sum(x)
+        x = x * scale
+        
+        return x
         
     except Exception as e:
         logger.error(f"SLSQP optimization failed: {e}")
