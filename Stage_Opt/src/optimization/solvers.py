@@ -2,60 +2,54 @@
 import time
 import numpy as np
 from scipy.optimize import minimize, basinhopping, differential_evolution
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
+from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.mutation.pm import PolynomialMutation
-from pymoo.core.repair import Repair
-from pymoo.termination.default import DefaultSingleObjectiveTermination
-
-from .objective import payload_fraction_objective, objective_with_penalty
+from pymoo.operators.mutation.pm import PM
+from pymoo.optimize import minimize as pymoo_minimize
 from ..utils.config import logger
-from ..utils.data import calculate_mass_ratios, calculate_payload_fraction
+from .objective import payload_fraction_objective
 
 __all__ = [
     'solve_with_slsqp',
     'solve_with_basin_hopping',
-    'solve_with_differential_evolution',
     'solve_with_ga',
+    'solve_with_differential_evolution',
     'solve_with_adaptive_ga',
     'solve_with_pso'
 ]
 
-class DeltaVRepair(Repair):
-    """Repair operator to ensure delta-v sum constraint."""
-    def __init__(self, total_delta_v):
-        super().__init__()
-        self.total_delta_v = total_delta_v
-
-    def _do(self, problem, X, **kwargs):
-        """Repair the solution to meet the total delta-v constraint."""
-        X = np.maximum(X, 0)  # Ensure non-negative values
-        sums = np.sum(X, axis=1)
-        scale = self.total_delta_v / sums
-        X = X * scale[:, None]
-        return X
-
 class RocketOptimizationProblem(Problem):
     """Problem definition for rocket stage optimization."""
+    
     def __init__(self, n_var, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V):
-        super().__init__(
-            n_var=n_var,
-            n_obj=1,
-            n_constr=1,
-            xl=np.array([b[0] for b in bounds]),
-            xu=np.array([b[1] for b in bounds])
-        )
+        xl = np.array([b[0] for b in bounds])
+        xu = np.array([b[1] for b in bounds])
+        super().__init__(n_var=n_var, n_obj=1, n_constr=1, xl=xl, xu=xu)
         self.G0 = G0
         self.ISP = ISP
         self.EPSILON = EPSILON
         self.TOTAL_DELTA_V = TOTAL_DELTA_V
 
     def _evaluate(self, x, out, *args, **kwargs):
-        """Evaluate the objective and constraints."""
-        f = np.array([payload_fraction_objective(dv, self.G0, self.ISP, self.EPSILON) for dv in x])
-        g = np.array([np.sum(dv) - self.TOTAL_DELTA_V for dv in x])
+        # Handle both single solutions and populations
+        x = np.atleast_2d(x)
+        
+        # Initialize outputs
+        n_solutions = x.shape[0]
+        f = np.zeros(n_solutions)
+        g = np.zeros(n_solutions)
+        
+        # Evaluate each solution
+        for i in range(n_solutions):
+            # Calculate payload fraction
+            stage_ratios = [np.exp(-dv / (self.G0 * isp)) - eps 
+                          for dv, isp, eps in zip(x[i], self.ISP, self.EPSILON)]
+            f[i] = -np.prod(stage_ratios)  # Negative because we minimize
+            
+            # Constraint: total delta-v
+            g[i] = abs(np.sum(x[i]) - self.TOTAL_DELTA_V)
+        
         out["F"] = f
         out["G"] = g
 
@@ -138,9 +132,18 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         mutation_prob = ga_config.get('mutation_prob', 0.2)
         mutation_eta = ga_config.get('mutation_eta', 20)
         
+        # Create initial population with initial guess
+        n_var = len(initial_guess)
+        initial_population = np.random.uniform(
+            low=[b[0] for b in bounds],
+            high=[b[1] for b in bounds],
+            size=(population_size, n_var)
+        )
+        initial_population[0] = initial_guess  # Include initial guess
+        
         # Create problem
         problem = RocketOptimizationProblem(
-            n_var=len(initial_guess),
+            n_var=n_var,
             bounds=bounds,
             G0=G0,
             ISP=ISP,
@@ -151,23 +154,27 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         # Setup algorithm
         algorithm = GA(
             pop_size=population_size,
-            sampling=initial_guess,
-            crossover_prob=crossover_prob,
-            crossover_eta=crossover_eta,
-            mutation_prob=mutation_prob,
-            mutation_eta=mutation_eta
+            sampling=initial_population,
+            crossover=SBX(prob=crossover_prob, eta=crossover_eta),
+            mutation=PM(prob=mutation_prob, eta=mutation_eta)
         )
         
         # Run optimization
-        result = minimize(
+        res = pymoo_minimize(
             problem,
             algorithm,
             ('n_gen', n_generations),
-            seed=1,
-            verbose=False
+            seed=1
         )
         
-        return result.X
+        if res.X is None:
+            logger.warning("GA optimization did not find a solution")
+            return initial_guess
+            
+        # Scale solution to meet total delta-v constraint exactly
+        solution = res.X
+        scale = TOTAL_DELTA_V / np.sum(solution)
+        return solution * scale
         
     except Exception as e:
         logger.error(f"GA optimization failed: {str(e)}")
