@@ -21,11 +21,11 @@ This report presents the results of optimizing a two-stage rocket using various 
 Method & Payload Fraction & Error & Time (s) \\
 \midrule
 SLSQP & 0.0229 & 0.0000e+00 & 0.00 \\
-BASIN-HOPPING & 0.0229 & 1.0295e-09 & 1.46 \\
-GA & 0.0229 & 0.0000e+00 & 0.00 \\
-ADAPTIVE-GA & 0.0229 & 0.0000e+00 & 0.00 \\
-DE & 0.0229 & 0.0000e+00 & 0.00 \\
-PSO & 0.0397 & 0.0000e+00 & 0.13 \\
+BASIN-HOPPING & 0.0229 & 1.1460e-09 & 1.00 \\
+GA & 0.0229 & 0.0000e+00 & 0.04 \\
+ADAPTIVE-GA & 0.0229 & 0.0000e+00 & 0.01 \\
+DE & 0.0397 & 0.0000e+00 & 2.68 \\
+PSO & 0.0394 & 0.0000e+00 & 0.15 \\
 \bottomrule
 \end{tabular}
 \caption{Summary of optimization results}
@@ -55,6 +55,6 @@ PSO & 0.0397 & 0.0000e+00 & 0.13 \\
 \end{figure}
 
 \section{Conclusion}
-The optimization results show that the PSO method achieved the best performance with a payload fraction of 0.0397. This suggests that PSO is most suitable for this particular rocket stage optimization problem.
+The optimization results show that the DE method achieved the best performance with a payload fraction of 0.0397. This suggests that DE is most suitable for this particular rocket stage optimization problem.
 
 \end{document}

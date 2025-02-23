@@ -129,425 +129,305 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
-        class RepairDeltaV(Repair):
-            def _do(self, problem, X, **kwargs):
-                if len(X.shape) == 1:
-                    X = X.reshape(1, -1)
-                    
-                for i in range(len(X)):
-                    x = X[i]
-                    current_sum = np.sum(x)
-                    if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                        # Scale the solution to match total ΔV
-                        x = x * (TOTAL_DELTA_V / current_sum)
-                        # Ensure bounds are satisfied
-                        x = np.clip(x, problem.xl, problem.xu)
-                        # Re-normalize if clipping changed the sum
-                        current_sum = np.sum(x)
-                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                            x = x * (TOTAL_DELTA_V / current_sum)
-                        X[i] = x
-                return X
-
-        class OptimizationProblem(Problem):
-            def __init__(self, n_var, n_obj, xl, xu):
-                super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
-                self.total_delta_v = None
-                self.G0 = None
-                self.ISP = None
-                self.EPSILON = None
-
-            def _evaluate(self, x, out, *args, **kwargs):
-                f = []
-                for dv in x:
-                    # Calculate payload fraction
-                    stage_ratios = [np.exp(-dvi / (self.G0 * isp)) - eps 
-                                  for dvi, isp, eps in zip(dv, self.ISP, self.EPSILON)]
-                    payload = -np.prod(stage_ratios)  # Negative because GA minimizes
-                    
-                    # Add penalty for total ΔV constraint
-                    penalty = 1e6 * abs(np.sum(dv) - self.total_delta_v)
-                    f.append(payload + penalty)
-                    
-                out["F"] = np.column_stack([f])
-
-        # Convert bounds to numpy array
-        bounds = np.array(bounds)
+        # Get GA parameters from config
+        ga_config = config.get('ga', {})
+        population_size = ga_config.get('population_size', 100)
+        n_generations = ga_config.get('n_generations', 200)
+        crossover_prob = ga_config.get('crossover_prob', 0.9)
+        crossover_eta = ga_config.get('crossover_eta', 15)
+        mutation_prob = ga_config.get('mutation_prob', 0.2)
+        mutation_eta = ga_config.get('mutation_eta', 20)
         
-        problem = OptimizationProblem(
+        # Create problem
+        problem = RocketOptimizationProblem(
             n_var=len(initial_guess),
-            n_obj=1,
-            xl=bounds[:, 0],
-            xu=bounds[:, 1]
-        )
-
-        problem.total_delta_v = TOTAL_DELTA_V
-        problem.G0 = G0
-        problem.ISP = ISP
-        problem.EPSILON = EPSILON
-
-        ga_config = config["optimization"]["ga"]
-        algorithm = GA(
-            pop_size=ga_config["population_size"],
-            eliminate_duplicates=True,
-            mutation=PolynomialMutation(prob=ga_config["mutation_prob"], eta=ga_config["mutation_eta"]),
-            crossover=SBX(prob=ga_config["crossover_prob"], eta=ga_config["crossover_eta"]),
-            repair=RepairDeltaV()
-        )
-
-        termination = DefaultSingleObjectiveTermination(
-            xtol=1e-6,
-            cvtol=1e-6,
-            ftol=1e-6,
-            period=20,
-            n_max_gen=ga_config["n_generations"],
-            n_max_evals=None
+            bounds=bounds,
+            G0=G0,
+            ISP=ISP,
+            EPSILON=EPSILON,
+            TOTAL_DELTA_V=TOTAL_DELTA_V
         )
         
-        res = pymoo_minimize(
+        # Setup algorithm
+        algorithm = GA(
+            pop_size=population_size,
+            sampling=initial_guess,
+            crossover_prob=crossover_prob,
+            crossover_eta=crossover_eta,
+            mutation_prob=mutation_prob,
+            mutation_eta=mutation_eta
+        )
+        
+        # Run optimization
+        result = minimize(
             problem,
             algorithm,
-            termination,
+            ('n_gen', n_generations),
             seed=1,
             verbose=False
         )
-
-        if res.X is None or not res.success:
-            logger.warning(f"GA optimization warning: {res.message}")
-            return initial_guess
-            
-        return res.X
+        
+        return result.X
         
     except Exception as e:
-        logger.error(f"GA optimization failed: {e}")
-        return initial_guess
-
-def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Differential Evolution."""
-    try:
-        def objective(x):
-            """Objective function with penalty for DE."""
-            x = np.asarray(x).flatten()
-            # Calculate payload fraction
-            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Add penalty for total delta-V constraint
-            penalty = 1e6 * abs(np.sum(x) - TOTAL_DELTA_V)
-            
-            # Additional penalty for solutions close to physical limits
-            for ratio in mass_ratios:
-                if ratio <= 0.1:
-                    penalty += 100.0 * (0.1 - ratio) ** 2
-            
-            return -payload_fraction + penalty  # Negative because DE minimizes
-        
-        # Run differential evolution
-        de_config = config["optimization"]["differential_evolution"]
-        result = differential_evolution(
-            objective,
-            bounds,
-            strategy=de_config["strategy"],
-            maxiter=de_config["max_iterations"],
-            popsize=de_config["population_size"],
-            tol=de_config["tol"],
-            mutation=de_config["mutation"],
-            recombination=de_config["recombination"],
-            seed=None,
-            disp=False,
-            polish=True,
-            updating='immediate'
-        )
-        
-        if not result.success:
-            logger.warning(f"Differential Evolution warning: {result.message}")
-        
-        return result.x
-        
-    except Exception as e:
-        logger.error(f"Differential Evolution optimization failed: {e}")
+        logger.error(f"GA optimization failed: {str(e)}")
         return initial_guess
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
     try:
-        class AdaptiveGA:
-            def __init__(self, config, bounds):
-                aga_config = config["optimization"]["adaptive_ga"]
-                self.pop_size = aga_config["initial_pop_size"]
-                self.max_pop_size = aga_config["max_pop_size"]
-                self.min_pop_size = aga_config["min_pop_size"]
-                self.mutation_rate = aga_config["initial_mutation_rate"]
-                self.max_mutation_rate = aga_config["max_mutation_rate"]
-                self.min_mutation_rate = aga_config["min_mutation_rate"]
-                self.crossover_rate = aga_config["initial_crossover_rate"]
-                self.max_crossover_rate = aga_config["max_crossover_rate"]
-                self.min_crossover_rate = aga_config["min_crossover_rate"]
-                self.diversity_threshold = aga_config["diversity_threshold"]
-                self.stagnation_threshold = aga_config["stagnation_threshold"]
-                self.n_generations = aga_config["n_generations"]
-                self.elite_size = aga_config["elite_size"]
-                self.bounds = bounds
-                self.history = []
-                self.n_vars = len(bounds)
-                self.bounds_low = bounds[:, 0]
-                self.bounds_high = bounds[:, 1]
-                self.best_fitness = float('inf')
-                self.stagnation_counter = 0
-                
-            def initialize_population(self):
-                """Initialize population with random solutions."""
-                return np.random.uniform(
-                    self.bounds_low, 
-                    self.bounds_high, 
-                    size=(self.pop_size, self.n_vars)
-                )
-                
-            def repair_solution(self, solution):
-                """Repair solution to satisfy constraints."""
-                total = np.sum(solution)
-                if abs(total - TOTAL_DELTA_V) > 1e-6:
-                    solution = solution * (TOTAL_DELTA_V / total)
-                    solution = np.clip(solution, self.bounds_low, self.bounds_high)
-                    # Re-normalize if clipping changed the sum
-                    total = np.sum(solution)
-                    if abs(total - TOTAL_DELTA_V) > 1e-6:
-                        solution = solution * (TOTAL_DELTA_V / total)
-                return solution
-                
-            def evaluate_population(self, population):
-                """Evaluate fitness of population."""
-                fitness = []
-                for solution in population:
-                    mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-                    payload_fraction = calculate_payload_fraction(mass_ratios)
-                    penalty = 1e6 * abs(np.sum(solution) - TOTAL_DELTA_V)
-                    fitness.append(-payload_fraction + penalty)  # Negative because we minimize
-                return np.array(fitness)
-                
-            def select_parents(self, population, fitness):
-                """Tournament selection."""
-                tournament_size = 3
-                idx1 = np.random.randint(0, len(population), tournament_size)
-                idx2 = np.random.randint(0, len(population), tournament_size)
-                parent1 = population[idx1[np.argmin(fitness[idx1])]]
-                parent2 = population[idx2[np.argmin(fitness[idx2])]]
-                return parent1, parent2
-                
-            def crossover(self, parent1, parent2):
-                """Adaptive arithmetic crossover."""
-                if np.random.random() > self.crossover_rate:
-                    return parent1.copy(), parent2.copy()
-                    
-                # Calculate adaptive crossover strength
-                crossover_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
-                                  (1.0 - len(self.history) / self.n_generations)
-                
-                # Apply crossover with varying strength per dimension
-                alpha = np.random.rand(self.n_vars)
-                child1 = alpha * parent1 + (1 - alpha) * parent2
-                child2 = (1 - alpha) * parent1 + alpha * parent2
-                
-                return child1, child2
-                
-            def mutate(self, solution):
-                """Adaptive Gaussian mutation."""
-                if np.random.random() > self.mutation_rate:
-                    return solution
-                    
-                # Calculate adaptive mutation strength
-                mutation_strength = (self.bounds_high - self.bounds_low) * 0.1 * \
-                                 (1.0 - len(self.history) / self.n_generations)
-                
-                # Apply mutation
-                mutation = np.random.normal(0, mutation_strength, self.n_vars)
-                mutated = solution + mutation
-                mutated = np.clip(mutated, self.bounds_low, self.bounds_high)
-                return mutated
-                
-            def update_parameters(self, population, fitness):
-                """Update adaptive parameters."""
-                # Calculate population diversity
-                mean_solution = np.mean(population, axis=0)
-                diversity = np.mean([np.linalg.norm(sol - mean_solution) for sol in population])
-                normalized_diversity = diversity / np.linalg.norm(self.bounds_high - self.bounds_low)
-                
-                # Update mutation rate based on diversity
-                if normalized_diversity < self.diversity_threshold:
-                    self.mutation_rate = min(self.max_mutation_rate,
-                                          self.mutation_rate * 1.1)
-                else:
-                    self.mutation_rate = max(self.min_mutation_rate,
-                                          self.mutation_rate * 0.9)
-                
-                # Update crossover rate based on fitness improvement
-                if len(self.history) > 0 and min(fitness) < self.best_fitness:
-                    self.crossover_rate = min(self.max_crossover_rate,
-                                           self.crossover_rate * 1.1)
-                    self.stagnation_counter = 0
-                else:
-                    self.crossover_rate = max(self.min_crossover_rate,
-                                           self.crossover_rate * 0.9)
-                    self.stagnation_counter += 1
-                
-                # Update population size based on stagnation
-                if self.stagnation_counter >= self.stagnation_threshold:
-                    self.pop_size = max(self.min_pop_size,
-                                     int(self.pop_size * 0.9))
-                    self.stagnation_counter = 0
-                
-                # Record best fitness
-                self.best_fitness = min(min(fitness), self.best_fitness)
-                
-            def optimize(self):
-                """Main optimization loop."""
-                population = self.initialize_population()
-                
-                for gen in range(self.n_generations):
-                    # Evaluate population
-                    fitness = self.evaluate_population(population)
-                    best_idx = np.argmin(fitness)
-                    self.history.append(fitness[best_idx])
-                    
-                    # Update adaptive parameters
-                    self.update_parameters(population, fitness)
-                    
-                    # Create new population
-                    new_population = []
-                    
-                    # Elitism
-                    elite_idx = np.argsort(fitness)[:self.elite_size]
-                    new_population.extend(population[elite_idx])
-                    
-                    # Generate offspring
-                    while len(new_population) < self.pop_size:
-                        # Select parents
-                        parent1, parent2 = self.select_parents(population, fitness)
-                        
-                        # Crossover
-                        child1, child2 = self.crossover(parent1, parent2)
-                        
-                        # Mutation
-                        child1 = self.mutate(child1)
-                        child2 = self.mutate(child2)
-                        
-                        # Repair
-                        child1 = self.repair_solution(child1)
-                        child2 = self.repair_solution(child2)
-                        
-                        new_population.extend([child1, child2])
-                    
-                    # Trim population to current size
-                    population = np.array(new_population[:self.pop_size])
-                
-                # Return best solution
-                final_fitness = self.evaluate_population(population)
-                best_idx = np.argmin(final_fitness)
-                return population[best_idx], {'history': self.history}
-
-        # Run optimization
-        optimizer = AdaptiveGA(config, np.array(bounds))
-        optimal_dv, result = optimizer.optimize()
+        # Get Adaptive GA parameters from config
+        ada_ga_config = config.get('adaptive_ga', {})
+        initial_pop_size = ada_ga_config.get('initial_pop_size', 100)
+        max_pop_size = ada_ga_config.get('max_pop_size', 200)
+        min_pop_size = ada_ga_config.get('min_pop_size', 50)
+        initial_mutation_rate = ada_ga_config.get('initial_mutation_rate', 0.1)
+        max_mutation_rate = ada_ga_config.get('max_mutation_rate', 0.3)
+        min_mutation_rate = ada_ga_config.get('min_mutation_rate', 0.01)
+        initial_crossover_rate = ada_ga_config.get('initial_crossover_rate', 0.8)
+        max_crossover_rate = ada_ga_config.get('max_crossover_rate', 0.95)
+        min_crossover_rate = ada_ga_config.get('min_crossover_rate', 0.6)
+        diversity_threshold = ada_ga_config.get('diversity_threshold', 0.1)
+        stagnation_threshold = ada_ga_config.get('stagnation_threshold', 10)
+        n_generations = ada_ga_config.get('n_generations', 200)
+        elite_size = ada_ga_config.get('elite_size', 2)
         
-        return optimal_dv
-
+        population = np.random.uniform(
+            low=[b[0] for b in bounds],
+            high=[b[1] for b in bounds],
+            size=(initial_pop_size, len(initial_guess))
+        )
+        
+        # Add initial guess to population
+        population[0] = initial_guess
+        
+        best_solution = initial_guess
+        best_fitness = payload_fraction_objective(initial_guess, G0, ISP, EPSILON)
+        stagnation_counter = 0
+        current_pop_size = initial_pop_size
+        current_mutation_rate = initial_mutation_rate
+        current_crossover_rate = initial_crossover_rate
+        
+        for generation in range(n_generations):
+            # Evaluate fitness
+            fitness = np.array([payload_fraction_objective(ind, G0, ISP, EPSILON) for ind in population])
+            
+            # Update best solution
+            min_idx = np.argmin(fitness)
+            if fitness[min_idx] < best_fitness:
+                best_fitness = fitness[min_idx]
+                best_solution = population[min_idx].copy()
+                stagnation_counter = 0
+            else:
+                stagnation_counter += 1
+            
+            # Adaptive population size
+            if stagnation_counter >= stagnation_threshold:
+                current_pop_size = min(max_pop_size, current_pop_size + 10)
+                current_mutation_rate = min(max_mutation_rate, current_mutation_rate * 1.2)
+                stagnation_counter = 0
+            else:
+                current_pop_size = max(min_pop_size, current_pop_size - 5)
+                current_mutation_rate = max(min_mutation_rate, current_mutation_rate * 0.9)
+            
+            # Selection
+            parents_idx = np.random.choice(
+                len(population),
+                size=current_pop_size,
+                p=1/fitness/np.sum(1/fitness)
+            )
+            parents = population[parents_idx]
+            
+            # Crossover
+            offspring = parents.copy()
+            for i in range(0, len(offspring)-1, 2):
+                if np.random.random() < current_crossover_rate:
+                    alpha = np.random.random()
+                    offspring[i] = alpha * parents[i] + (1-alpha) * parents[i+1]
+                    offspring[i+1] = (1-alpha) * parents[i] + alpha * parents[i+1]
+            
+            # Mutation
+            mutation_mask = np.random.random(offspring.shape) < current_mutation_rate
+            mutation = np.random.normal(0, 0.1, offspring.shape)
+            offspring[mutation_mask] += mutation[mutation_mask]
+            
+            # Enforce bounds and constraints
+            for j in range(len(initial_guess)):
+                offspring[:, j] = np.clip(offspring[:, j], bounds[j][0], bounds[j][1])
+            
+            # Scale to meet total delta-v constraint
+            sums = np.sum(offspring, axis=1)
+            scale_factors = TOTAL_DELTA_V / sums
+            offspring = offspring * scale_factors.reshape(-1, 1)
+            
+            # Elitism
+            if elite_size > 0:
+                elite_idx = np.argsort(fitness)[:elite_size]
+                offspring[:elite_size] = population[elite_idx]
+            
+            population = offspring[:current_pop_size]
+            
+            # Check convergence
+            if np.std(fitness) < 1e-6:
+                break
+        
+        return best_solution
+        
     except Exception as e:
-        logger.error(f"Error in optimization: {e}")
+        logger.error(f"Error in optimization: {str(e)}")
+        return initial_guess
+
+def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Differential Evolution."""
+    try:
+        # Get DE parameters from config
+        de_config = config.get('differential_evolution', {})
+        population_size = de_config.get('population_size', 15)
+        max_iter = de_config.get('max_iterations', 1000)
+        mutation = de_config.get('mutation', [0.5, 1.0])
+        recombination = de_config.get('recombination', 0.7)
+        strategy = de_config.get('strategy', 'best1bin')
+        tol = de_config.get('tol', 1e-6)
+        
+        def objective(x):
+            # Scale to meet total delta-v constraint
+            scale = TOTAL_DELTA_V / np.sum(x)
+            x_scaled = x * scale
+            return payload_fraction_objective(x_scaled, G0, ISP, EPSILON)
+        
+        result = differential_evolution(
+            objective,
+            bounds=bounds,
+            strategy=strategy,
+            maxiter=max_iter,
+            popsize=population_size,
+            mutation=mutation,
+            recombination=recombination,
+            tol=tol,
+            init='sobol'
+        )
+        
+        if result.success:
+            # Scale solution to meet total delta-v constraint
+            scale = TOTAL_DELTA_V / np.sum(result.x)
+            return result.x * scale
+        else:
+            logger.warning(f"DE optimization did not converge: {result.message}")
+            return initial_guess
+            
+    except Exception as e:
+        logger.error(f"Differential Evolution optimization failed: {str(e)}")
         return initial_guess
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
-    n_particles = config.get('n_particles', 50)
-    max_iter = config.get('max_iter', 100)
-    w = config.get('w', 0.7)  # Inertia weight
-    c1 = config.get('c1', 2.0)  # Cognitive parameter
-    c2 = config.get('c2', 2.0)  # Social parameter
-    
-    # Set minimum delta-v per stage (1% of total delta-v)
-    MIN_DELTA_V = TOTAL_DELTA_V * 0.01
-    
-    def enforce_min_delta_v(particles):
-        """Enforce minimum delta-v for each stage while maintaining total delta-v."""
-        n_stages = particles.shape[1]
+    try:
+        n_particles = config.get('n_particles', 50)
+        max_iter = config.get('max_iter', 100)
+        w = config.get('w', 0.7)  # Inertia weight
+        c1 = config.get('c1', 2.0)  # Cognitive parameter
+        c2 = config.get('c2', 2.0)  # Social parameter
         
-        # First ensure minimum values
-        particles = np.maximum(particles, MIN_DELTA_V)
+        # Set minimum delta-v per stage (1% of total delta-v)
+        MIN_DELTA_V = TOTAL_DELTA_V * 0.01
+        n_stages = len(initial_guess)
         
-        # Then scale to meet total delta-v constraint
-        sums = np.sum(particles, axis=1)
-        scale_factors = (TOTAL_DELTA_V / sums).reshape(-1, 1)
-        particles *= scale_factors
-        
-        # If scaling made any values too small, redistribute the excess
-        while np.any(particles < MIN_DELTA_V):
-            below_min = particles < MIN_DELTA_V
-            excess_needed = MIN_DELTA_V - particles[below_min]
-            particles[below_min] = MIN_DELTA_V
+        def enforce_min_delta_v(particles):
+            """Enforce minimum delta-v for each stage while maintaining total delta-v."""
+            # First ensure minimum values
+            particles = np.maximum(particles, MIN_DELTA_V)
             
-            # Calculate how much we need to reduce from other stages
-            for i in range(particles.shape[0]):
-                row_below_min = below_min[i]
-                if np.any(row_below_min):
-                    # Get indices not below minimum
-                    above_min_idx = ~row_below_min
-                    if np.sum(above_min_idx) > 0:
-                        # Calculate total excess needed for this particle
-                        total_excess = np.sum(excess_needed[i * n_stages:(i + 1) * n_stages][row_below_min])
-                        # Reduce proportionally from stages above minimum
-                        reduction_per_stage = total_excess / np.sum(above_min_idx)
-                        particles[i][above_min_idx] -= reduction_per_stage
+            # Then scale to meet total delta-v constraint
+            sums = np.sum(particles, axis=1)
+            scale_factors = TOTAL_DELTA_V / sums
+            particles = particles * scale_factors.reshape(-1, 1)
+            
+            # If scaling made any values too small, redistribute the excess
+            below_min_mask = particles < MIN_DELTA_V
+            while np.any(below_min_mask):
+                # Set values below minimum to minimum
+                particles[below_min_mask] = MIN_DELTA_V
+                
+                # Recalculate totals and scale remaining values
+                for i in range(len(particles)):
+                    below_min = below_min_mask[i]
+                    if np.any(below_min):
+                        # Calculate remaining delta-v to distribute
+                        remaining_dv = TOTAL_DELTA_V - np.sum(particles[i][below_min])
+                        # Get indices not at minimum
+                        above_min = ~below_min
+                        if np.any(above_min):
+                            # Distribute remaining dv proportionally
+                            current_sum = np.sum(particles[i][above_min])
+                            if current_sum > 0:
+                                scale = remaining_dv / current_sum
+                                particles[i][above_min] *= scale
+                
+                # Update mask for next iteration
+                below_min_mask = particles < MIN_DELTA_V
+                
+                # Break if we can't satisfy constraints
+                if np.all(below_min_mask):
+                    particles = np.full_like(particles, TOTAL_DELTA_V / n_stages)
+                    break
+            
+            return particles
         
-        return particles
-    
-    # Initialize particles
-    particles = np.random.uniform(
-        low=[b[0] for b in bounds],
-        high=[b[1] for b in bounds],
-        size=(n_particles, len(initial_guess))
-    )
-    
-    # Add initial guess as one of the particles
-    particles[0] = initial_guess
-    
-    # Enforce minimum delta-v and scale to meet constraint
-    particles = enforce_min_delta_v(particles)
-    
-    velocities = np.zeros_like(particles)
-    personal_best_pos = particles.copy()
-    personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
-    global_best_pos = personal_best_pos[np.argmin(personal_best_val)]
-    global_best_val = np.min(personal_best_val)
-    
-    for iteration in range(max_iter):
-        # Update velocities and positions
-        r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
-        velocities = (w * velocities +
-                    c1 * r1 * (personal_best_pos - particles) +
-                    c2 * r2 * (global_best_pos - particles))
+        # Initialize particles
+        particles = np.random.uniform(
+            low=[b[0] for b in bounds],
+            high=[b[1] for b in bounds],
+            size=(n_particles, len(initial_guess))
+        )
         
-        particles += velocities
+        # Add initial guess as one of the particles
+        particles[0] = initial_guess
         
-        # Clip to bounds
-        for j in range(len(initial_guess)):
-            particles[:, j] = np.clip(particles[:, j], bounds[j][0], bounds[j][1])
-        
-        # Enforce minimum delta-v and scale to meet constraint
+        # Initialize velocities and best positions
+        velocities = np.zeros_like(particles)
         particles = enforce_min_delta_v(particles)
+        personal_best_pos = particles.copy()
+        personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+        global_best_idx = np.argmin(personal_best_val)
+        global_best_pos = personal_best_pos[global_best_idx].copy()
+        global_best_val = personal_best_val[global_best_idx]
         
-        # Update personal and global bests
-        values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
-        improved = values < personal_best_val
-        personal_best_pos[improved] = particles[improved]
-        personal_best_val[improved] = values[improved]
-        
-        min_val_idx = np.argmin(values)
-        if values[min_val_idx] < global_best_val:
-            global_best_val = values[min_val_idx]
-            global_best_pos = particles[min_val_idx].copy()
+        # Main PSO loop
+        for iteration in range(max_iter):
+            # Update velocities
+            r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
+            velocities = (w * velocities +
+                        c1 * r1 * (personal_best_pos - particles) +
+                        c2 * r2 * (global_best_pos - particles))
             
-        # Check convergence
-        if iteration > 10 and np.std(values) < 1e-6:
-            logger.info(f"PSO converged after {iteration} iterations")
-            break
-    
-    return global_best_pos
+            # Update positions
+            particles += velocities
+            
+            # Clip to bounds and enforce constraints
+            for j in range(len(initial_guess)):
+                particles[:, j] = np.clip(particles[:, j], bounds[j][0], bounds[j][1])
+            
+            particles = enforce_min_delta_v(particles)
+            
+            # Update personal and global bests
+            values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+            improved = values < personal_best_val
+            personal_best_pos[improved] = particles[improved]
+            personal_best_val[improved] = values[improved]
+            
+            # Update global best
+            min_idx = np.argmin(values)
+            if values[min_idx] < global_best_val:
+                global_best_val = values[min_idx]
+                global_best_pos = particles[min_idx].copy()
+            
+            # Check convergence
+            if iteration > 10 and np.std(values) < 1e-6:
+                logger.info(f"PSO converged after {iteration} iterations")
+                break
+        
+        return global_best_pos
+        
+    except Exception as e:
+        logger.error(f"Optimization with PSO failed: {str(e)}")
+        return initial_guess

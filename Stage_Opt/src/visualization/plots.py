@@ -3,6 +3,7 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as path_effects
 from ..utils.config import OUTPUT_DIR, logger
 
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
@@ -39,11 +40,17 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
             
             # Add text labels with ΔV and λ values
             for i, (dv, ratio) in enumerate(zip(stage_dvs, stage_ratios)):
+                # Add black text with white background for better visibility
                 plt.text(i, float(bottom[i]) + float(dv)/2,
                         f"{float(dv):.0f} m/s\nλ={float(ratio):.3f}",
                         ha='center', va='center',
-                        color='white', fontweight='bold',
-                        fontsize=9)
+                        color='black', fontweight='bold',
+                        fontsize=10, bbox=dict(
+                            facecolor='white',
+                            alpha=0.7,
+                            edgecolor='none',
+                            pad=1
+                        ))
             
             # Update bottom for next stack
             bottom = bottom + stage_dvs
@@ -53,7 +60,9 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
             plt.text(i, float(total) + 100,
                     f"Total: {float(total):.0f} m/s",
                     ha='center', va='bottom',
-                    fontweight='bold')
+                    color='black',  # Changed to black since it's outside bars
+                    fontweight='bold',
+                    fontsize=10)
         
         # Add horizontal line for total mission ΔV
         total_dv = float(np.sum(results_list[0]['dv']))  # Use first result's total
