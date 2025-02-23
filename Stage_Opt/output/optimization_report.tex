@@ -84,11 +84,11 @@ The following optimization methods were evaluated:
 Method & {Payload Fraction} & {Error} & {Time (\si{\second})} \\
 \midrule
 SLSQP        & 0.0249 & 0.0000e+00 & 0.00 \\
-BASIN-HOPPING & 0.0249 & 0.0000e+00 & 1.79 \\
-GA           & 0.0249 & 0.0000e+00 & 4.65 \\
-ADAPTIVE-GA  & 0.0249 & 0.0000e+00 & 0.05 \\
-DE           & 0.0403 & 0.0000e+00 & 1.11 \\
-PSO          & 0.0403 & 0.0000e+00 & 0.36 \\
+BASIN-HOPPING & 0.0250 & 1.8190e-12 & 1.81 \\
+GA           & 0.0249 & 0.0000e+00 & 4.07 \\
+ADAPTIVE-GA  & 0.0249 & 0.0000e+00 & 0.04 \\
+DE           & 0.0403 & 0.0000e+00 & 1.29 \\
+PSO          & 0.0403 & 0.0000e+00 & 0.60 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -105,7 +105,7 @@ PSO          & 0.0403 & 0.0000e+00 & 0.36 \\
 Method & {$\Delta V$ (\si{\meter\per\second})} & {Mass Ratio ($\lambda$)} & {Contribution (\%)} \\
 \midrule
 SLSQP        & 3100.0 & 0.1988 & 33.3 \\
-BASIN-HOPPING & 3100.3 & 0.1987 & 33.3 \\
+BASIN-HOPPING & 3099.8 & 0.1988 & 33.3 \\
 GA           & 3100.0 & 0.1988 & 33.3 \\
 ADAPTIVE-GA  & 3100.0 & 0.1988 & 33.3 \\
 DE           & 1395.0 & 0.4725 & 15.0 \\
@@ -125,7 +125,7 @@ SLSQP        & 3100.0 & 0.3033 & 33.3 \\
 BASIN-HOPPING & 3100.1 & 0.3033 & 33.3 \\
 GA           & 3100.0 & 0.3033 & 33.3 \\
 ADAPTIVE-GA  & 3100.0 & 0.3033 & 33.3 \\
-DE           & 848.7 & 0.6799 & 9.1 \\
+DE           & 848.6 & 0.6799 & 9.1 \\
 PSO          & 848.8 & 0.6799 & 9.1 \\
 \bottomrule
 \end{tabular}
@@ -139,10 +139,10 @@ PSO          & 848.8 & 0.6799 & 9.1 \\
 Method & {$\Delta V$ (\si{\meter\per\second})} & {Mass Ratio ($\lambda$)} & {Contribution (\%)} \\
 \midrule
 SLSQP        & 3100.0 & 0.4138 & 33.3 \\
-BASIN-HOPPING & 3099.5 & 0.4139 & 33.3 \\
+BASIN-HOPPING & 3100.1 & 0.4138 & 33.3 \\
 GA           & 3100.0 & 0.4138 & 33.3 \\
 ADAPTIVE-GA  & 3100.0 & 0.4138 & 33.3 \\
-DE           & 7056.3 & 0.1256 & 75.9 \\
+DE           & 7056.4 & 0.1256 & 75.9 \\
 PSO          & 7056.2 & 0.1256 & 75.9 \\
 \bottomrule
 \end{tabular}
@@ -157,7 +157,7 @@ PSO          & 7056.2 & 0.1256 & 75.9 \\
 Method & {Stage 1 (\%)} & {Stage 2 (\%)} & {Stage 3 (\%)} & {Total $\lambda$} \\
 \midrule
 SLSQP        & 33.3 & 33.3 & 33.3 & 0.0249 \\
-BASIN-HOPPING & 33.3 & 33.3 & 33.3 & 0.0249 \\
+BASIN-HOPPING & 33.3 & 33.3 & 33.3 & 0.0250 \\
 GA           & 33.3 & 33.3 & 33.3 & 0.0249 \\
 ADAPTIVE-GA  & 33.3 & 33.3 & 33.3 & 0.0249 \\
 DE           & 15.0 & 9.1 & 75.9 & 0.0403 \\
@@ -172,7 +172,7 @@ PSO          & 15.0 & 9.1 & 75.9 & 0.0403 \\
 \item Methods with uneven distribution: DE, PSO
 \item Best Stage 1 mass ratio: PSO
 \item Best Stage 2 mass ratio: DE
-\item Best Stage 3 mass ratio: BASIN-HOPPING
+\item Best Stage 3 mass ratio: SLSQP
 \end{itemize}
 
 \end{document}
