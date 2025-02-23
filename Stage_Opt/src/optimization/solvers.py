@@ -184,6 +184,10 @@ def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_
     """Solve using Genetic Algorithm."""
     try:
         class RepairDeltaV(Repair):
+            def __init__(self, total_delta_v):
+                super().__init__()
+                self.total_delta_v = total_delta_v
+
             def _do(self, problem, X, **kwargs):
                 if len(X.shape) == 1:
                     X = X.reshape(1, -1)
@@ -191,15 +195,15 @@ def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_
                 for i in range(len(X)):
                     x = X[i]
                     current_sum = np.sum(x)
-                    if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                    if abs(current_sum - self.total_delta_v) > 1e-6:
                         # Scale the solution to match total ΔV
-                        x = x * (TOTAL_DELTA_V / current_sum)
+                        x = x * (self.total_delta_v / current_sum)
                         # Ensure bounds are satisfied
                         x = np.clip(x, problem.xl, problem.xu)
                         # Re-normalize if clipping changed the sum
                         current_sum = np.sum(x)
-                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                            x = x * (TOTAL_DELTA_V / current_sum)
+                        if abs(current_sum - self.total_delta_v) > 1e-6:
+                            x = x * (self.total_delta_v / current_sum)
                         X[i] = x
                 return X
 
@@ -230,8 +234,8 @@ def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_
         problem = OptimizationProblem(
             n_var=len(initial_guess),
             n_obj=1,
-            xl=bounds[:, 0],
-            xu=bounds[:, 1]
+            xl=np.array([b[0] for b in bounds]),
+            xu=np.array([b[1] for b in bounds])
         )
 
         problem.total_delta_v = TOTAL_DELTA_V
@@ -245,7 +249,7 @@ def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_
             eliminate_duplicates=True,
             mutation=PolynomialMutation(prob=ga_config["mutation_prob"], eta=ga_config["mutation_eta"]),
             crossover=SBX(prob=ga_config["crossover_prob"], eta=ga_config["crossover_eta"]),
-            repair=RepairDeltaV()
+            repair=RepairDeltaV(TOTAL_DELTA_V)
         )
 
         termination = DefaultSingleObjectiveTermination(
