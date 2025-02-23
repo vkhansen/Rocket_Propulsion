@@ -146,7 +146,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
     """Solve using Adaptive Genetic Algorithm."""
     try:
         class AdaptiveGA:
-            def __init__(self, config, n_vars, bounds):
+            def __init__(self, config, n_vars, bounds, total_delta_v, isp, epsilon):
                 self.config = config["optimization"]["adaptive_ga"]
                 self.n_vars = n_vars
                 self.bounds = bounds
@@ -156,136 +156,91 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 self.best_fitness_history = []
                 self.diversity_history = []
                 self.stagnation_counter = 0
-                self.total_delta_v = config["rocket_payload"]["TOTAL_DELTA_V"]
-                self.ISP = config["rocket_payload"]["ISP"]
+                self.total_delta_v = total_delta_v
+                self.ISP = isp
+                self.EPSILON = epsilon
 
             def initialize_population(self):
-                """Initialize population with smart initialization."""
                 population = []
-                
-                # First third: roughly equal distribution
                 n_equal = self.pop_size // 3
                 for _ in range(n_equal):
                     sol = np.full(self.n_vars, self.total_delta_v / self.n_vars)
                     sol += np.random.normal(0, self.total_delta_v * 0.05, self.n_vars)
-                    # Ensure bounds and total delta-v
                     sol = np.clip(sol, self.bounds[:, 0], self.bounds[:, 1])
-                    sol = sol * (self.total_delta_v / np.sum(sol))  # Normalize to total delta-v
+                    sol = sol * (self.total_delta_v / np.sum(sol))
                     population.append(sol)
-                
-                # Second third: weighted by ISP
                 n_isp = (self.pop_size - n_equal) // 2
                 for _ in range(n_isp):
                     weights = np.array(self.ISP) / np.sum(self.ISP)
                     sol = weights * self.total_delta_v
                     sol += np.random.normal(0, self.total_delta_v * 0.05, self.n_vars)
-                    # Ensure bounds and total delta-v
                     sol = np.clip(sol, self.bounds[:, 0], self.bounds[:, 1])
-                    sol = sol * (self.total_delta_v / np.sum(sol))  # Normalize to total delta-v
-                    population.append(sol)
-                
-                # Last third: random within bounds
-                while len(population) < self.pop_size:
-                    sol = np.random.uniform(
-                        self.bounds[:, 0], 
-                        self.bounds[:, 1], 
-                        self.n_vars
-                    )
-                    # Normalize to total delta-v
                     sol = sol * (self.total_delta_v / np.sum(sol))
                     population.append(sol)
-                
+                while len(population) < self.pop_size:
+                    sol = np.random.uniform(self.bounds[:, 0], self.bounds[:, 1], self.n_vars)
+                    sol = sol * (self.total_delta_v / np.sum(sol))
+                    population.append(sol)
                 return np.array(population)
-            
+
             def evaluate_fitness(self, individual):
-                """Calculate fitness for an individual solution."""
-                # Ensure individual is 1D
                 individual = np.asarray(individual).flatten()
-                
-                # Check if total delta-v constraint is satisfied
+                # Check total delta-v constraint
                 if not np.isclose(np.sum(individual), self.total_delta_v, rtol=1e-5):
                     return -np.inf
-                
-                # Calculate payload mass
-                payload_mass = calculate_payload_mass(individual)
-                
-                # Apply penalties for constraint violations
+                # Use the payload mass (fraction) as the fitness (higher is better)
+                payload_mass = calculate_payload_mass(individual, self.ISP, self.EPSILON)
                 penalty = 0
                 for i, dv in enumerate(individual):
                     if dv < self.bounds[i, 0] or dv > self.bounds[i, 1]:
                         penalty += 1000 * abs(dv - np.clip(dv, self.bounds[i, 0], self.bounds[i, 1]))
-                
                 return payload_mass - penalty
 
             def selection(self, population, fitnesses, tournament_size=3):
-                """Tournament selection with elitism."""
-                # Ensure arrays are properly shaped
                 population = np.asarray(population)
                 fitnesses = np.asarray(fitnesses).flatten()
-                
-                # Keep best solution (elitism)
                 elite_idx = np.argmax(fitnesses)
                 elite = population[elite_idx].copy()
-                
-                selected = []
-                selected.append(elite)  # Add elite
-                
-                # Tournament selection for rest of population
+                selected = [elite]
                 while len(selected) < self.pop_size:
-                    # Select tournament participants
                     tournament_idx = np.random.choice(len(population), tournament_size, replace=False)
                     tournament_fitnesses = fitnesses[tournament_idx]
-                    
-                    # Select winner
                     winner_idx = tournament_idx[np.argmax(tournament_fitnesses)]
                     selected.append(population[winner_idx].copy())
-                
                 return np.array(selected)
 
             def crossover(self, parent1, parent2):
-                """Adaptive blend crossover."""
                 if np.random.random() > self.crossover_rate:
                     return parent1.copy(), parent2.copy()
-                
                 alpha = np.random.random()
                 child1 = alpha * parent1 + (1 - alpha) * parent2
                 child2 = (1 - alpha) * parent1 + alpha * parent2
-                
-                # Normalize children to maintain total delta-v
                 child1 = child1 * (self.total_delta_v / np.sum(child1))
                 child2 = child2 * (self.total_delta_v / np.sum(child2))
-                
                 return child1, child2
-            
+
             def mutation(self, individual):
-                """Adaptive Gaussian mutation."""
                 if np.random.random() > self.mutation_rate:
                     return individual.copy()
-                
                 mutation_strength = (self.bounds[:, 1] - self.bounds[:, 0]) * 0.1
                 mutation = np.random.normal(0, mutation_strength, self.n_vars)
                 mutated = individual + mutation
-                
-                # Ensure bounds
                 mutated = np.clip(mutated, self.bounds[:, 0], self.bounds[:, 1])
-                
-                # Normalize to maintain total delta-v
                 mutated = mutated * (self.total_delta_v / np.sum(mutated))
-                
                 return mutated
-            
+
+            def update_parameters(self, population, fitnesses, generations_without_improvement):
+                # Adaptive parameter update (if desired)
+                pass
+
             def optimize(self):
-                """Run the optimization process."""
-                # Initialize population
                 population = self.initialize_population()
                 best_fitness = -np.inf
+                best_solution = None
                 generations_without_improvement = 0
-                
+
                 for generation in range(self.config["n_generations"]):
-                    # Evaluate fitness for all individuals
                     fitnesses = np.array([self.evaluate_fitness(ind) for ind in population])
-                    
-                    # Update best solution
                     current_best_fitness = np.max(fitnesses)
                     if current_best_fitness > best_fitness:
                         best_fitness = current_best_fitness
@@ -293,43 +248,35 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                         generations_without_improvement = 0
                     else:
                         generations_without_improvement += 1
-                    
-                    # Check termination criteria
                     if generations_without_improvement >= self.config["stagnation_threshold"]:
                         break
-                    
-                    # Selection
                     selected = self.selection(population, fitnesses)
-                    
-                    # Create new population through crossover and mutation
                     new_population = []
                     for i in range(0, self.pop_size - 1, 2):
-                        parent1, parent2 = selected[i], selected[i + 1]
+                        parent1, parent2 = selected[i], selected[i+1]
                         child1, child2 = self.crossover(parent1, parent2)
                         child1 = self.mutation(child1)
                         child2 = self.mutation(child2)
                         new_population.extend([child1, child2])
-                    
-                    # Ensure population size is correct (in case of odd size)
                     if len(new_population) < self.pop_size:
                         new_population.append(selected[-1])
-                    
                     population = np.array(new_population)
-                    
-                    # Update adaptive parameters
                     self.update_parameters(population, fitnesses, generations_without_improvement)
-                
                 return best_solution, best_fitness
 
-        # Create and run adaptive GA
-        ga = AdaptiveGA(config, len(initial_guess), bounds)
+        # Create and run adaptive GA, passing TOTAL_DELTA_V, ISP, and EPSILON
+        ga = AdaptiveGA(config, len(initial_guess), bounds, TOTAL_DELTA_V, ISP, EPSILON)
         optimal_solution, _ = ga.optimize()
-        
         return optimal_solution
-        
+
     except Exception as e:
         logger.error(f"Adaptive GA optimization failed: {e}")
         raise
+
+def calculate_payload_mass(dv, ISP, EPSILON):
+    """Calculate payload mass as the product of stage mass ratios."""
+    mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
+    return np.prod(mass_ratios)
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
@@ -363,50 +310,46 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         raise
 
 def optimize_stages(stages, method='SLSQP'):
-    """Main optimization function."""
     try:
         n = len(stages)
         G0 = [stage['G0'] for stage in stages]
         ISP = [stage['ISP'] for stage in stages]
         EPSILON = [stage['EPSILON'] for stage in stages]
-        
+
         TOTAL_DELTA_V = 9300.0 + GRAVITY_LOSS + DRAG_LOSS
         penalty_coeff = CONFIG["optimization"]["penalty_coefficient"]
-        
-        # Initial guess and bounds
+
         initial_guess = np.ones(n) * TOTAL_DELTA_V / n
         max_dv = TOTAL_DELTA_V * np.ones(n)
-        bounds = [(0, mdv) for mdv in max_dv]
-        bounds = np.array(bounds)
-        
+        bounds = np.array([(0, mdv) for mdv in max_dv])
+
         logger.info(f"Starting optimization with method: {method}")
         start_time = time.time()
-        
+
         if method.upper() == 'SLSQP':
             constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - TOTAL_DELTA_V}
-            res = minimize(payload_fraction_objective, initial_guess, 
-                         args=(G0, ISP, EPSILON, penalty_coeff),
-                         method='SLSQP', bounds=bounds, constraints=constraints)
+            res = minimize(payload_fraction_objective, initial_guess,
+                           args=(G0, ISP, EPSILON, penalty_coeff),
+                           method='SLSQP', bounds=bounds, constraints=constraints)
             optimal_dv = res.x
-            
+
         elif method.upper() == 'GA':
             optimal_dv = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            
+
         elif method.upper() == 'ADAPTIVE-GA':
             optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            
+
         elif method.upper() == 'PSO':
             optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-            
-        # Add other solvers here...
-        
+
+        else:
+            raise NotImplementedError(f"Optimization method {method} is not implemented")
+
         execution_time = time.time() - start_time
         logger.info(f"Optimization completed in {execution_time:.6f} seconds")
-        
-        # Calculate final results
         payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
         mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-        
+
         return {
             'method': method,
             'time': execution_time,
@@ -414,7 +357,7 @@ def optimize_stages(stages, method='SLSQP'):
             'dv': optimal_dv,
             'mass_ratios': mass_ratios
         }
-        
+
     except Exception as e:
         logger.error(f"Optimization failed: {e}")
         raise
