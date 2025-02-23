@@ -11,7 +11,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("test_debug.log", mode='w')
+        logging.FileHandler(os.path.join("output", "test_debug.log"), mode='w')
     ]
 )
 logger = logging.getLogger(__name__)
