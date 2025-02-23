@@ -75,13 +75,14 @@ def read_input_json(filename):
         logger.error(f"Failed to read input file: {e}")
         raise
 
-def calculate_mass_ratios(dv, ISP, EPSILON):
-    """Calculate mass ratios for each stage."""
+def calculate_mass_ratios(dv, ISP, EPSILON, G0=9.81):
+    """Calculate stage ratios for each stage using the correct negative exponent."""
     try:
         dv = np.asarray(dv).flatten()
         mass_ratios = []
         for i, dvi in enumerate(dv):
-            ratio = np.exp(dvi / (9.81 * ISP[i])) - EPSILON[i]
+            # Use a negative exponent as in Code A
+            ratio = np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i]
             mass_ratios.append(float(ratio))
         return np.array(mass_ratios)
     except Exception as e:
@@ -89,28 +90,30 @@ def calculate_mass_ratios(dv, ISP, EPSILON):
         return np.array([float('inf')] * len(dv))
 
 def calculate_payload_fraction(mass_ratios):
-    """Calculate payload fraction from mass ratios."""
+    """Calculate payload fraction as the product of stage ratios."""
     try:
         if any(r <= 0 for r in mass_ratios):
             return 0.0
-        return float(np.prod(1.0 / mass_ratios))
+        return float(np.prod(mass_ratios))
     except Exception as e:
         logger.error(f"Error calculating payload fraction: {e}")
         return 0.0
 
 def payload_fraction_objective(dv, G0, ISP, EPSILON):
-    """Calculate the payload fraction objective."""
+    """Calculate the payload fraction objective using the corrected physics model."""
     try:
-        mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
+        # Pass G0 to calculate_mass_ratios so that the negative exponent is used
+        mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         
         # Add a small penalty for solutions close to constraint violations
         penalty = 0.0
         for ratio in mass_ratios:
             if ratio <= 0.1:  # Penalize solutions close to physical limits
-                penalty += 100.0 * (0.1 - ratio)**2
+                penalty += 100.0 * (0.1 - ratio) ** 2
                 
-        return float(-payload_fraction + penalty)  # Negative for minimization
+        # Negative for minimization
+        return float(-payload_fraction + penalty)
     except Exception as e:
         logger.error(f"Error in payload fraction calculation: {e}")
         return 1e6  # Large but finite penalty
@@ -340,13 +343,14 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 # Check total delta-v constraint
                 if not np.isclose(np.sum(individual), self.total_delta_v, rtol=1e-5):
                     return -np.inf
-                # Use the payload mass (fraction) as the fitness (higher is better)
-                payload_mass = calculate_payload_mass(individual, self.ISP, self.EPSILON)
+                # Use the payload fraction as the fitness (higher is better)
+                mass_ratios = calculate_mass_ratios(individual, self.ISP, self.EPSILON)
+                payload_fraction = calculate_payload_fraction(mass_ratios)
                 penalty = 0
                 for i, dv in enumerate(individual):
                     if dv < self.bounds[i, 0] or dv > self.bounds[i, 1]:
                         penalty += 1000 * abs(dv - np.clip(dv, self.bounds[i, 0], self.bounds[i, 1]))
-                return payload_mass - penalty
+                return payload_fraction - penalty
 
             def selection(self, population, fitnesses, tournament_size=3):
                 population = np.asarray(population)
@@ -460,7 +464,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         
         # Calculate metrics for the optimal solution
         mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON)
-        payload_fraction = calculate_payload_mass(optimal_solution, ISP, EPSILON)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
         
         # Return results in format expected by plotting functions
         return {
