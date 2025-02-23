@@ -24,12 +24,14 @@ import csv
 import sys
 import time  # for timing
 import numpy as np
-from scipy.optimize import minimize, differential_evolution, approx_fprime
+from scipy.optimize import minimize, differential_evolution, approx_fprime, basinhopping
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
 import matplotlib.pyplot as plt
 import pandas as pd
+from pyswarms.single.global_best import GlobalBestPSO
+import cma
 
 # Constants for gravity and drag losses (in m/s)
 GRAVITY_LOSS = 100.0  
@@ -271,6 +273,91 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
         jacobian = lambda x: approx_fprime(x, lambda dv: objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), 1e-8)
         res = minimize(objective_with_penalty, initial_guess, args=(G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), method='Newton-CG', jac=jacobian)
         optimal_dv = res.x
+    elif method.upper() == 'TRUST-CONSTR':
+        constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - TOTAL_DELTA_V}
+        res = minimize(
+            payload_fraction_objective,
+            initial_guess,
+            args=(G0, ISP, EPSILON, penalty_coeff),
+            method='trust-constr',
+            bounds=bounds,
+            constraints=constraints,
+            options={'verbose': 0}
+        )
+        optimal_dv = res.x
+    elif method.upper() == 'NELDER-MEAD':
+        # Nelder-Mead with constraint handling
+        def constrained_objective(x):
+            constraint_violation = abs(np.sum(x) - TOTAL_DELTA_V)
+            obj_value = payload_fraction_objective(x, G0, ISP, EPSILON, penalty_coeff)
+            return obj_value + penalty_coeff * constraint_violation
+
+        res = minimize(
+            constrained_objective,
+            initial_guess,
+            method='Nelder-Mead',
+            options={
+                'maxiter': 10000,
+                'adaptive': True
+            }
+        )
+        optimal_dv = res.x
+    elif method.upper() == 'PSO':
+        def pso_objective(x):
+            # Handle batch of particles
+            return np.array([
+                objective_with_penalty(pos, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff)
+                for pos in x
+            ])
+
+        # Set up optimizer
+        options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9}
+        optimizer = GlobalBestPSO(
+            n_particles=50,
+            dimensions=n,
+            options=options,
+            bounds=(np.zeros(n), max_dv)
+        )
+        
+        # Optimize
+        best_cost, best_pos = optimizer.optimize(
+            pso_objective,
+            iters=200
+        )
+        optimal_dv = best_pos
+    elif method.upper() == 'BASIN-HOPPING':
+        minimizer_kwargs = {
+            "method": "SLSQP",
+            "args": (G0, ISP, EPSILON, penalty_coeff),
+            "bounds": bounds,
+            "constraints": {'type': 'eq', 'fun': lambda dv: np.sum(dv) - TOTAL_DELTA_V}
+        }
+        
+        res = basinhopping(
+            payload_fraction_objective,
+            initial_guess,
+            minimizer_kwargs=minimizer_kwargs,
+            niter=100,
+            T=1.0,  # Temperature parameter
+            stepsize=0.5  # Initial step size
+        )
+        optimal_dv = res.x
+    elif method.upper() == 'CMA-ES':
+        def cmaes_objective(x):
+            constraint_violation = abs(np.sum(x) - TOTAL_DELTA_V)
+            obj_value = payload_fraction_objective(x, G0, ISP, EPSILON, penalty_coeff)
+            return obj_value + penalty_coeff * constraint_violation
+
+        sigma0 = 0.5  # Initial step size
+        es = cma.CMAEvolutionStrategy(
+            initial_guess,
+            sigma0,
+            {'bounds': [0, max(max_dv)],
+             'maxiter': 1000,
+             'verbose': -1}
+        )
+        res = es.optimize(cmaes_objective)
+        optimal_dv = res.xbest
     elif method.lower() == 'dp':
         if n > 3:
             raise ValueError('Dynamic programming approach only supports up to 3 stages')
@@ -526,7 +613,7 @@ def main():
     ISP = [stage['ISP'] for stage in stages]
     EPSILON = [stage['EPSILON'] for stage in stages]
 
-    methods = ['SLSQP', 'differential_evolution', 'GA', 'newton', 'dp']
+    methods = ['SLSQP', 'differential_evolution', 'GA', 'newton', 'TRUST-CONSTR', 'NELDER-MEAD', 'PSO', 'BASIN-HOPPING', 'CMA-ES', 'dp']
     optimization_results = []
 
     # Run optimization for each method.
