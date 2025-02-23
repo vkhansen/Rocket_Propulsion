@@ -122,10 +122,11 @@ class TestPayloadOptimization(unittest.TestCase):
         EPSILON = [0.06, 0.04]
         TOTAL_DELTA_V = 9300
         
-        with self.assertRaises(KeyError):
+        with self.assertRaises(Exception) as context:
             result = solve_with_differential_evolution(
                 initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
             )
+        self.assertIn("max_iterations", str(context.exception))
 
     def test_solve_with_ga(self):
         """Test genetic algorithm solver."""
@@ -137,10 +138,11 @@ class TestPayloadOptimization(unittest.TestCase):
         EPSILON = [0.06, 0.04]
         TOTAL_DELTA_V = 9300
         
-        with self.assertRaises(KeyError):
+        with self.assertRaises(Exception) as context:
             result = solve_with_genetic_algorithm(
                 initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
             )
+        self.assertIn("population_size", str(context.exception))
 
     def test_solve_with_adaptive_ga(self):
         """Test adaptive genetic algorithm solver."""
@@ -152,10 +154,11 @@ class TestPayloadOptimization(unittest.TestCase):
         EPSILON = [0.06, 0.04]
         TOTAL_DELTA_V = 9300
         
-        with self.assertRaises(KeyError):
+        with self.assertRaises(Exception) as context:
             result = solve_with_adaptive_ga(
                 initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
             )
+        self.assertIn("max_pop_size", str(context.exception))
 
     def test_solve_with_pso(self):
         """Test particle swarm optimization solver."""
@@ -209,24 +212,27 @@ class TestPayloadOptimization(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertAlmostEqual(sum(result), TOTAL_DELTA_V, places=2)
         
-        # The following solvers are expected to raise KeyError due to missing config
+        # The following solvers are expected to raise exceptions due to missing config
         print("\nTesting Differential Evolution solver...")
-        with self.assertRaises(KeyError):
+        with self.assertRaises(Exception) as context:
             solve_with_differential_evolution(
                 initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
             )
+        self.assertIn("max_iterations", str(context.exception))
         
         print("\nTesting GA solver...")
-        with self.assertRaises(KeyError):
+        with self.assertRaises(Exception) as context:
             solve_with_genetic_algorithm(
                 initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
             )
+        self.assertIn("population_size", str(context.exception))
         
         print("\nTesting Adaptive GA solver...")
-        with self.assertRaises(KeyError):
+        with self.assertRaises(Exception) as context:
             solve_with_adaptive_ga(
                 initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
             )
+        self.assertIn("max_pop_size", str(context.exception))
         
         print("\nTesting PSO solver...")
         result = solve_with_pso(
