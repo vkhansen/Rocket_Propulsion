@@ -526,49 +526,56 @@ def calculate_payload_mass(dv, ISP, EPSILON):
     mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
     return np.prod(mass_ratios)
 
-def plot_results(results):
-    """Generate plots for optimization results."""
-    plot_dv_breakdown(results)
-    plot_execution_time(results)
-    plot_objective_error(results)
-
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     """Plot ΔV breakdown for each optimization method."""
     try:
         plt.figure(figsize=(12, 6))
         
-        # Get number of methods and stages
+        # Get number of methods
         n_methods = len(results)
-        n_stages = len(results[0]['dv'])
-        
-        # Set up the bar positions
         method_positions = np.arange(n_methods)
         bar_width = 0.35
         
         # Create stacked bars for each method
         bottom = np.zeros(n_methods)
-        colors = plt.cm.viridis(np.linspace(0, 1, n_stages))  # Color palette
+        colors = ['dodgerblue', 'orange']  # Blue for stage 1, orange for stage 2
         
-        for stage in range(n_stages):
-            # Extract ΔV values for this stage across all methods
+        # Plot each stage
+        for stage in range(len(results[0]['dv'])):
+            # Extract ΔV values and ratios for this stage across all methods
             stage_dvs = [result['dv'][stage] for result in results]
+            stage_ratios = [result['payload_fraction'] for result in results]
             
             # Plot bars for this stage
             plt.bar(method_positions, stage_dvs, bar_width,
-                   bottom=bottom, label=f'Stage {stage+1}',
-                   color=colors[stage], alpha=0.7)
+                   bottom=bottom, color=colors[stage],
+                   label=f'Stage {stage+1}')
+            
+            # Add text labels with ΔV and λ values
+            for i, (dv, ratio) in enumerate(zip(stage_dvs, stage_ratios)):
+                plt.text(i, bottom + dv/2,
+                        f"{dv:.1f} m/s\n({ratio:.2f})",
+                        ha='center', va='center',
+                        color='white', fontweight='bold')
             
             # Update bottom for next stack
             bottom += stage_dvs
+            
+            # Add total text above each bar
+            for i, total in enumerate(bottom):
+                plt.text(i, total + 50,
+                        f"Total: {total:.0f} m/s",
+                        ha='center', va='bottom',
+                        fontweight='bold')
         
-        # Add a horizontal line for total mission ΔV
+        # Add horizontal line for total mission ΔV
         total_dv = TOTAL_DELTA_V 
-        plt.axhline(y=total_dv, color='r', linestyle='--', 
-                   label=f'Required ΔV ({total_dv} m/s)')
+        plt.axhline(y=total_dv, color='red', linestyle='--',
+                   label=f'Total: {total_dv} m/s')
         
         plt.ylabel('ΔV (m/s)')
         plt.xlabel('Optimization Method')
-        plt.title('ΔV Breakdown by Stage')
+        plt.title('ΔV Solution per Solver')
         plt.xticks(method_positions, [result['method'] for result in results])
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, alpha=0.3)
@@ -589,77 +596,57 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
 
 def plot_execution_time(results, filename="execution_time.png"):
     """Plot execution time for each optimization method."""
-    solver_names = [res["method"] for res in results]
-    times = [res["time"] for res in results]
-    
-    plt.figure(figsize=(10, 5))
-    plt.bar(solver_names, times, color='skyblue', alpha=0.8)
-    plt.xlabel("Optimization Method")
-    plt.ylabel("Execution Time (s)")
-    plt.title("Solver Execution Time")
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, filename))
-    plt.close()
-
-def plot_objective_error(results, filename="objective_error.png"):
-    """Plot objective error for each optimization method."""
-    solver_names = [res["method"] for res in results]
-    errors = [res.get("error", np.nan) for res in results]  # Use np.nan for methods without error
-    
-    plt.figure(figsize=(10, 5))
-    plt.bar(solver_names, errors, color='salmon', alpha=0.8)
-    plt.xlabel("Optimization Method")
-    plt.ylabel("Final Objective Error")
-    plt.title("Solver Accuracy (Lower is Better)")
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, filename))
-    plt.close()
-
-def generate_report(results, output_file="report.tex"):
-    """Generate LaTeX report."""
     try:
-        # Generate plots
-        plot_results(results)
+        plt.figure(figsize=(10, 5))
+        method_names = [result['method'] for result in results]
+        times = [result['time'] for result in results]
         
-        # Generate LaTeX report
-        output_path = os.path.join(OUTPUT_DIR, output_file)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write('\\documentclass{article}\n')
-            f.write('\\usepackage{graphicx}\n')  # For including images
-            f.write('\\begin{document}\n')
-            f.write('\\section{Optimization Results}\n')
-            
-            # Add results table
-            f.write('\\begin{table}[h]\n')
-            f.write('\\centering\n')
-            f.write('\\begin{tabular}{|l|c|c|c|}\n')
-            f.write('\\hline\n')
-            f.write('Method & Time (s) & Payload Fraction & Error \\\\\n')
-            f.write('\\hline\n')
-            
-            for result in results:
-                method = result['method'].replace('_', '\\_')  # Escape underscores for LaTeX
-                f.write(f"{method} & {result['time']:.3f} & {result['payload_fraction']:.4f} & {result.get('error', 'N/A')} \\\\\n")
-            
-            f.write('\\hline\n')
-            f.write('\\end{tabular}\n')
-            f.write('\\caption{Optimization Results}\n')
-            f.write('\\end{table}\n')
-            
-            # Include plots with relative path
-            f.write('\\begin{figure}[h]\n')
-            f.write('\\centering\n')
-            f.write('\\includegraphics[width=0.8\\textwidth]{dv_breakdown.png}\n')
-            f.write('\\caption{$\\Delta$V Breakdown per Method}\n')
-            f.write('\\end{figure}\n')
-            
-            f.write('\\end{document}\n')
+        plt.bar(method_names, times)
+        plt.title('Solver Execution Time')
+        plt.xlabel('Solver Method')
+        plt.ylabel('Time (s)')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
         
-        logger.info(f"Report generated successfully: {output_path}")
+        output_path = os.path.join(OUTPUT_DIR, filename)
+        plt.savefig(output_path)
+        plt.close()
+        
+        logger.info(f"Execution time plot saved to: {output_path}")
         
     except Exception as e:
-        logger.error(f"Report generation failed: {e}")
+        logger.error(f"Error in plotting execution time: {e}")
         raise
+
+def plot_payload_fraction(results, filename="payload_fraction.png"):
+    """Plot payload fraction for each optimization method."""
+    try:
+        plt.figure(figsize=(10, 5))
+        method_names = [result['method'] for result in results]
+        payloads = [result['payload_fraction'] for result in results]
+        
+        plt.bar(method_names, payloads)
+        plt.title('Payload Fraction by Solver')
+        plt.xlabel('Solver Method')
+        plt.ylabel('Payload Fraction')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        output_path = os.path.join(OUTPUT_DIR, filename)
+        plt.savefig(output_path)
+        plt.close()
+        
+        logger.info(f"Payload fraction plot saved to: {output_path}")
+        
+    except Exception as e:
+        logger.error(f"Error in plotting payload fraction: {e}")
+        raise
+
+def plot_results(results):
+    """Generate all plots."""
+    plot_dv_breakdown(results)
+    plot_execution_time(results)
+    plot_payload_fraction(results)
 
 if __name__ == "__main__":
     try:
@@ -683,7 +670,7 @@ if __name__ == "__main__":
                 continue
         
         # Generate report and plots in output directory
-        generate_report(results, "report.tex")
+        plot_results(results)
         
     except Exception as e:
         logger.error(f"Program failed: {e}")
