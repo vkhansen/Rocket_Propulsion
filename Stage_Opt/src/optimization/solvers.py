@@ -188,6 +188,11 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
+        # Convert bounds to numpy arrays
+        bounds = np.array(bounds)
+        xl = bounds[:, 0]
+        xu = bounds[:, 1]
+        
         class RepairDeltaV(Repair):
             def _do(self, problem, X, **kwargs):
                 if len(X.shape) == 1:
@@ -233,8 +238,8 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         problem = OptimizationProblem(
             n_var=len(initial_guess),
             n_obj=1,
-            xl=bounds[:, 0],
-            xu=bounds[:, 1]
+            xl=xl,
+            xu=xu
         )
 
         algorithm = GA(
