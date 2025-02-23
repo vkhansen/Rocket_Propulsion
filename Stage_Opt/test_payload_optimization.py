@@ -256,11 +256,11 @@ class TestCSVOutputs(unittest.TestCase):
             rows = list(reader)
             
         # Verify columns
-        expected_columns = ['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)']
+        expected_columns = ['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)', 'Method']
         self.assertListEqual(reader.fieldnames, expected_columns)
         
         # Verify number of stages
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows), 4)
 
     def test_lambda_calculations(self):
         """Verify λ calculations against manual computations."""
@@ -270,6 +270,8 @@ class TestCSVOutputs(unittest.TestCase):
 
         # Test data
         test_cases = [
+            {'stage': 1, 'ISP': 300, 'EPSILON': 0.06},
+            {'stage': 2, 'ISP': 348, 'EPSILON': 0.04},
             {'stage': 1, 'ISP': 300, 'EPSILON': 0.06},
             {'stage': 2, 'ISP': 348, 'EPSILON': 0.04}
         ]
@@ -290,28 +292,58 @@ class TestCSVOutputs(unittest.TestCase):
         total_delta_v = 9300  # As defined in the input data
         with open(self.stage_results_path) as f:
             reader = csv.DictReader(f)
-            total_calculated_delta_v = sum(float(row['Delta-V (m/s)']) for row in reader)
+            # Group by method and calculate total delta-V for each
+            method_totals = {}
+            for row in reader:
+                method = row['Method']
+                if method not in method_totals:
+                    method_totals[method] = 0
+                if row['Stage'] in ('1', '2'):
+                    method_totals[method] += float(row['Delta-V (m/s)'])
         
-        # Verify total delta-V
-        self.assertAlmostEqual(total_calculated_delta_v, total_delta_v, places=1)
+        # Verify total delta-V for each method
+        for method, total in method_totals.items():
+            self.assertAlmostEqual(total, total_delta_v, places=1,
+                                 msg=f"Delta-V mismatch for method {method}")
 
     def test_payload_fraction_consistency(self):
         """Verify payload fraction matches product of stage λ values."""
+        # Read optimization results first
+        with open(self.optimization_results_path) as f:
+            reader = csv.DictReader(f)
+            opt_results = {row['Method']: float(row['Payload Fraction']) for row in reader}
+
+        # Calculate lambda products for each method
         with open(self.stage_results_path) as f:
             reader = csv.DictReader(f)
             rows = list(reader)
-
-        # Calculate product of stage λ values
-        lambda_product = 1.0
-        for row in rows:
-            lambda_product *= float(row['Mass Ratio'])
-
-        # Get payload fraction from optimization results
-        with open(self.optimization_results_path) as f:
-            opt_results = json.load(f)
-        
-        # Verify consistency
-        self.assertAlmostEqual(lambda_product, opt_results['payload_fraction'], places=4)
+            
+            # Group rows by method
+            method_rows = {}
+            for row in rows:
+                method = row['Method']
+                if method not in method_rows:
+                    method_rows[method] = []
+                if row['Stage'] in ('1', '2'):
+                    method_rows[method].append(row)
+            
+            # Calculate lambda product for each method
+            for method, method_data in method_rows.items():
+                lambda_product = 1.0
+                for row in method_data:
+                    lambda_product *= float(row['Mass Ratio'])
+                
+                # Skip if method not in optimization results
+                if method not in opt_results:
+                    continue
+                
+                # Verify consistency for this method
+                self.assertAlmostEqual(
+                    lambda_product, 
+                    opt_results[method], 
+                    places=4,
+                    msg=f"Payload fraction mismatch for method {method}"
+                )
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
