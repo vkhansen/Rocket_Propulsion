@@ -88,37 +88,54 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
 def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Basin-Hopping."""
     try:
-        def objective(dv):
-            return objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
+        # Get Basin-Hopping parameters from config
+        bh_config = config.get('basin_hopping', {})
+        n_iterations = bh_config.get('n_iterations', 100)
+        temperature = bh_config.get('temperature', 1.0)
+        stepsize = bh_config.get('stepsize', 0.5)
         
-        minimizer_kwargs = {
-            "method": "L-BFGS-B",
-            "bounds": bounds,
-            "options": {
-                'ftol': config["optimization"]["tolerance"],
-                'maxiter': config["optimization"]["max_iterations"]
-            }
-        }
+        # Define the objective function with penalty for constraint violation
+        def objective(x):
+            # Calculate payload fraction
+            stage_ratios = [np.exp(-dv / (G0 * isp)) - eps 
+                          for dv, isp, eps in zip(x, ISP, EPSILON)]
+            obj_value = -np.prod(stage_ratios)  # Negative because we minimize
+            
+            # Add penalty for constraint violation
+            penalty_weight = 1e6
+            delta_v_violation = abs(np.sum(x) - TOTAL_DELTA_V)
+            penalty = penalty_weight * delta_v_violation
+            
+            return obj_value + penalty
         
+        # Define bounds as a list of tuples
+        bounds_list = [(b[0], b[1]) for b in bounds]
+        
+        # Run optimization
         result = basinhopping(
             objective,
             initial_guess,
-            minimizer_kwargs=minimizer_kwargs,
-            niter=config["optimization"]["max_iterations"],
-            T=1.0,
-            stepsize=0.5,
-            interval=50,  # Adjust temperature every 50 steps
-            niter_success=10  # Stop after 10 successive successes
+            niter=n_iterations,
+            T=temperature,
+            stepsize=stepsize,
+            minimizer_kwargs={
+                'method': 'L-BFGS-B',
+                'bounds': bounds_list
+            }
         )
         
         if not result.lowest_optimization_result.success:
-            logger.warning(f"Basin-hopping optimization warning: {result.message}")
+            logger.warning("Basin-Hopping optimization did not converge")
+            return initial_guess
             
-        return result.x
+        # Scale solution to meet total delta-v constraint exactly
+        solution = result.x
+        scale = TOTAL_DELTA_V / np.sum(solution)
+        return solution * scale
         
     except Exception as e:
-        logger.error(f"Basin-Hopping optimization failed: {e}")
-        raise
+        logger.error(f"Basin-Hopping optimization failed: {str(e)}")
+        return initial_guess
 
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
