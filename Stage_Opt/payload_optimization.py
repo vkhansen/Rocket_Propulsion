@@ -15,7 +15,7 @@ from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PolynomialMutation
-from pymoo.operators.repair.repair import Repair
+from pymoo.core.repair import Repair
 
 # Load configuration
 def load_config():
@@ -179,46 +179,63 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
+        class RepairDeltaV(Repair):
+            def _do(self, problem, X, **kwargs):
+                if len(X.shape) == 1:
+                    X = X.reshape(1, -1)
+                    
+                for i in range(len(X)):
+                    x = X[i]
+                    current_sum = np.sum(x)
+                    if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                        # Scale the solution to match total ΔV
+                        x = x * (TOTAL_DELTA_V / current_sum)
+                        # Ensure bounds are satisfied
+                        x = np.clip(x, problem.xl, problem.xu)
+                        # Re-normalize if clipping changed the sum
+                        current_sum = np.sum(x)
+                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                            x = x * (TOTAL_DELTA_V / current_sum)
+                        X[i] = x
+                return X
+
         class OptimizationProblem(Problem):
             def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, **kwargs):
-                super().__init__(n_var=len(initial_guess),
-                               n_obj=1,
-                               n_constr=1,
-                               xl=bounds[:, 0],
-                               xu=bounds[:, 1],
-                               **kwargs)
+                super().__init__(**kwargs)
                 self.G0 = G0
                 self.ISP = ISP
                 self.EPSILON = EPSILON
                 self.TOTAL_DELTA_V = TOTAL_DELTA_V
-            
+
             def _evaluate(self, x, out, *args, **kwargs):
-                # Handle both single solutions and population
                 if len(x.shape) == 1:
                     x = x.reshape(1, -1)
                 
-                # Calculate objectives
-                f = []
-                g = []
-                for xi in x:
+                f = np.zeros(len(x))
+                g = np.zeros(len(x))
+                
+                for i in range(len(x)):
                     try:
                         # Calculate objective
-                        obj_val = payload_fraction_objective(xi, self.G0, self.ISP, self.EPSILON)
-                        f.append(float(obj_val))
+                        f[i] = payload_fraction_objective(x[i], self.G0, self.ISP, self.EPSILON)
                         
                         # Calculate constraint violation
-                        dv_sum = float(np.sum(xi))
-                        g.append(float(dv_sum - self.TOTAL_DELTA_V))
+                        g[i] = float(np.sum(x[i]) - self.TOTAL_DELTA_V)
                         
                     except Exception as e:
                         logger.error(f"Error evaluating solution: {e}")
-                        f.append(1e6)
-                        g.append(1e6)
+                        f[i] = 1e6
+                        g[i] = 1e6
                 
-                out["F"] = np.array(f).reshape(-1, 1)
-                out["G"] = np.array(g).reshape(-1, 1)
-        
+                out["F"] = f.reshape(-1, 1)
+                out["G"] = g.reshape(-1, 1)
+
         problem = OptimizationProblem(
+            n_var=len(initial_guess),
+            n_obj=1,
+            n_constr=1,
+            xl=bounds[:, 0],
+            xu=bounds[:, 1],
             G0=G0,
             ISP=ISP,
             EPSILON=EPSILON,
@@ -228,20 +245,22 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         algorithm = GA(
             pop_size=config["optimization"]["population_size"],
             eliminate_duplicates=True,
-            mutation=PolynomialMutation(prob=0.2, eta=20),  # Increased mutation probability
+            mutation=PolynomialMutation(prob=0.2, eta=20),
             crossover=SBX(prob=0.9, eta=15),
-            repair=RepairDeltaV(TOTAL_DELTA_V)  # Add repair operator
+            repair=RepairDeltaV()
         )
 
+        termination = ('n_gen', config["optimization"]["max_iterations"])
+        
         res = minimize(
             problem,
             algorithm,
-            ('n_gen', config["optimization"]["max_iterations"]),
+            termination,
             seed=1,
             verbose=False
         )
 
-        if res.X is None:
+        if res.X is None or not res.success:
             logger.warning("GA failed to find a feasible solution")
             return initial_guess
             
@@ -250,28 +269,6 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
     except Exception as e:
         logger.error(f"GA optimization failed: {e}")
         raise
-
-class RepairDeltaV:
-    """Repair operator to ensure total ΔV constraint is satisfied."""
-    def __init__(self, total_dv):
-        self.total_dv = total_dv
-        
-    def do(self, problem, pop, **kwargs):
-        for i in range(len(pop)):
-            x = pop[i].X
-            if x is not None:  # Check if solution exists
-                current_sum = np.sum(x)
-                if abs(current_sum - self.total_dv) > 1e-6:
-                    # Scale the solution to match total ΔV
-                    x = x * (self.total_dv / current_sum)
-                    # Ensure bounds are satisfied
-                    x = np.clip(x, problem.xl, problem.xu)
-                    # Re-normalize if clipping changed the sum
-                    current_sum = np.sum(x)
-                    if abs(current_sum - self.total_dv) > 1e-6:
-                        x = x * (self.total_dv / current_sum)
-                    pop[i].X = x
-        return pop
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
