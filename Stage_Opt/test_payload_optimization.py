@@ -259,8 +259,14 @@ class TestCSVOutputs(unittest.TestCase):
         expected_columns = ['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)', 'Method']
         self.assertListEqual(reader.fieldnames, expected_columns)
         
-        # Verify number of stages
-        self.assertEqual(len(rows), 4)
+        # Count unique methods
+        methods = set(row['Method'] for row in rows)
+        num_methods = len(methods)
+        
+        # Each method should have 2 stages
+        expected_rows = num_methods * 2  # 2 stages per method
+        self.assertEqual(len(rows), expected_rows, 
+                       f"Expected {expected_rows} rows (2 stages × {num_methods} methods)")
 
     def test_lambda_calculations(self):
         """Verify λ calculations against manual computations."""

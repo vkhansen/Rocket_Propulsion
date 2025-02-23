@@ -41,7 +41,7 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
             detailed_path = os.path.join(output_dir, "stage_results.csv")
             with open(detailed_path, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Method', 'Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)'])
+                writer.writerow(['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)', 'Method'])
                 for method, result in results.items():
                     if not all(k in result for k in ['dv', 'stage_ratios']):
                         logger.warning(f"Skipping incomplete stage data for {method}")
@@ -54,11 +54,11 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
                         ratio = np.exp(-dv / (9.81 * stage['ISP'])) - stage['EPSILON']
                         contribution = (dv / total_dv * 100) if total_dv > 0 else 0
                         writer.writerow([
-                            method,
                             i + 1,
                             f"{dv:.1f}",
                             f"{ratio:.4f}",
-                            f"{contribution:.1f}"
+                            f"{contribution:.1f}",
+                            method
                         ])
             logger.info(f"Stage results written to {detailed_path}")
         except Exception as e:
