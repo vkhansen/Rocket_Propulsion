@@ -6,6 +6,8 @@ import unittest
 import numpy as np
 import logging
 import sys
+import csv
+import math
 
 # Configure logging
 logging.basicConfig(
@@ -234,6 +236,82 @@ class TestPayloadOptimization(unittest.TestCase):
             # Some solvers may return initial guess on failure, which is fine
             if not np.allclose(result, initial_guess):
                 self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=5)
+
+class TestCSVOutputs(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.output_dir = os.path.join('output')
+        cls.stage_results_path = os.path.join(cls.output_dir, 'stage_results.csv')
+        cls.optimization_results_path = os.path.join(cls.output_dir, 'optimization_results.csv')
+
+    def test_csv_files_exist(self):
+        """Verify that output CSV files are created."""
+        self.assertTrue(os.path.exists(self.stage_results_path))
+        self.assertTrue(os.path.exists(self.optimization_results_path))
+
+    def test_stage_results_structure(self):
+        """Verify structure of stage_results.csv."""
+        with open(self.stage_results_path) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            
+        # Verify columns
+        expected_columns = ['Stage', 'DeltaV', 'Lambda', 'Contribution']
+        self.assertListEqual(reader.fieldnames, expected_columns)
+        
+        # Verify number of stages
+        self.assertEqual(len(rows), 2)
+
+    def test_lambda_calculations(self):
+        """Verify λ calculations against manual computations."""
+        with open(self.stage_results_path) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        # Test data
+        test_cases = [
+            {'stage': 1, 'ISP': 300, 'EPSILON': 0.06},
+            {'stage': 2, 'ISP': 348, 'EPSILON': 0.04}
+        ]
+
+        for row, test_case in zip(rows, test_cases):
+            dv = float(row['DeltaV'])
+            isp = test_case['ISP']
+            epsilon = test_case['EPSILON']
+            
+            # Manual calculation
+            expected_lambda = math.exp(-dv / (9.81 * isp)) - epsilon
+            
+            # Verify with CSV value
+            self.assertAlmostEqual(float(row['Lambda']), expected_lambda, places=4)
+
+    def test_delta_v_split(self):
+        """Verify delta-V split sums to total delta-V."""
+        total_delta_v = 9300  # As defined in the input data
+        with open(self.stage_results_path) as f:
+            reader = csv.DictReader(f)
+            total_calculated_delta_v = sum(float(row['DeltaV']) for row in reader)
+        
+        # Verify total delta-V
+        self.assertAlmostEqual(total_calculated_delta_v, total_delta_v, places=1)
+
+    def test_payload_fraction_consistency(self):
+        """Verify payload fraction matches product of stage λ values."""
+        with open(self.stage_results_path) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        # Calculate product of stage λ values
+        lambda_product = 1.0
+        for row in rows:
+            lambda_product *= float(row['Lambda'])
+
+        # Get payload fraction from optimization results
+        with open(self.optimization_results_path) as f:
+            opt_results = json.load(f)
+        
+        # Verify consistency
+        self.assertAlmostEqual(lambda_product, opt_results['payload_fraction'], places=4)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
