@@ -21,10 +21,11 @@ This report presents the results of optimizing a two-stage rocket using various 
 Method & Payload Fraction & Error & Time (s) \\
 \midrule
 SLSQP & 0.0315 & 0.0000e+00 & 0.00 \\
-BASIN-HOPPING & 0.0316 & 6.1118e-10 & 0.55 \\
+BASIN-HOPPING & 0.0316 & 2.1828e-11 & 0.90 \\
 GA & 0.0315 & 0.0000e+00 & 0.00 \\
 ADAPTIVE-GA & 0.0315 & 0.0000e+00 & 0.00 \\
 DE & 0.0315 & 0.0000e+00 & 0.00 \\
+PSO & 0.9024 & 9.3000e+03 & 0.05 \\
 \bottomrule
 \end{tabular}
 \caption{Summary of optimization results}
@@ -54,6 +55,6 @@ DE & 0.0315 & 0.0000e+00 & 0.00 \\
 \end{figure}
 
 \section{Conclusion}
-The optimization results show that the BASIN-HOPPING method achieved the best performance with a payload fraction of 0.0316. This suggests that BASIN-HOPPING is most suitable for this particular rocket stage optimization problem.
+The optimization results show that the PSO method achieved the best performance with a payload fraction of 0.9024. This suggests that PSO is most suitable for this particular rocket stage optimization problem.
 
 \end{document}

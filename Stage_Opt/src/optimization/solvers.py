@@ -457,17 +457,13 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
-    start_time = time.time()
-    
     try:
-        logger.info(f"Starting PSO optimization with parameters:")
-        logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
-        
-        pso_config = config.get("optimization", {}).get("pso", {})
-        n_particles = pso_config.get("n_particles", 50)
-        max_iterations = pso_config.get("max_iterations", 100)
+        pso_config = config["optimization"]["pso"]
+        n_particles = pso_config["n_particles"]
+        max_iterations = pso_config["n_iterations"]
+        w = pso_config["w"]
+        c1 = pso_config["c1"]
+        c2 = pso_config["c2"]
         
         # Initialize particles
         particles = np.random.uniform(
@@ -489,10 +485,6 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
         global_best_pos = personal_best_pos[np.argmin(personal_best_val)]
         global_best_val = np.min(personal_best_val)
-        
-        w = pso_config.get("inertia", 0.7)
-        c1 = pso_config.get("cognitive", 1.5)
-        c2 = pso_config.get("social", 1.5)
         
         for iteration in range(max_iterations):
             # Update velocities and positions
@@ -530,26 +522,9 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
             if iteration > 10 and np.std(values) < 1e-6:
                 logger.info(f"PSO converged after {iteration} iterations")
                 break
-                
-        # Calculate final results
-        execution_time = time.time() - start_time
-        optimal_dv = list(map(float, global_best_pos))  # Convert to list of floats
-        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
         
-        logger.info(f"PSO optimization succeeded:")
-        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
-        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
-        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-        
-        return {
-            'method': 'PSO',
-            'optimal_dv': optimal_dv,
-            'stage_ratios': list(map(float, stage_ratios)),
-            'payload_fraction': float(payload_fraction),
-            'execution_time': float(execution_time)
-        }
+        return global_best_pos
         
     except Exception as e:
         logger.error(f"Error in PSO optimization: {e}")
-        return None
+        return initial_guess
