@@ -10,17 +10,6 @@ import csv
 import math
 from pathlib import Path
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join("output", "test_debug.log"), mode='w')
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # Import our modules
 from src.utils.data import load_input_data, calculate_mass_ratios, calculate_payload_fraction
 from src.optimization.objective import payload_fraction_objective, objective_with_penalty
@@ -32,11 +21,15 @@ from src.optimization.solvers import (
     solve_with_adaptive_ga,
     solve_with_pso
 )
-from src.utils.config import CONFIG
+from src.utils.config import setup_logging, CONFIG
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+# Initialize logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 class TestPayloadOptimization(unittest.TestCase):
     """Test cases for payload optimization functions."""

@@ -3,21 +3,74 @@ import os
 import json
 import logging
 import sys
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join("output", "debug.log"), mode='w')
-    ]
-)
-logger = logging.getLogger(__name__)
+from logging.handlers import RotatingFileHandler
 
 # Create output directory if it doesn't exist
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Configure logging
+def setup_logging():
+    """Set up logging configuration with multiple handlers and formats."""
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    )
+    console_formatter = logging.Formatter(
+        '%(levelname)s - %(message)s'
+    )
+    
+    # Console handler - for basic output
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+    
+    # Debug file handler - for detailed debug information
+    debug_handler = RotatingFileHandler(
+        os.path.join(OUTPUT_DIR, "debug.log"),
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        mode='w'
+    )
+    debug_handler.setLevel(logging.DEBUG)
+    debug_handler.setFormatter(detailed_formatter)
+    
+    # Optimization file handler - for optimization-specific info
+    opt_handler = RotatingFileHandler(
+        os.path.join(OUTPUT_DIR, "optimization.log"),
+        maxBytes=5*1024*1024,  # 5MB
+        backupCount=3,
+        mode='w'
+    )
+    opt_handler.setLevel(logging.INFO)
+    opt_handler.setFormatter(detailed_formatter)
+    
+    # Error file handler - for warnings and errors
+    error_handler = RotatingFileHandler(
+        os.path.join(OUTPUT_DIR, "error.log"),
+        maxBytes=5*1024*1024,  # 5MB
+        backupCount=3,
+        mode='w'
+    )
+    error_handler.setLevel(logging.WARNING)
+    error_handler.setFormatter(detailed_formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # Capture all levels
+    
+    # Remove any existing handlers
+    root_logger.handlers = []
+    
+    # Add all handlers
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(debug_handler)
+    root_logger.addHandler(opt_handler)
+    root_logger.addHandler(error_handler)
+
+# Initialize logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # Default configuration
 CONFIG = {
