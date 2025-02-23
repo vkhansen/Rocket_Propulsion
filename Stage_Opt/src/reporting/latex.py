@@ -1,8 +1,69 @@
 """LaTeX report generation."""
 import os
+import csv
 import json
 from datetime import datetime
 from ..utils.config import OUTPUT_DIR, logger
+
+def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
+    """Write optimization results to CSV files."""
+    summary_path = None
+    detailed_path = None
+    
+    try:
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Write summary results
+        try:
+            summary_path = os.path.join(output_dir, "optimization_summary.csv")
+            with open(summary_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Method', 'Payload Fraction', 'Error', 'Time (s)'])
+                for method, result in results.items():
+                    if not all(k in result for k in ['payload_fraction', 'error', 'execution_time']):
+                        logger.warning(f"Skipping incomplete result for {method}")
+                        continue
+                    writer.writerow([
+                        method,
+                        f"{result['payload_fraction']:.4f}",
+                        f"{result['error']:.4e}",
+                        f"{result['execution_time']:.2f}"
+                    ])
+            logger.info(f"Summary results written to {summary_path}")
+        except Exception as e:
+            logger.error(f"Failed to write summary CSV: {str(e)}")
+            summary_path = None
+        
+        # Write detailed stage results
+        try:
+            detailed_path = os.path.join(output_dir, "stage_results.csv")
+            with open(detailed_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Method', 'Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)'])
+                for method, result in results.items():
+                    if not all(k in result for k in ['dv', 'stage_ratios']):
+                        logger.warning(f"Skipping incomplete stage data for {method}")
+                        continue
+                    total_dv = sum(result['dv'])
+                    for i, (dv, ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
+                        contribution = (dv / total_dv * 100) if total_dv > 0 else 0
+                        writer.writerow([
+                            method,
+                            i + 1,
+                            f"{dv:.1f}",
+                            f"{ratio:.4f}",
+                            f"{contribution:.1f}"
+                        ])
+            logger.info(f"Stage results written to {detailed_path}")
+        except Exception as e:
+            logger.error(f"Failed to write stage results CSV: {str(e)}")
+            detailed_path = None
+            
+    except Exception as e:
+        logger.error(f"Error in CSV generation: {str(e)}")
+    
+    return summary_path, detailed_path
 
 def generate_report(results, stages, output_dir=OUTPUT_DIR):
     """Generate a LaTeX report with optimization results."""
@@ -16,6 +77,9 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
         if not valid_results:
             logger.error("No valid optimization results for report")
             return None
+            
+        # Write results to CSV
+        write_results_to_csv(valid_results, stages, output_dir)
             
         report_path = os.path.join(output_dir, "optimization_report.tex")
         
