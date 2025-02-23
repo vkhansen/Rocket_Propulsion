@@ -13,6 +13,9 @@ import matplotlib.pyplot as plt
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PolynomialMutation
+from pymoo.operators.repair.repair import Repair
 
 # Load configuration
 def load_config():
@@ -196,43 +199,79 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                 
                 # Calculate objectives
                 f = []
-                for xi in x:
-                    try:
-                        val = payload_fraction_objective(xi, self.G0, self.ISP, self.EPSILON)
-                        f.append(float(val))
-                    except:
-                        f.append(1e6)  # Large but finite penalty
-                
-                out["F"] = np.array(f).reshape(-1, 1)
-                
-                # Calculate constraints: sum(dv) - TOTAL_DELTA_V = 0
                 g = []
                 for xi in x:
                     try:
-                        val = float(np.sum(xi) - self.TOTAL_DELTA_V)
-                        g.append(val)
-                    except:
+                        # Calculate objective
+                        obj_val = payload_fraction_objective(xi, self.G0, self.ISP, self.EPSILON)
+                        f.append(float(obj_val))
+                        
+                        # Calculate constraint violation
+                        dv_sum = float(np.sum(xi))
+                        g.append(float(dv_sum - self.TOTAL_DELTA_V))
+                        
+                    except Exception as e:
+                        logger.error(f"Error evaluating solution: {e}")
+                        f.append(1e6)
                         g.append(1e6)
                 
+                out["F"] = np.array(f).reshape(-1, 1)
                 out["G"] = np.array(g).reshape(-1, 1)
         
-        problem = OptimizationProblem(G0, ISP, EPSILON, TOTAL_DELTA_V)
-        
+        problem = OptimizationProblem(
+            G0=G0,
+            ISP=ISP,
+            EPSILON=EPSILON,
+            TOTAL_DELTA_V=TOTAL_DELTA_V
+        )
+
         algorithm = GA(
             pop_size=config["optimization"]["population_size"],
-            eliminate_duplicates=True
+            eliminate_duplicates=True,
+            mutation=PolynomialMutation(prob=0.2, eta=20),  # Increased mutation probability
+            crossover=SBX(prob=0.9, eta=15),
+            repair=RepairDeltaV(TOTAL_DELTA_V)  # Add repair operator
         )
-        
-        res = pymoo_minimize(problem,
-                           algorithm,
-                           termination=('n_gen', config["optimization"]["max_iterations"]),
-                           verbose=False)
-        
-        return res.X  # Return best solution
+
+        res = minimize(
+            problem,
+            algorithm,
+            ('n_gen', config["optimization"]["max_iterations"]),
+            seed=1,
+            verbose=False
+        )
+
+        if res.X is None:
+            logger.warning("GA failed to find a feasible solution")
+            return initial_guess
+            
+        return res.X
         
     except Exception as e:
         logger.error(f"GA optimization failed: {e}")
         raise
+
+class RepairDeltaV:
+    """Repair operator to ensure total ΔV constraint is satisfied."""
+    def __init__(self, total_dv):
+        self.total_dv = total_dv
+        
+    def do(self, problem, pop, **kwargs):
+        for i in range(len(pop)):
+            x = pop[i].X
+            if x is not None:  # Check if solution exists
+                current_sum = np.sum(x)
+                if abs(current_sum - self.total_dv) > 1e-6:
+                    # Scale the solution to match total ΔV
+                    x = x * (self.total_dv / current_sum)
+                    # Ensure bounds are satisfied
+                    x = np.clip(x, problem.xl, problem.xu)
+                    # Re-normalize if clipping changed the sum
+                    current_sum = np.sum(x)
+                    if abs(current_sum - self.total_dv) > 1e-6:
+                        x = x * (self.total_dv / current_sum)
+                    pop[i].X = x
+        return pop
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
