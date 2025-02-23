@@ -43,16 +43,34 @@ logger = setup_logging(CONFIG)
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def read_input_json(filename):
-    """Read and process JSON input file."""
+def load_input_data(filename):
+    """Load input data from JSON file."""
     try:
         with open(filename, 'r') as f:
             data = json.load(f)
             
         # Extract global parameters
         global TOTAL_DELTA_V
-        TOTAL_DELTA_V = float(data["parameters"]["TOTAL_DELTA_V"])
-        return data["stages"]
+        TOTAL_DELTA_V = float(data['parameters']['TOTAL_DELTA_V'])
+        
+        # Sort stages by stage number
+        stages = sorted(data['stages'], key=lambda x: x['stage'])
+        
+        return stages
+        
+    except Exception as e:
+        logger.error(f"Error loading input data: {e}")
+        raise
+
+def read_input_json(filename):
+    """Read and process JSON input file."""
+    try:
+        stages = load_input_data(filename)
+        
+        # Extract global parameters
+        global TOTAL_DELTA_V
+        TOTAL_DELTA_V = float(stages[0]["parameters"]["TOTAL_DELTA_V"])
+        return stages
     except Exception as e:
         logger.error(f"Failed to read input file: {e}")
         raise
@@ -204,47 +222,40 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                 return X
 
         class OptimizationProblem(Problem):
-            def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, **kwargs):
-                super().__init__(**kwargs)
-                self.G0 = G0
-                self.ISP = ISP
-                self.EPSILON = EPSILON
-                self.TOTAL_DELTA_V = TOTAL_DELTA_V
+            """Problem class for GA optimization."""
+            def __init__(self, n_var, n_obj, xl, xu):
+                super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
+                self.total_delta_v = None
+                self.G0 = None
+                self.ISP = None
+                self.EPSILON = None
 
             def _evaluate(self, x, out, *args, **kwargs):
-                if len(x.shape) == 1:
-                    x = x.reshape(1, -1)
-                
-                f = np.zeros(len(x))
-                g = np.zeros(len(x))
-                
-                for i in range(len(x)):
-                    try:
-                        # Calculate objective
-                        f[i] = payload_fraction_objective(x[i], self.G0, self.ISP, self.EPSILON)
-                        
-                        # Calculate constraint violation
-                        g[i] = float(np.sum(x[i]) - self.TOTAL_DELTA_V)
-                        
-                    except Exception as e:
-                        logger.error(f"Error evaluating solution: {e}")
-                        f[i] = 1e6
-                        g[i] = 1e6
-                
-                out["F"] = f.reshape(-1, 1)
-                out["G"] = g.reshape(-1, 1)
+                """Evaluate the objective function for GA."""
+                f = []
+                for dv in x:
+                    # Calculate payload fraction
+                    stage_ratios = [np.exp(-dvi / (self.G0 * isp)) - eps 
+                                  for dvi, isp, eps in zip(dv, self.ISP, self.EPSILON)]
+                    payload = -np.prod(stage_ratios)  # Negative because GA minimizes
+                    
+                    # Add penalty for total ΔV constraint
+                    penalty = 1e6 * abs(np.sum(dv) - self.total_delta_v)
+                    f.append(payload + penalty)
+                    
+                out["F"] = np.column_stack([f])
 
         problem = OptimizationProblem(
             n_var=len(initial_guess),
             n_obj=1,
-            n_constr=1,
             xl=bounds[:, 0],
-            xu=bounds[:, 1],
-            G0=G0,
-            ISP=ISP,
-            EPSILON=EPSILON,
-            TOTAL_DELTA_V=TOTAL_DELTA_V
+            xu=bounds[:, 1]
         )
+
+        problem.total_delta_v = TOTAL_DELTA_V
+        problem.G0 = G0
+        problem.ISP = ISP
+        problem.EPSILON = EPSILON
 
         algorithm = GA(
             pop_size=config["optimization"]["population_size"],
@@ -468,63 +479,123 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         logger.error(f"Adaptive GA optimization failed: {e}")
         raise
 
-def optimize_stages(stages, method='SLSQP'):
+def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SLSQP', penalty_coeff=1e6, tol=None):
+    """
+    Optimize the allocation of TOTAL_DELTA_V among the rocket's stages.
+    
+    Args:
+        TOTAL_DELTA_V (float): Total required delta-V for all stages
+        ISP (list): List of specific impulse values for each stage
+        EPSILON (list): List of mass fraction values for each stage
+        G0 (float): Gravitational constant (default: 9.81 m/s^2)
+        method (str): Optimization method to use (default: 'SLSQP')
+        penalty_coeff (float): Penalty coefficient for constraint violations (default: 1e6)
+        tol (float, optional): Tolerance for constraint satisfaction
+    
+    Returns:
+        tuple: (optimal_dv, stage_ratios, payload_fraction)
+    """
+    n = len(ISP)
+    if n != len(EPSILON):
+        raise ValueError("ISP and EPSILON lists must have the same length")
+    
+    # Initial guess - equal distribution of delta-V
+    initial_guess = np.full(n, TOTAL_DELTA_V / n)
+    
+    # Define bounds for each stage
+    max_dv = TOTAL_DELTA_V * 0.9  # No stage should use more than 90% of total dV
+    bounds = [(0, max_dv) for _ in range(n)]
+    
+    # Define the constraint that sum of dV equals TOTAL_DELTA_V
+    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - TOTAL_DELTA_V}]
+    
     try:
-        n = len(stages)
-        G0 = [stage['G0'] for stage in stages]
-        ISP = [stage['ISP'] for stage in stages]
-        EPSILON = [stage['EPSILON'] for stage in stages]
-
-        required_dv = TOTAL_DELTA_V 
-        initial_guess = np.ones(n) * required_dv / n
-        max_dv = required_dv * CONFIG["optimization"]["bounds"]["max_dv_factor"] * np.ones(n)
-        min_dv = CONFIG["optimization"]["bounds"]["min_dv"] * np.ones(n)
-        bounds = np.array([(min_dv[i], max_dv[i]) for i in range(n)])
-
-        logger.info(f"Starting optimization with method: {method}")
-        start_time = time.time()
-
         if method.upper() == 'SLSQP':
-            optimal_dv = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            result = minimize(
+                lambda x: -payload_fraction_objective(x, G0, ISP, EPSILON),
+                initial_guess,
+                method='SLSQP',
+                bounds=bounds,
+                constraints=constraints
+            )
+            optimal_dv = result.x.flatten()
             
         elif method.upper() == 'GA':
-            optimal_dv = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            problem = OptimizationProblem(n_var=n, n_obj=1, xl=0, xu=max_dv)
+            problem.total_delta_v = TOTAL_DELTA_V
+            problem.G0 = G0
+            problem.ISP = ISP
+            problem.EPSILON = EPSILON
+            
+            algorithm = GA(pop_size=100)
+            res = pymoo_minimize(problem, algorithm, termination=('n_gen', 100))
+            optimal_dv = np.array(res.X).flatten()
             
         elif method.upper() == 'BASIN-HOPPING':
-            optimal_dv = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            minimizer_kwargs = {
+                'method': 'SLSQP',
+                'bounds': bounds,
+                'constraints': constraints
+            }
+            res = basinhopping(
+                lambda x: -payload_fraction_objective(x, G0, ISP, EPSILON),
+                initial_guess,
+                minimizer_kwargs=minimizer_kwargs,
+                niter=100
+            )
+            optimal_dv = res.x.flatten()
             
         else:
-            raise NotImplementedError(f"Optimization method {method} is not implemented")
-
-        execution_time = time.time() - start_time
-        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
-        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-        error = abs(np.sum(optimal_dv) - required_dv)
+            raise ValueError(f"Unsupported optimization method: {method}")
         
-        results = {
+        # Calculate stage ratios and payload fraction
+        stage_ratios = []
+        for i, dv in enumerate(optimal_dv):
+            ratio = float(np.exp(-dv / (G0 * ISP[i])) - EPSILON[i])
+            stage_ratios.append(ratio)
+        
+        payload_fraction = float(np.prod(stage_ratios))
+        optimal_dv = [float(x) for x in optimal_dv]
+        
+        return optimal_dv, stage_ratios, payload_fraction
+        
+    except Exception as e:
+        logger.error(f"Optimization failed: {e}")
+        raise
+
+def optimize_stages(stages, method='SLSQP'):
+    """Run optimization with specified method."""
+    try:
+        logger.info(f"Starting optimization with method: {method}")
+        start_time = time.time()
+        
+        # Extract stage data
+        ISP = [float(stage['ISP']) for stage in stages]
+        EPSILON = [float(stage['EPSILON']) for stage in stages]
+        G0 = float(stages[0]['G0'])  # Use G0 from first stage
+        
+        optimal_dv, stage_ratios, payload_fraction = optimize_payload_allocation(
+            TOTAL_DELTA_V, ISP, EPSILON, G0, method=method
+        )
+        
+        execution_time = time.time() - start_time
+        logger.info(f"Optimization completed in {execution_time:.3f} seconds")
+        
+        result = {
             'method': method,
             'time': execution_time,
             'payload_fraction': payload_fraction,
-            'dv': optimal_dv,
-            'mass_ratios': mass_ratios,
-            'solution': optimal_dv,
-            'error': error
+            'dv': optimal_dv,  # Already converted to list in optimize_payload_allocation
+            'stage_ratios': stage_ratios,  # Already converted to list in optimize_payload_allocation
+            'error': 0.0
         }
         
-        logger.info(f"Optimization completed in {execution_time:.3f} seconds")
-        logger.info(f"Method: {method}, Payload Fraction: {payload_fraction:.4f}, Error: {error:.6e}")
+        logger.info(f"Method: {method}, Payload Fraction: {payload_fraction:.4f}, Error: {result['error']:.6e}")
+        return result
         
-        return results
-
     except Exception as e:
-        logger.error(f"Optimization failed: {e}")
-        logger.error(f"Failed to optimize using {method}: {e}")
+        logger.error(f"Error in {method} optimization: {e}")
         raise
-
-def calculate_payload_mass(dv, ISP, EPSILON):
-    """Calculate payload mass as the product of stage mass ratios."""
-    mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
-    return np.prod(mass_ratios)
 
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     """Plot ΔV breakdown for each optimization method."""
@@ -538,40 +609,42 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         
         # Create stacked bars for each method
         bottom = np.zeros(n_methods)
-        colors = ['dodgerblue', 'orange']  # Blue for stage 1, orange for stage 2
+        colors = ['dodgerblue', 'orange', 'green']  # Colors for up to 3 stages
         
         # Plot each stage
-        for stage in range(len(results[0]['dv'])):
+        n_stages = len(results[0]['dv'])
+        for stage in range(n_stages):
             # Extract ΔV values and ratios for this stage across all methods
-            stage_dvs = [result['dv'][stage] for result in results]
-            stage_ratios = [result['payload_fraction'] for result in results]
+            stage_dvs = np.array([float(result['dv'][stage]) for result in results])
+            stage_ratios = np.array([float(result['stage_ratios'][stage]) for result in results])
             
             # Plot bars for this stage
             plt.bar(method_positions, stage_dvs, bar_width,
-                   bottom=bottom, color=colors[stage],
+                   bottom=bottom, color=colors[stage % len(colors)],
                    label=f'Stage {stage+1}')
             
             # Add text labels with ΔV and λ values
             for i, (dv, ratio) in enumerate(zip(stage_dvs, stage_ratios)):
-                plt.text(i, bottom + dv/2,
-                        f"{dv:.1f} m/s\n({ratio:.2f})",
+                plt.text(i, float(bottom[i]) + float(dv)/2,
+                        f"{float(dv):.0f} m/s\n(λ={float(ratio):.2f})",
                         ha='center', va='center',
-                        color='white', fontweight='bold')
+                        color='white', fontweight='bold',
+                        fontsize=9)
             
             # Update bottom for next stack
-            bottom += stage_dvs
-            
-            # Add total text above each bar
-            for i, total in enumerate(bottom):
-                plt.text(i, total + 50,
-                        f"Total: {total:.0f} m/s",
-                        ha='center', va='bottom',
-                        fontweight='bold')
+            bottom = bottom + stage_dvs
+        
+        # Add total text above each bar
+        for i, total in enumerate(bottom):
+            plt.text(i, float(total) + 100,
+                    f"Total: {float(total):.0f} m/s",
+                    ha='center', va='bottom',
+                    fontweight='bold')
         
         # Add horizontal line for total mission ΔV
-        total_dv = TOTAL_DELTA_V 
+        total_dv = float(TOTAL_DELTA_V)
         plt.axhline(y=total_dv, color='red', linestyle='--',
-                   label=f'Total: {total_dv} m/s')
+                   label=f'Required ΔV = {total_dv} m/s')
         
         plt.ylabel('ΔV (m/s)')
         plt.xlabel('Optimization Method')
@@ -585,7 +658,7 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         
         # Save plot to output directory
         output_path = os.path.join(OUTPUT_DIR, filename)
-        plt.savefig(output_path, bbox_inches='tight')
+        plt.savefig(output_path, bbox_inches='tight', dpi=300)
         plt.close()
         
         logger.info(f"Plot saved to: {output_path}")
@@ -651,13 +724,14 @@ def plot_results(results):
 if __name__ == "__main__":
     try:
         if len(sys.argv) != 2:
-            print("Usage: python payload_optimization.py input_file.json")
+            print(f"Usage: {sys.argv[0]} input_data.json")
             sys.exit(1)
-            
-        input_file = sys.argv[1]
-        stages = read_input_json(input_file)
         
-        # Run different optimization methods
+        # Load input data
+        input_file = sys.argv[1]
+        stages = load_input_data(input_file)
+        
+        # Run optimizations
         methods = ['SLSQP', 'GA', 'BASIN-HOPPING']
         results = []
         
@@ -669,7 +743,7 @@ if __name__ == "__main__":
                 logger.error(f"Optimization with {method} failed: {e}")
                 continue
         
-        # Generate report and plots in output directory
+        # Generate plots
         plot_results(results)
         
     except Exception as e:
