@@ -474,12 +474,18 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         
         # Scale initial particles to satisfy total delta-V constraint
         sums = np.sum(particles, axis=1)
-        non_zero_mask = sums > 0  # Avoid division by zero
+        non_zero_mask = sums > 1e-10  # Use small epsilon instead of exact zero
         if np.any(non_zero_mask):
-            # Scale to meet total delta-V
-            scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 0)
-            particles[non_zero_mask] *= scale_factors[non_zero_mask, np.newaxis]
+            scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 1.0)
+            scale_factors = scale_factors.reshape(-1, 1)  # Reshape for broadcasting
+            particles[non_zero_mask] *= scale_factors[non_zero_mask]
             
+        # Handle zero-sum particles by distributing delta-V equally
+        zero_mask = ~non_zero_mask
+        if np.any(zero_mask):
+            n_vars = particles.shape[1]
+            particles[zero_mask] = TOTAL_DELTA_V / n_vars
+        
         velocities = np.zeros_like(particles)
         personal_best_pos = particles.copy()
         personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
@@ -501,11 +507,17 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
             
             # Scale to meet total delta-V constraint
             sums = np.sum(particles, axis=1)
-            non_zero_mask = sums > 0
+            non_zero_mask = sums > 1e-10  # Use small epsilon instead of exact zero
             if np.any(non_zero_mask):
-                scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 0)
+                scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 1.0)
                 scale_factors = scale_factors.reshape(-1, 1)  # Reshape for broadcasting
                 particles[non_zero_mask] *= scale_factors[non_zero_mask]
+            
+            # Handle zero-sum particles by distributing delta-V equally
+            zero_mask = ~non_zero_mask
+            if np.any(zero_mask):
+                n_vars = particles.shape[1]
+                particles[zero_mask] = TOTAL_DELTA_V / n_vars
             
             # Update personal and global bests
             values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
