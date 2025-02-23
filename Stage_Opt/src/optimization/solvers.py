@@ -374,12 +374,64 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             
             selection_probs = shifted_fitness / np.sum(shifted_fitness)
             
-            # Select parents using tournament selection
+            # Selection - ensure we get enough parents
+            n_parents_needed = current_pop_size - elite_size
             parents_idx = np.random.choice(
                 population.shape[0],
-                size=population.shape[0] - elite_size,
+                size=n_parents_needed,
                 p=selection_probs
             )
+            parents = population[parents_idx]
+            
+            # Create offspring array with correct size
+            offspring = np.zeros((current_pop_size, len(initial_guess)))
+            
+            # Elitism - copy elite solutions first
+            if elite_size > 0:
+                elite_idx = np.argsort(fitness_values)[:elite_size]
+                offspring[:elite_size] = population[elite_idx]
+            
+            # Crossover for remaining positions
+            for i in range(elite_size, current_pop_size - 1, 2):
+                if np.random.random() < current_crossover_rate:
+                    # Select two random parents
+                    parent1_idx = np.random.randint(len(parents))
+                    parent2_idx = np.random.randint(len(parents))
+                    while parent2_idx == parent1_idx:  # Ensure different parents
+                        parent2_idx = np.random.randint(len(parents))
+                    
+                    # Perform crossover
+                    alpha = np.random.random()
+                    child1 = alpha * parents[parent1_idx] + (1 - alpha) * parents[parent2_idx]
+                    child2 = (1 - alpha) * parents[parent1_idx] + alpha * parents[parent2_idx]
+                    
+                    offspring[i] = child1
+                    if i + 1 < current_pop_size:  # Make sure we don't go out of bounds
+                        offspring[i + 1] = child2
+                else:
+                    # If no crossover, copy parents directly
+                    parent_idx = (i - elite_size) % len(parents)  # Use modulo to wrap around
+                    offspring[i] = parents[parent_idx]
+                    if i + 1 < current_pop_size:
+                        next_parent_idx = (parent_idx + 1) % len(parents)
+                        offspring[i + 1] = parents[next_parent_idx]
+            
+            # Mutation
+            for i in range(elite_size, current_pop_size):
+                if np.random.random() < current_mutation_rate:
+                    # Add random noise to the solution
+                    mutation = np.random.normal(0, 0.1, size=len(initial_guess))
+                    offspring[i] += mutation
+                    
+                    # Ensure bounds are respected
+                    for j in range(len(bounds)):
+                        offspring[i, j] = np.clip(offspring[i, j], bounds[j][0], bounds[j][1])
+                    
+                    # Normalize to maintain total delta-v
+                    scale = TOTAL_DELTA_V / np.sum(offspring[i])
+                    offspring[i] *= scale
+            
+            population = offspring.copy()  # Update population with new offspring
             
             # Update best solution
             min_idx = np.argmin(fitness_values)
@@ -394,42 +446,14 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             if stagnation_counter >= stagnation_threshold:
                 current_pop_size = min(max_pop_size, current_pop_size + 10)
                 current_mutation_rate = min(max_mutation_rate, current_mutation_rate * 1.2)
+                current_crossover_rate = min(max_crossover_rate, current_crossover_rate * 1.1)
                 stagnation_counter = 0
+                logger.debug(f"Increasing population size to {current_pop_size} and mutation rate to {current_mutation_rate}")
             else:
                 current_pop_size = max(min_pop_size, current_pop_size - 5)
                 current_mutation_rate = max(min_mutation_rate, current_mutation_rate * 0.9)
-            
-            # Selection
-            parents = population[parents_idx]
-            
-            # Crossover
-            offspring = parents.copy()
-            for i in range(0, len(offspring)-1, 2):
-                if np.random.random() < current_crossover_rate:
-                    alpha = np.random.random()
-                    child1 = alpha * parents[i] + (1-alpha) * parents[i+1]
-                    child2 = (1-alpha) * parents[i] + alpha * parents[i+1]
-                    offspring[i] = enforce_stage_constraints(child1, TOTAL_DELTA_V)
-                    offspring[i+1] = enforce_stage_constraints(child2, TOTAL_DELTA_V)
-            
-            # Mutation
-            for i in range(len(offspring)):
-                if np.random.random() < current_mutation_rate:
-                    mutation = np.random.normal(0, 0.1, len(initial_guess))
-                    mutated = offspring[i] + mutation
-                    offspring[i] = enforce_stage_constraints(mutated, TOTAL_DELTA_V)
-            
-            # Elitism
-            if elite_size > 0:
-                elite_idx = np.argsort(fitness_values)[:elite_size]
-                offspring[:elite_size] = population[elite_idx]
-            
-            population = offspring[:current_pop_size]
-            
-            # Check convergence
-            if np.std(fitness_values) < 1e-6:
-                logger.info(f"Adaptive GA converged after {generation} generations")
-                break
+                current_crossover_rate = max(min_crossover_rate, current_crossover_rate * 0.95)
+                logger.debug(f"Decreasing population size to {current_pop_size} and mutation rate to {current_mutation_rate}")
         
         return enforce_stage_constraints(best_solution, TOTAL_DELTA_V)
         
