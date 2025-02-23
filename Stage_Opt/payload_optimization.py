@@ -5,10 +5,9 @@ import sys
 import time
 import json
 import logging
+import os
 import numpy as np
-from scipy.optimize import minimize, differential_evolution, basinhopping
-import pandas as pd
-from pyswarms.single.global_best import GlobalBestPSO
+from scipy.optimize import minimize, basinhopping
 import matplotlib.pyplot as plt
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
@@ -16,6 +15,7 @@ from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PolynomialMutation
 from pymoo.core.repair import Repair
+from pymoo.termination.default import DefaultSingleObjectiveTermination
 
 # Load configuration
 def load_config():
@@ -38,6 +38,10 @@ def setup_logging(config):
 # Initialize globals from config
 CONFIG = load_config()
 logger = setup_logging(CONFIG)
+
+# Ensure output directory exists
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def read_input_json(filename):
     """Read and process JSON input file."""
@@ -250,9 +254,16 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             repair=RepairDeltaV()
         )
 
-        termination = ('n_gen', config["optimization"]["max_iterations"])
+        termination = DefaultSingleObjectiveTermination(
+            xtol=1e-6,
+            cvtol=1e-6,
+            ftol=1e-6,
+            period=20,
+            n_max_gen=config["optimization"]["max_iterations"],
+            n_max_evals=None
+        )
         
-        res = minimize(
+        res = pymoo_minimize(
             problem,
             algorithm,
             termination,
@@ -261,7 +272,7 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         )
 
         if res.X is None or not res.success:
-            logger.warning("GA failed to find a feasible solution")
+            logger.warning(f"GA optimization warning: {res.message}")
             return initial_guess
             
         return res.X
@@ -465,8 +476,6 @@ def optimize_stages(stages, method='SLSQP'):
         EPSILON = [stage['EPSILON'] for stage in stages]
 
         required_dv = TOTAL_DELTA_V 
-        penalty_coeff = CONFIG["optimization"]["penalty_coefficient"]
-
         initial_guess = np.ones(n) * required_dv / n
         max_dv = required_dv * CONFIG["optimization"]["bounds"]["max_dv_factor"] * np.ones(n)
         min_dv = CONFIG["optimization"]["bounds"]["min_dv"] * np.ones(n)
@@ -478,23 +487,11 @@ def optimize_stages(stages, method='SLSQP'):
         if method.upper() == 'SLSQP':
             optimal_dv = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             
-        elif method.upper() == 'differential_evolution':
-            optimal_dv = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            
         elif method.upper() == 'GA':
             optimal_dv = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             
-        elif method.upper() == 'PSO':
-            optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            
         elif method.upper() == 'BASIN-HOPPING':
             optimal_dv = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            
-        elif method.upper() == 'DP':
-            optimal_dv = solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            
-        elif method.upper() == 'ADAPTIVE-GA':
-            optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             
         else:
             raise NotImplementedError(f"Optimization method {method} is not implemented")
@@ -514,8 +511,8 @@ def optimize_stages(stages, method='SLSQP'):
             'error': error
         }
         
-        logger.info(f"Optimization completed in {execution_time:.6f} seconds")
-        logger.info(f"Successfully optimized using {method}")
+        logger.info(f"Optimization completed in {execution_time:.3f} seconds")
+        logger.info(f"Method: {method}, Payload Fraction: {payload_fraction:.4f}, Error: {error:.6e}")
         
         return results
 
@@ -535,43 +532,56 @@ def plot_results(results):
     plot_execution_time(results)
     plot_objective_error(results)
 
-def plot_dv_breakdown(results):
+def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     """Plot ΔV breakdown for each optimization method."""
     try:
         plt.figure(figsize=(12, 6))
         
-        # Get number of stages from the first result's dv array
+        # Get number of methods and stages
+        n_methods = len(results)
         n_stages = len(results[0]['dv'])
         
         # Set up the bar positions
-        n_methods = len(results)
-        bar_width = 0.8 / n_stages  # Adjust width based on number of stages
         method_positions = np.arange(n_methods)
+        bar_width = 0.35
         
-        # Create bars for each stage
-        for i in range(n_stages):
+        # Create stacked bars for each method
+        bottom = np.zeros(n_methods)
+        colors = plt.cm.viridis(np.linspace(0, 1, n_stages))  # Color palette
+        
+        for stage in range(n_stages):
             # Extract ΔV values for this stage across all methods
-            stage_dvs = [row['dv'][i] for row in results]
-            
-            # Calculate position for this stage's bars
-            positions = method_positions + (i - n_stages/2 + 0.5) * bar_width
+            stage_dvs = [result['dv'][stage] for result in results]
             
             # Plot bars for this stage
-            plt.bar(positions, stage_dvs, bar_width, 
-                   label=f'Stage {i+1}',
-                   alpha=0.7)
+            plt.bar(method_positions, stage_dvs, bar_width,
+                   bottom=bottom, label=f'Stage {stage+1}',
+                   color=colors[stage], alpha=0.7)
+            
+            # Update bottom for next stack
+            bottom += stage_dvs
         
-        plt.xlabel('Optimization Method')
+        # Add a horizontal line for total mission ΔV
+        total_dv = TOTAL_DELTA_V 
+        plt.axhline(y=total_dv, color='r', linestyle='--', 
+                   label=f'Required ΔV ({total_dv} m/s)')
+        
         plt.ylabel('ΔV (m/s)')
-        plt.title('ΔV Breakdown by Stage and Method')
-        plt.xticks(method_positions, [row['method'] for row in results], rotation=45)
-        plt.legend()
+        plt.xlabel('Optimization Method')
+        plt.title('ΔV Breakdown by Stage')
+        plt.xticks(method_positions, [result['method'] for result in results])
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, alpha=0.3)
+        
+        # Adjust layout to prevent label cutoff
         plt.tight_layout()
         
-        # Save plot
-        plt.savefig('dv_breakdown.png')
+        # Save plot to output directory
+        output_path = os.path.join(OUTPUT_DIR, filename)
+        plt.savefig(output_path, bbox_inches='tight')
         plt.close()
+        
+        logger.info(f"Plot saved to: {output_path}")
         
     except Exception as e:
         logger.error(f"Error in plotting ΔV breakdown: {e}")
@@ -588,7 +598,7 @@ def plot_execution_time(results, filename="execution_time.png"):
     plt.ylabel("Execution Time (s)")
     plt.title("Solver Execution Time")
     plt.tight_layout()
-    plt.savefig(filename)
+    plt.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close()
 
 def plot_objective_error(results, filename="objective_error.png"):
@@ -602,17 +612,18 @@ def plot_objective_error(results, filename="objective_error.png"):
     plt.ylabel("Final Objective Error")
     plt.title("Solver Accuracy (Lower is Better)")
     plt.tight_layout()
-    plt.savefig(filename)
+    plt.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close()
 
-def generate_report(results, output_file):
+def generate_report(results, output_file="report.tex"):
     """Generate LaTeX report."""
     try:
         # Generate plots
         plot_results(results)
         
         # Generate LaTeX report
-        with open(output_file, 'w', encoding='utf-8') as f:
+        output_path = os.path.join(OUTPUT_DIR, output_file)
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write('\\documentclass{article}\n')
             f.write('\\usepackage{graphicx}\n')  # For including images
             f.write('\\begin{document}\n')
@@ -635,7 +646,7 @@ def generate_report(results, output_file):
             f.write('\\caption{Optimization Results}\n')
             f.write('\\end{table}\n')
             
-            # Include plots
+            # Include plots with relative path
             f.write('\\begin{figure}[h]\n')
             f.write('\\centering\n')
             f.write('\\includegraphics[width=0.8\\textwidth]{dv_breakdown.png}\n')
@@ -644,7 +655,7 @@ def generate_report(results, output_file):
             
             f.write('\\end{document}\n')
         
-        logger.info("Report generated successfully: " + output_file)
+        logger.info(f"Report generated successfully: {output_path}")
         
     except Exception as e:
         logger.error(f"Report generation failed: {e}")
@@ -653,26 +664,26 @@ def generate_report(results, output_file):
 if __name__ == "__main__":
     try:
         if len(sys.argv) != 2:
-            print("Usage: python payload_optimization.py input_data.json")
+            print("Usage: python payload_optimization.py input_file.json")
             sys.exit(1)
             
         input_file = sys.argv[1]
         stages = read_input_json(input_file)
         
-        # Run all optimization methods
-        methods = ['SLSQP', 'differential_evolution', 'GA', 'PSO', 'BASIN-HOPPING', 'DP', 'ADAPTIVE-GA']
-        optimization_results = []
+        # Run different optimization methods
+        methods = ['SLSQP', 'GA', 'BASIN-HOPPING']
+        results = []
         
         for method in methods:
             try:
-                result = optimize_stages(stages, method=method)
-                optimization_results.append(result)
-                logger.info(f"Successfully optimized using {method}")
+                result = optimize_stages(stages, method)
+                results.append(result)
             except Exception as e:
-                logger.error(f"Failed to optimize using {method}: {e}")
+                logger.error(f"Optimization with {method} failed: {e}")
                 continue
         
-        generate_report(optimization_results, "report.tex")
+        # Generate report and plots in output directory
+        generate_report(results, "report.tex")
         
     except Exception as e:
         logger.error(f"Program failed: {e}")
