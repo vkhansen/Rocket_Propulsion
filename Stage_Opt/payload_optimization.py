@@ -99,6 +99,8 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, t
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
+        start_time = time.time()
+        
         class OptimizationProblem(Problem):
             def __init__(self):
                 super().__init__(
@@ -109,6 +111,7 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                     xu=bounds[:, 1]
                 )
                 self.tol = 1e-6  # tolerance for constraint satisfaction
+                self.history = []  # Store optimization history
 
             def _evaluate(self, x, out, *args, **kwargs):
                 # Evaluate the objective for each candidate solution
@@ -119,16 +122,28 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                 ])
                 # Enforce the equality constraint: sum(dv) == TOTAL_DELTA_V (within tol)
                 g = np.array([np.abs(np.sum(dv) - TOTAL_DELTA_V) - self.tol for dv in x])
+                
+                # Record current state
+                best_idx = np.argmin(f)
+                self.history.append({
+                    'generation': len(self.history),
+                    'best_fitness': float(f[best_idx]),
+                    'mean_fitness': float(np.mean(f)),
+                    'best_solution': x[best_idx].copy(),
+                    'constraint_violation': float(g[best_idx])
+                })
+                
                 out["F"] = f
                 out["G"] = g
 
+        # Setup and run GA
         problem = OptimizationProblem()
         algorithm = GA(
             pop_size=config["optimization"]["ga"]["population_size"],
             eliminate_duplicates=True
         )
         
-        res = pymoo_minimize(
+        res = minimize(
             problem,
             algorithm,
             ('n_gen', config["optimization"]["ga"]["n_generations"]),
@@ -136,11 +151,29 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             verbose=False
         )
         
-        return res.X
+        execution_time = time.time() - start_time
+        optimal_solution = res.X
+        
+        # Calculate metrics for the optimal solution
+        mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON)
+        payload_fraction = calculate_payload_mass(optimal_solution, ISP, EPSILON)
+        
+        # Return results in format expected by plotting functions
+        return {
+            'method': 'GA',
+            'time': execution_time,
+            'solution': optimal_solution,
+            'fitness': float(res.F[0]),
+            'mass_ratios': mass_ratios,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_solution,  # For delta-v breakdown plot
+            'error': float(res.G[0]),  # Constraint violation
+            'history': problem.history  # For convergence plots
+        }
+        
     except Exception as e:
         logger.error(f"GA optimization failed: {e}")
         raise
-
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
@@ -159,7 +192,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 self.total_delta_v = total_delta_v
                 self.ISP = isp
                 self.EPSILON = epsilon
-
+                self.history = []  # Store metrics history
+                self.execution_time = 0  # Track execution time
+                
             def initialize_population(self):
                 population = []
                 n_equal = self.pop_size // 3
@@ -230,10 +265,41 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 return mutated
 
             def update_parameters(self, population, fitnesses, generations_without_improvement):
-                # Adaptive parameter update (if desired)
-                pass
+                """Update adaptive parameters based on current state."""
+                diversity = self.calculate_diversity(population)
+                mean_fitness = np.mean(fitnesses)
+                best_fitness = np.max(fitnesses)
+                
+                # Record metrics
+                self.history.append({
+                    'generation': len(self.history),
+                    'best_fitness': best_fitness,
+                    'mean_fitness': mean_fitness,
+                    'diversity': diversity,
+                    'mutation_rate': self.mutation_rate,
+                    'crossover_rate': self.crossover_rate,
+                    'population_size': self.pop_size
+                })
+                
+                # Adjust mutation rate based on diversity
+                if diversity < self.config.get("diversity_threshold", 0.1):
+                    self.mutation_rate = min(self.mutation_rate * 1.5, 0.5)
+                else:
+                    self.mutation_rate = max(self.mutation_rate * 0.9, 0.01)
+                
+                # Adjust crossover rate based on fitness improvement
+                if generations_without_improvement > 5:
+                    self.crossover_rate = min(self.crossover_rate * 1.1, 0.95)
+                else:
+                    self.crossover_rate = max(self.crossover_rate * 0.9, 0.5)
+
+            def calculate_diversity(self, population):
+                """Calculate population diversity using standard deviation."""
+                return np.mean(np.std(population, axis=0))
 
             def optimize(self):
+                """Run the optimization process."""
+                start_time = time.time()
                 population = self.initialize_population()
                 best_fitness = -np.inf
                 best_solution = None
@@ -242,14 +308,17 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 for generation in range(self.config["n_generations"]):
                     fitnesses = np.array([self.evaluate_fitness(ind) for ind in population])
                     current_best_fitness = np.max(fitnesses)
+                    
                     if current_best_fitness > best_fitness:
                         best_fitness = current_best_fitness
                         best_solution = population[np.argmax(fitnesses)].copy()
                         generations_without_improvement = 0
                     else:
                         generations_without_improvement += 1
+                    
                     if generations_without_improvement >= self.config["stagnation_threshold"]:
                         break
+                    
                     selected = self.selection(population, fitnesses)
                     new_population = []
                     for i in range(0, self.pop_size - 1, 2):
@@ -258,17 +327,37 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                         child1 = self.mutation(child1)
                         child2 = self.mutation(child2)
                         new_population.extend([child1, child2])
+                    
                     if len(new_population) < self.pop_size:
                         new_population.append(selected[-1])
+                    
                     population = np.array(new_population)
                     self.update_parameters(population, fitnesses, generations_without_improvement)
+                
+                self.execution_time = time.time() - start_time
                 return best_solution, best_fitness
 
         # Create and run adaptive GA, passing TOTAL_DELTA_V, ISP, and EPSILON
         ga = AdaptiveGA(config, len(initial_guess), bounds, TOTAL_DELTA_V, ISP, EPSILON)
-        optimal_solution, _ = ga.optimize()
-        return optimal_solution
-
+        optimal_solution, best_fitness = ga.optimize()
+        
+        # Calculate metrics for the optimal solution
+        mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON)
+        payload_fraction = calculate_payload_mass(optimal_solution, ISP, EPSILON)
+        
+        # Return results in format expected by plotting functions
+        return {
+            'method': 'ADAPTIVE-GA',
+            'time': ga.execution_time,
+            'solution': optimal_solution,
+            'fitness': best_fitness,
+            'mass_ratios': mass_ratios,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_solution,  # For delta-v breakdown plot
+            'error': abs(np.sum(optimal_solution) - TOTAL_DELTA_V),  # Constraint violation
+            'history': ga.history  # For convergence plots
+        }
+        
     except Exception as e:
         logger.error(f"Adaptive GA optimization failed: {e}")
         raise
@@ -332,31 +421,49 @@ def optimize_stages(stages, method='SLSQP'):
                            args=(G0, ISP, EPSILON, penalty_coeff),
                            method='SLSQP', bounds=bounds, constraints=constraints)
             optimal_dv = res.x
+            execution_time = time.time() - start_time
+            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
+            mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+            
+            results = {
+                'method': method,
+                'time': execution_time,
+                'payload_fraction': payload_fraction,
+                'dv': optimal_dv,
+                'mass_ratios': mass_ratios,
+                'solution': optimal_dv,
+                'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+            }
 
         elif method.upper() == 'GA':
-            optimal_dv = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results['method'] = method  # Ensure method name matches
 
         elif method.upper() == 'ADAPTIVE-GA':
-            optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results['method'] = method  # Ensure method name matches
 
         elif method.upper() == 'PSO':
             optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            execution_time = time.time() - start_time
+            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
+            mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+            
+            results = {
+                'method': method,
+                'time': execution_time,
+                'payload_fraction': payload_fraction,
+                'dv': optimal_dv,
+                'mass_ratios': mass_ratios,
+                'solution': optimal_dv,
+                'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+            }
 
         else:
             raise NotImplementedError(f"Optimization method {method} is not implemented")
 
-        execution_time = time.time() - start_time
-        logger.info(f"Optimization completed in {execution_time:.6f} seconds")
-        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
-        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-
-        return {
-            'method': method,
-            'time': execution_time,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_dv,
-            'mass_ratios': mass_ratios
-        }
+        logger.info(f"Optimization completed in {results['time']:.6f} seconds")
+        return results
 
     except Exception as e:
         logger.error(f"Optimization failed: {e}")

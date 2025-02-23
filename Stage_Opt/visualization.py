@@ -9,7 +9,7 @@ class Visualizer:
         self.rocket_model = rocket_model
 
     def plot_execution_time(self, filename="execution_time.png"):
-        solver_names = [res["name"] for res in self.results]
+        solver_names = [res["method"] for res in self.results]
         times = [res["time"] for res in self.results]
         plt.figure(figsize=(10, 5))
         plt.bar(solver_names, times, color='skyblue', alpha=0.8)
@@ -21,7 +21,7 @@ class Visualizer:
         plt.show()
 
     def plot_objective_error(self, filename="objective_error.png"):
-        solver_names = [res["name"] for res in self.results]
+        solver_names = [res["method"] for res in self.results]
         errors = [res["error"] for res in self.results]
         plt.figure(figsize=(10, 5))
         plt.bar(solver_names, errors, color='salmon', alpha=0.8)
@@ -33,7 +33,7 @@ class Visualizer:
         plt.show()
 
     def plot_mismatch(self, filename="physical_mismatch.png"):
-        solver_names = [res["name"] for res in self.results]
+        solver_names = [res["method"] for res in self.results]
         mismatches = [res["mismatch"] for res in self.results]
         plt.figure(figsize=(10, 5))
         plt.bar(solver_names, mismatches, color='lightgreen', alpha=0.8)
@@ -46,7 +46,7 @@ class Visualizer:
         plt.show()
 
     def plot_dv_breakdown(self, filename="dv_breakdown.png"):
-        solver_names = [res["name"] for res in self.results]
+        solver_names = [res["method"] for res in self.results]
         indices = np.arange(len(solver_names))
         bar_width = 0.15
 
@@ -54,7 +54,7 @@ class Visualizer:
 
         plt.figure(figsize=(12, 6))
         for i, res in enumerate(self.results):
-            sol = res["solution"]
+            sol = res.get("solution", res["dv"])  # Fallback to dv if solution not present
             dv_per_stage = self.rocket_model.delta_v_function(sol)
             total_engine_dv = np.sum(dv_per_stage)
             plt.bar(i, dv_per_stage[0], bar_width, label='Stage 1' if i == 0 else "", color='dodgerblue')
