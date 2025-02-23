@@ -12,7 +12,7 @@
 \maketitle
 
 \section{Introduction}
-This report presents the results of optimizing a multi-stage rocket using various optimization methods. The objective was to minimize the payload mass fraction while satisfying the total delta-V requirement.
+This report presents the results of optimizing a multi-stage rocket using various optimization methods. The objective was to mazimize the payload mass fraction while satisfying the total delta-V requirement.
 
 \section{Input Assumptions}
 \subsection{Global Parameters}
@@ -58,7 +58,7 @@ The following optimization methods were evaluated:
 \subsection{Performance Visualization}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{dv_breakdown.png}
+\includegraphics[width=1.2\textwidth]{dv_breakdown.png}
 \caption{$\Delta V$ Distribution Across Stages}
 \end{figure}
 
@@ -82,12 +82,12 @@ The following optimization methods were evaluated:
 \toprule
 Method & {Payload Fraction} & {Error} & {Time (\si{\second})} \\
 \midrule
-SLSQP        & 0.0315 & 0.0000e+00 & 0.01 \\
-BASIN-HOPPING & 0.0315 & 0.0000e+00 & 1.69 \\
-GA           & 0.0315 & 0.0000e+00 & 3.40 \\
+SLSQP        & 0.0315 & 0.0000e+00 & 0.00 \\
+BASIN-HOPPING & 0.0315 & 0.0000e+00 & 1.56 \\
+GA           & 0.0315 & 0.0000e+00 & 3.41 \\
 ADAPTIVE-GA  & 0.0315 & 0.0000e+00 & 0.04 \\
-DE           & 0.0355 & 0.0000e+00 & 0.45 \\
-PSO          & 0.0355 & 1.8190e-12 & 0.37 \\
+DE           & 0.0355 & 0.0000e+00 & 0.46 \\
+PSO          & 0.0355 & 0.0000e+00 & 0.39 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -104,10 +104,10 @@ PSO          & 0.0355 & 1.8190e-12 & 0.37 \\
 Method & {$\Delta V$ (\si{\meter\per\second})} & {Mass Ratio ($\lambda$)} & {Contribution (\%)} \\
 \midrule
 SLSQP        & 4650.0 & 0.1460 & 50.0 \\
-BASIN-HOPPING & 4649.7 & 0.1460 & 50.0 \\
+BASIN-HOPPING & 4650.0 & 0.1460 & 50.0 \\
 GA           & 4650.0 & 0.1460 & 50.0 \\
 ADAPTIVE-GA  & 4650.0 & 0.1460 & 50.0 \\
-DE           & 2773.1 & 0.3297 & 29.8 \\
+DE           & 2772.9 & 0.3298 & 29.8 \\
 PSO          & 2773.0 & 0.3298 & 29.8 \\
 \bottomrule
 \end{tabular}
@@ -121,10 +121,10 @@ PSO          & 2773.0 & 0.3298 & 29.8 \\
 Method & {$\Delta V$ (\si{\meter\per\second})} & {Mass Ratio ($\lambda$)} & {Contribution (\%)} \\
 \midrule
 SLSQP        & 4650.0 & 0.2161 & 50.0 \\
-BASIN-HOPPING & 4650.3 & 0.2161 & 50.0 \\
+BASIN-HOPPING & 4650.0 & 0.2161 & 50.0 \\
 GA           & 4650.0 & 0.2161 & 50.0 \\
 ADAPTIVE-GA  & 4650.0 & 0.2161 & 50.0 \\
-DE           & 6526.9 & 0.1078 & 70.2 \\
+DE           & 6527.1 & 0.1078 & 70.2 \\
 PSO          & 6527.0 & 0.1078 & 70.2 \\
 \bottomrule
 \end{tabular}
@@ -152,8 +152,8 @@ PSO          & 29.8 & 70.2 & 0.0355 \\
 \begin{itemize}
 \item Methods with even $\Delta$V distribution (≈50.0/50.0): SLSQP, BASIN-HOPPING, GA, ADAPTIVE-GA
 \item Methods with uneven distribution: DE, PSO
-\item Best Stage 1 mass ratio: PSO
-\item Best Stage 2 mass ratio: SLSQP
+\item Best Stage 1 mass ratio: DE
+\item Best Stage 2 mass ratio: BASIN-HOPPING
 \end{itemize}
 
 \end{document}

@@ -70,8 +70,36 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
     
     return summary_path, detailed_path
 
+def compile_latex_to_pdf(tex_path):
+    """Compile LaTeX file to PDF using pdflatex."""
+    try:
+        # Get directory containing the tex file
+        tex_dir = os.path.dirname(tex_path)
+        tex_file = os.path.basename(tex_path)
+        
+        # Run pdflatex twice to ensure references are properly resolved
+        for _ in range(2):
+            cmd = f'pdflatex -interaction=nonstopmode "{tex_file}"'
+            result = os.system(f'cd "{tex_dir}" && {cmd}')
+            
+            if result != 0:
+                logger.error(f"Error compiling LaTeX file: {tex_file}")
+                return None
+        
+        pdf_path = tex_path.replace('.tex', '.pdf')
+        if os.path.exists(pdf_path):
+            logger.info(f"PDF report generated: {pdf_path}")
+            return pdf_path
+        else:
+            logger.error(f"PDF file not found after compilation: {pdf_path}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error during PDF compilation: {e}")
+        return None
+
 def generate_report(results, stages, output_dir=OUTPUT_DIR):
-    """Generate a LaTeX report with optimization results."""
+    """Generate a LaTeX report with optimization results and compile to PDF."""
     try:
         if not results:
             logger.error("No results to include in report")
@@ -109,7 +137,7 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
 \maketitle
 
 \section{Introduction}
-This report presents the results of optimizing a multi-stage rocket using various optimization methods. The objective was to minimize the payload mass fraction while satisfying the total delta-V requirement.
+This report presents the results of optimizing a multi-stage rocket using various optimization methods. The objective was to mazimize the payload mass fraction while satisfying the total delta-V requirement.
 
 \section{Input Assumptions}
 \subsection{Global Parameters}
@@ -159,7 +187,7 @@ The following optimization methods were evaluated:
 \subsection{Performance Visualization}
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{dv_breakdown.png}
+\includegraphics[width=1.2\textwidth]{dv_breakdown.png}
 \caption{$\Delta V$ Distribution Across Stages}
 \end{figure}
 
@@ -305,7 +333,10 @@ Method & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambd
                 f.write(report_content)
             
             logger.info(f"LaTeX report generated: {report_path}")
-            return report_path
+            
+            # Compile the LaTeX file to PDF
+            pdf_path = compile_latex_to_pdf(report_path)
+            return pdf_path if pdf_path else report_path
             
         except Exception as e:
             logger.error(f"Error generating LaTeX report: {e}")
