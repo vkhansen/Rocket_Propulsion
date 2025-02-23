@@ -10,7 +10,7 @@ from src.optimization.solvers import (
     solve_with_slsqp,
     solve_with_basin_hopping,
     solve_with_differential_evolution,
-    solve_with_genetic_algorithm,
+    solve_with_ga,
     solve_with_adaptive_ga,
     solve_with_pso
 )
@@ -74,7 +74,9 @@ def optimize_stages(parameters, stages, method='SLSQP'):
                     'execution_time': time.time() - start_time
                 }
         elif method.upper() == 'GA':
-            solver_result = solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            optimal_solution = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            if optimal_solution is not None:
+                solver_result = optimal_solution
         elif method.upper() == 'GA-ADAPTIVE':
             solver_result = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'PSO':
