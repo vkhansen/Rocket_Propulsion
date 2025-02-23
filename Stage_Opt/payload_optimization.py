@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import numpy as np
-from scipy.optimize import minimize, basinhopping
+from scipy.optimize import minimize, basinhopping, differential_evolution
 import matplotlib.pyplot as plt
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
@@ -21,7 +21,8 @@ from pymoo.termination.default import DefaultSingleObjectiveTermination
 def load_config():
     """Load configuration from config.json."""
     try:
-        with open('config.json', 'r') as f:
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+        with open(config_path, 'r') as f:
             return json.load(f)
     except Exception as e:
         print(f"Failed to load config.json: {e}")
@@ -471,6 +472,51 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         logger.error(f"Adaptive GA optimization failed: {e}")
         raise
 
+def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Differential Evolution."""
+    try:
+        def objective(x):
+            """Objective function with penalty for DE."""
+            x = np.asarray(x).flatten()
+            # Calculate payload fraction
+            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            
+            # Add penalty for total delta-V constraint
+            penalty = 1e6 * abs(np.sum(x) - TOTAL_DELTA_V)
+            
+            # Additional penalty for solutions close to physical limits
+            for ratio in mass_ratios:
+                if ratio <= 0.1:
+                    penalty += 100.0 * (0.1 - ratio) ** 2
+            
+            return -payload_fraction + penalty  # Negative because DE minimizes
+        
+        # Run differential evolution
+        result = differential_evolution(
+            objective,
+            bounds,
+            strategy='best1bin',
+            maxiter=config["optimization"].get("max_iterations", 1000),
+            popsize=config["optimization"].get("population_size", 15),
+            tol=1e-6,
+            mutation=(0.5, 1.0),
+            recombination=0.7,
+            seed=None,
+            disp=False,
+            polish=True,
+            updating='immediate'
+        )
+        
+        if not result.success:
+            logger.warning(f"Differential Evolution warning: {result.message}")
+        
+        return result.x
+        
+    except Exception as e:
+        logger.error(f"Differential Evolution optimization failed: {e}")
+        raise
+
 def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SLSQP', penalty_coeff=1e6, tol=None):
     """
     Optimize the allocation of TOTAL_DELTA_V among the rocket's stages.
@@ -724,7 +770,7 @@ if __name__ == "__main__":
         stages = load_input_data(input_file)
         
         # Run optimizations with all methods
-        methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA']
+        methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA', 'DE']
         results = []
         
         # Initial setup for optimization
@@ -744,12 +790,14 @@ if __name__ == "__main__":
                     optimal_solution = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
                 elif method == 'ADAPTIVE-GA':
                     optimal_solution = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                elif method == 'DE':
+                    optimal_solution = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
                 else:
                     result = optimize_stages(stages, method)
                     results.append(result)
                     continue
                 
-                # For GA methods, format results consistently with other methods
+                # For GA and DE methods, format results consistently with other methods
                 execution_time = time.time() - start_time
                 optimal_solution = np.asarray(optimal_solution).flatten()  # Ensure 1D array
                 mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)

@@ -39,14 +39,14 @@
             "temperature": 1.0,
             "step_size": 0.5
         },
-        "cma_es": {
-            "sigma0": 0.5,
-            "max_iterations": 1000
+        "differential_evolution": {
+            "population_size": 15,
+            "max_iterations": 1000,
+            "mutation": [0.5, 1.0],
+            "recombination": 0.7,
+            "strategy": "best1bin",
+            "tol": 1e-6
         }
-    },
-    "constants": {
-        "gravity_loss": 100.0,
-        "drag_loss": 100.0
     },
     "logging": {
         "file": "Stage_Opt/optimization.log",
