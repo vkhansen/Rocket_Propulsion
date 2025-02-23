@@ -7,8 +7,8 @@
         {
             "stage": 1,
             "G0": 9.81,
-            "ISP": 280,
-            "EPSILON": 0.15
+            "ISP": 300,
+            "EPSILON": 0.06
         },
         {
             "stage": 2,
