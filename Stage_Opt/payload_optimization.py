@@ -81,11 +81,13 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
     try:
         start_time = time.time()
         
-        class OptimizationProblem:
+        class OptimizationProblem(Problem):
             def __init__(self):
-                self.n_var = len(initial_guess)
-                self.xl = bounds[:, 0]
-                self.xu = bounds[:, 1]
+                super().__init__(n_var=len(initial_guess),
+                                 n_obj=1,
+                                 n_constr=1,
+                                 xl=bounds[:, 0],
+                                 xu=bounds[:, 1])
                 self.tol = 1e-6  # tolerance for constraint satisfaction
                 self.history = []  # Store optimization history
 
@@ -114,19 +116,16 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
 
         # Setup and run GA
         problem = OptimizationProblem()
-        from pymoo.algorithms.soo.nonconvex.ga import GA
         algorithm = GA(
             pop_size=config["optimization"]["ga"]["population_size"],
             eliminate_duplicates=True
         )
         
-        res = minimize(
-            problem,
-            algorithm,
-            ('n_gen', config["optimization"]["ga"]["n_generations"]),
-            seed=1,
-            verbose=False
-        )
+        res = pymoo_minimize(problem,
+                             algorithm,
+                             termination=('n_gen', config["optimization"]["ga"]["n_generations"]),
+                             seed=1,
+                             verbose=False)
         
         execution_time = time.time() - start_time
         optimal_solution = res.X
@@ -715,23 +714,23 @@ def plot_results(results):
     plot_execution_time(results)
     plot_objective_error(results)
 
-def plot_dv_breakdown(results_df):
+def plot_dv_breakdown(results):
     """Plot ΔV breakdown for each optimization method."""
     try:
         plt.figure(figsize=(12, 6))
         
-        # Get number of stages from the first row's dv array
-        n_stages = len(eval(results_df[0]['dv']))
+        # Get number of stages from the first result's dv array
+        n_stages = len(results[0]['dv'])
         
         # Set up the bar positions
-        n_methods = len(results_df)
+        n_methods = len(results)
         bar_width = 0.8 / n_stages  # Adjust width based on number of stages
         method_positions = np.arange(n_methods)
         
         # Create bars for each stage
         for i in range(n_stages):
             # Extract ΔV values for this stage across all methods
-            stage_dvs = [eval(row['dv'])[i] for row in results_df]
+            stage_dvs = [row['dv'][i] for row in results]
             
             # Calculate position for this stage's bars
             positions = method_positions + (i - n_stages/2 + 0.5) * bar_width
@@ -744,7 +743,7 @@ def plot_dv_breakdown(results_df):
         plt.xlabel('Optimization Method')
         plt.ylabel('ΔV (m/s)')
         plt.title('ΔV Breakdown by Stage and Method')
-        plt.xticks(method_positions, [row['method'] for row in results_df], rotation=45)
+        plt.xticks(method_positions, [row['method'] for row in results], rotation=45)
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
