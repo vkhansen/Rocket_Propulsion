@@ -236,6 +236,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             # Evaluate fitness
             fitness = np.array([payload_fraction_objective(ind, G0, ISP, EPSILON) for ind in population])
             
+            # Ensure fitness values are positive
+            if np.any(fitness <= 0):
+                logger.warning("Non-positive fitness values encountered. Adjusting to small positive values.")
+                fitness = np.clip(fitness, 1e-6, None)
+            
             # Update best solution
             min_idx = np.argmin(fitness)
             if fitness[min_idx] < best_fitness:
