@@ -1,282 +1,18 @@
-# Rocket Stage Optimization
-
-## Overview
-This project focuses on optimizing the staging of a multi-stage rocket to maximize payload fraction while satisfying mission constraints. The optimization process leverages **Tsiolkovsky's Rocket Equation** and multiple numerical solvers to distribute the velocity change (**Delta-V**) among stages efficiently.
-
-## Theoretical Background
-The fundamental equation governing rocket staging is:
-
-ΔV = I_{sp} \cdot g_0 \cdot \ln \left( \frac{m_0}{m_f} \right)
-
-Where:
-- `ΔV` is the total velocity change required for the mission.
-- `I_{sp}` is the **specific impulse** of each stage, a measure of fuel efficiency.
-- `g_0` is the standard gravitational acceleration (9.81 m/s²).
-- `m_0` is the initial mass (including fuel and structure).
-- `m_f` is the final mass after stage separation.
-
-The mass fraction can also be expressed in terms of the **structural mass ratio** (`ε`):
-
-\frac{m_f}{m_0} = 1 - ε
-
-## Theory
-
-# Delta-V Logic
-*Author: V H*  
-*February 2025*
-
-## Core Definitions
-
-1. **Payload Fraction (λ)**:
-λ = m_payload/m_0
-Where `m_payload` is the payload mass and `m_0` is the total initial mass.
-
-2. **Total Mass Ratio (R)**:
-R = m_0/m_f
-Where `m_f` is the final mass after propellant burn.
-
-3. **Rocket Equation (Single Stage)**:
-ΔV = v_e · ln(R) = v_e · ln(m_0/m_f)
-Where `v_e = I_sp · g_0` is the exhaust velocity, and `g_0 = 9.81 m/s²`.
-
-## Multi-Stage Rockets
-
-4. **Stage Mass Ratio**:
-R_i = m_0,i/m_f,i
-Where `m_0,i` and `m_f,i` are the initial and final masses of stage i.
-
-5. **Delta-V per Stage**:
-ΔV_i = v_e,i · ln(R_i)
-
-6. **Total Delta-V**:
-ΔV_total = Σ(i=1 to n) ΔV_i = Σ(i=1 to n) v_e,i · ln(R_i)
-Where `n` is the number of stages.
-
-7. **Payload Fraction for Multi-Stage**:
-λ = m_payload/m_0,total = ∏(i=1 to n) m_f,i/m_0,i = ∏(i=1 to n) 1/R_i
-
-8. **Structural Mass and Propellant**:
-R_i = m_0,i/(m_structure,i + m_payload + Σ(j>i) m_0,j)
-Where `ε_i = m_structure,i/m_0,i` is the structural fraction.
-
-## Relating λ to Delta-V
-
-9. **Single-Stage Lambda**:
-ΔV = v_e · ln(1/(λ + ε))
-Where `ε` is the structural fraction.
-
-10. **Multi-Stage Lambda and Delta-V**:
-ΔV_total = Σ(i=1 to n) v_e,i · ln(m_0,i/m_f,i)
-
-11. **Optimal Staging (Simplified)**:
-λ = ∏(i=1 to n) exp(-ΔV_i/v_e)
-Total idealized case:
-ΔV_total = v_e · ln(1/λ)
-
-## Practical Example (Two-Stage)
-
-12. **Two-Stage Payload Fraction**:
-λ = m_payload/m_0,1 = 1/((m_0,1/m_f,1) · (m_0,2/m_f,2))
-
-13. **Two-Stage Delta-V**:
-ΔV_total = v_e,1 · ln(R_1) + v_e,2 · ln(R_2)
-
-### Implementation Notes
-
-The optimization problem seeks to maximize the payload fraction (λ) while satisfying:
-- Total required Delta-V constraint
-- Structural mass fraction limits
-- Stage mass ratio constraints
-- Physical feasibility conditions
-
-## Implementation Details
-
-### 1. **Input Handling**
-- **Configuration File (`config.json`)**:
-  - Defines solver parameters including penalty coefficients, iteration limits, and solver-specific configurations (e.g., genetic algorithm settings, PSO parameters).
-  - Example:
-    ```json
-    {
-        "optimization": {
-            "penalty_coefficient": 1000.0,
-            "tolerance": 1e-6,
-            "max_iterations": 200,
-            "bounds": {
-                "min_dv": 0.0,
-                "max_dv_factor": 1.0
-            },
-            "ga": {
-                "population_size": 100,
-                "n_generations": 200,
-                "crossover_prob": 0.9,
-                "crossover_eta": 15,
-                "mutation_prob": 0.2,
-                "mutation_eta": 20
-            },
-            "adaptive_ga": {
-                "initial_pop_size": 100,
-                "max_pop_size": 200,
-                "min_pop_size": 50,
-                "initial_mutation_rate": 0.1,
-                "max_mutation_rate": 0.3,
-                "min_mutation_rate": 0.01,
-                "initial_crossover_rate": 0.8,
-                "max_crossover_rate": 0.95,
-                "min_crossover_rate": 0.6,
-                "diversity_threshold": 0.1,
-                "stagnation_threshold": 10,
-                "n_generations": 200,
-                "elite_size": 2
-            },
-            "pso": {
-                "n_particles": 50,
-                "n_iterations": 200,
-                "c1": 0.5,
-                "c2": 0.3,
-                "w": 0.9
-            },
-            "basin_hopping": {
-                "n_iterations": 100,
-                "temperature": 1.0,
-                "step_size": 0.5
-            },
-            "differential_evolution": {
-                "population_size": 15,
-                "max_iterations": 1000,
-                "mutation": [0.5, 1.0],
-                "recombination": 0.7,
-                "strategy": "best1bin",
-                "tol": 1e-6
-            }
-        },
-        "logging": {
-            "file": "Stage_Opt/optimization.log",
-            "level": "INFO",
-            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        }
-    }
-    ```
-
-- **Mission Data (`input_data.json`)**:
-  - Specifies the mission’s global parameters and stage details.
-  - Example:
-    ```json
-    {
-        "parameters": {
-            "G0": 9.81,
-            "TOTAL_DELTA_V": 9300.0
-        },
-        "stages": [
-            {"stage": 1, "ISP": 280, "EPSILON": 0.15},
-            {"stage": 2, "ISP": 348, "EPSILON": 0.04}
-        ]
-    }
-    ```
-
-- **Function (`load_input_data`)**:
-  - Loads input data and sorts stages.
-  - **Inputs:** JSON filename
-  - **Outputs:** `parameters` dictionary, `stages` list
-
-### 2. **Optimization Algorithms** (`solvers.py`)
-This project implements multiple numerical solvers:
-- **SLSQP (Sequential Least Squares Quadratic Programming)**: Gradient-based method.
-- **Basin-Hopping**: Stochastic global search algorithm.
-- **Genetic Algorithm (GA & Adaptive GA)**: Evolutionary approach mimicking natural selection.
-- **Differential Evolution (DE)**: Population-based optimization.
-- **Particle Swarm Optimization (PSO)**: Simulated swarming behavior to find optima.
-
-Each solver iterates over different Delta-V distributions to find the best combination that maximizes payload fraction while respecting constraints.
-
-### 3. **Execution Flow (`main.py`)**
-- Reads input files.
-- Defines initial conditions and constraints.
-- Iterates through multiple solvers to optimize staging.
-- Logs performance and saves results.
-
-### 4. **Function Breakdown**
-
-#### **Objective Functions (`objective.py`)**
-- `payload_fraction_objective(dv, G0, ISP, EPSILON)`:
-  - Computes the payload fraction for a given Delta-V distribution.
-  - **Inputs:** Delta-V distribution, gravity, ISP, structural mass ratio.
-  - **Outputs:** Negative payload fraction (for minimization).
-
-- `objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)`:
-  - Adds constraint violations to the objective function.
-  - **Inputs:** Delta-V distribution, mission parameters.
-  - **Outputs:** Objective function value with penalties.
-
-#### **Data Processing (`data.py`)**
-- `calculate_mass_ratios(dv, ISP, EPSILON, G0)`:
-  - Computes stage mass ratios using the rocket equation.
-  - **Inputs:** Delta-V values, ISP, structural mass ratios, gravity.
-  - **Outputs:** Mass ratios per stage.
-
-- `calculate_payload_fraction(mass_ratios)`:
-  - Computes overall payload fraction as a product of stage ratios.
-  - **Inputs:** Mass ratios array.
-  - **Outputs:** Payload fraction value.
-
-#### **Report Generation (`latex.py`)**
-- `generate_report(results, stages, output_dir)`:
-  - Creates a LaTeX report with optimization results.
-  - **Inputs:** Optimization results dictionary, stage details.
-  - **Outputs:** LaTeX file summarizing optimization.
-
-#### **Visualization (`plots.py`)**
-- `plot_dv_breakdown(results, filename)`:
-  - Generates a bar chart showing Delta-V distribution.
-  - **Inputs:** Optimization results dictionary.
-  - **Outputs:** PNG file with stacked bars per stage.
-
-- `plot_execution_time(results, filename)`:
-  - Plots solver execution time.
-  - **Inputs:** Optimization results dictionary.
-  - **Outputs:** PNG bar plot.
-
-- `plot_payload_fraction(results, filename)`:
-  - Compares payload fractions among solvers.
-  - **Inputs:** Optimization results dictionary.
-  - **Outputs:** PNG bar plot.
-
-### 5. **Output & Visualization**
-- **Plots (`plots.py`)**: Generates breakdowns of Delta-V allocation, execution time, and payload fraction.
-- **LaTeX Report (`latex.py`)**: Summarizes results in a structured document.
-- **Output Directory (`output/`)**:
-  - `dv_breakdown.png`: Shows Delta-V allocation per stage.
-  - `execution_time.png`: Solver performance comparison.
-  - `payload_fraction.png`: Impact of staging on payload.
-  - `optimization_report.tex`: Generated LaTeX report.
-
-## Running the Project
-
-### Dependencies
-Ensure you have Python 3 and install required packages:
-```bash
-pip install -r requirements.txt
-```
-
-### Running the Optimization
-```bash
-python main.py input_data.json
-```
-This will execute the optimization using all solvers and store results in `output/`.
-
-## Conclusion
-This project provides a comprehensive framework for optimizing multi-stage rockets using various numerical techniques. It enables engineers to explore different staging strategies and analyze their impact on payload capacity efficiently.
-
 # Rocket Stage Optimization (Stage_Opt)
 
 This module performs multi-stage rocket optimization to maximize payload fraction while satisfying delta-V requirements. It implements various optimization algorithms and provides detailed analysis through CSV outputs and LaTeX reports.
 
-## Theory
+## Table of Contents
+1. [Theoretical Background](#theoretical-background)
+2. [Implementation](#implementation)
+3. [Usage Guide](#usage-guide)
+4. [Testing](#testing)
+5. [Contributing](#contributing)
 
-# Delta-V Logic
-*Author: V H*  
-*February 2025*
+## Theoretical Background
+*Author: V H, February 2025*
 
-## Core Definitions
+### Core Definitions
 
 1. **Payload Fraction (λ)**:
 λ = m_payload/m_0
@@ -290,7 +26,7 @@ Where `m_f` is the final mass after propellant burn.
 ΔV = v_e · ln(R) = v_e · ln(m_0/m_f)
 Where `v_e = I_sp · g_0` is the exhaust velocity, and `g_0 = 9.81 m/s²`.
 
-## Multi-Stage Rockets
+### Multi-Stage Rockets
 
 4. **Stage Mass Ratio**:
 R_i = m_0,i/m_f,i
@@ -303,70 +39,59 @@ Where `m_0,i` and `m_f,i` are the initial and final masses of stage i.
 ΔV_total = Σ(i=1 to n) ΔV_i = Σ(i=1 to n) v_e,i · ln(R_i)
 Where `n` is the number of stages.
 
-7. **Payload Fraction for Multi-Stage**:
+7. **Multi-Stage Payload Fraction**:
 λ = m_payload/m_0,total = ∏(i=1 to n) m_f,i/m_0,i = ∏(i=1 to n) 1/R_i
 
-8. **Structural Mass and Propellant**:
-R_i = m_0,i/(m_structure,i + m_payload + Σ(j>i) m_0,j)
-Where `ε_i = m_structure,i/m_0,i` is the structural fraction.
+8. **Structural Mass Ratio**:
+ε_i = m_structure,i/m_0,i
 
-## Relating λ to Delta-V
+### Optimization Problem
 
-9. **Single-Stage Lambda**:
-ΔV = v_e · ln(1/(λ + ε))
-Where `ε` is the structural fraction.
-
-10. **Multi-Stage Lambda and Delta-V**:
-ΔV_total = Σ(i=1 to n) v_e,i · ln(m_0,i/m_f,i)
-
-11. **Optimal Staging (Simplified)**:
-λ = ∏(i=1 to n) exp(-ΔV_i/v_e)
-Total idealized case:
-ΔV_total = v_e · ln(1/λ)
-
-## Practical Example (Two-Stage)
-
-12. **Two-Stage Payload Fraction**:
-λ = m_payload/m_0,1 = 1/((m_0,1/m_f,1) · (m_0,2/m_f,2))
-
-13. **Two-Stage Delta-V**:
-ΔV_total = v_e,1 · ln(R_1) + v_e,2 · ln(R_2)
-
-### Implementation Notes
-
-The optimization problem seeks to maximize the payload fraction (λ) while satisfying:
+The solver maximizes payload fraction (λ) subject to:
 - Total required Delta-V constraint
 - Structural mass fraction limits
 - Stage mass ratio constraints
 - Physical feasibility conditions
 
-## Directory Structure
+## Implementation
 
+### Directory Structure
 ```
 Stage_Opt/
-├── input/                  # Input configuration files
-├── output/                # Generated results and reports
-├── src/                   # Source code
-│   ├── optimization/     # Optimization algorithms
-│   ├── reporting/       # CSV and LaTeX report generation
-│   ├── utils/          # Utility functions and configuration
-│   └── visualization/  # Plotting and visualization tools
-└── tests/              # Test suite
+├── input/                 # Configuration files
+├── output/               # Results and reports
+├── src/                  # Source code
+│   ├── optimization/    # Optimization algorithms
+│   ├── reporting/      # CSV and LaTeX generation
+│   ├── utils/         # Utility functions
+│   └── visualization/ # Plotting tools
+└── tests/             # Test suite
 ```
 
-## Key Components
+### Optimization Algorithms
+1. **SLSQP**: Sequential Least Squares Programming
+   - Fast convergence for well-behaved problems
+   - Local optimization with constraints
 
-### 1. Optimization Algorithms (`src/optimization/solvers.py`)
-- **SLSQP**: Sequential Least Squares Programming
-- **Basin-Hopping**: Global optimization with local minimization
-- **Genetic Algorithm (GA)**: Standard and adaptive variants
-- **Differential Evolution (DE)**: Population-based optimization
-- **Particle Swarm Optimization (PSO)**: Swarm intelligence approach
+2. **Genetic Algorithm (GA)**:
+   - Population-based global optimization
+   - Adaptive variant available for better convergence
 
-### 2. Input/Output
+3. **Particle Swarm (PSO)**:
+   - Swarm intelligence approach
+   - Good balance of exploration/exploitation
 
-#### Configuration (`config.json`)
-The configuration file controls the optimization parameters and logging settings:
+4. **Basin Hopping**:
+   - Global optimization with local minimization
+   - Temperature-controlled exploration
+
+5. **Differential Evolution**:
+   - Population-based optimization
+   - Good for avoiding local minima
+
+### Configuration
+
+The `config.json` file controls optimization parameters:
 
 ```json
 {
@@ -382,24 +107,7 @@ The configuration file controls the optimization parameters and logging settings
             "population_size": 100,
             "n_generations": 200,
             "crossover_prob": 0.9,
-            "crossover_eta": 15,
-            "mutation_prob": 0.2,
-            "mutation_eta": 20
-        },
-        "adaptive_ga": {
-            "initial_pop_size": 100,
-            "max_pop_size": 200,
-            "min_pop_size": 50,
-            "initial_mutation_rate": 0.1,
-            "max_mutation_rate": 0.3,
-            "min_mutation_rate": 0.01,
-            "initial_crossover_rate": 0.8,
-            "max_crossover_rate": 0.95,
-            "min_crossover_rate": 0.6,
-            "diversity_threshold": 0.1,
-            "stagnation_threshold": 10,
-            "n_generations": 200,
-            "elite_size": 2
+            "mutation_prob": 0.2
         },
         "pso": {
             "n_particles": 50,
@@ -407,62 +115,13 @@ The configuration file controls the optimization parameters and logging settings
             "c1": 0.5,
             "c2": 0.3,
             "w": 0.9
-        },
-        "basin_hopping": {
-            "n_iterations": 100,
-            "temperature": 1.0,
-            "step_size": 0.5
-        },
-        "differential_evolution": {
-            "population_size": 15,
-            "max_iterations": 1000,
-            "mutation": [0.5, 1.0],
-            "recombination": 0.7,
-            "strategy": "best1bin",
-            "tol": 1e-6
         }
-    },
-    "logging": {
-        "file": "Stage_Opt/optimization.log",
-        "level": "INFO",
-        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     }
 }
 ```
 
-Key configuration parameters:
-- **General Optimization**:
-  - `penalty_coefficient`: Weight of constraint violation penalty
-  - `tolerance`: Convergence tolerance
-  - `max_iterations`: Maximum iterations for optimization
-  - `bounds`: Delta-V constraints for each stage
-
-- **Genetic Algorithm (GA)**:
-  - Population-based optimization with selection, crossover, and mutation
-  - Configurable population size and generation count
-  - Tunable crossover and mutation parameters
-
-- **Adaptive GA**:
-  - Dynamic population size and genetic operators
-  - Adjusts parameters based on diversity and convergence
-  - Prevents premature convergence
-
-- **Particle Swarm Optimization (PSO)**:
-  - Swarm-based optimization with social and cognitive components
-  - `c1`, `c2`: Cognitive and social learning factors
-  - `w`: Inertia weight
-
-- **Basin Hopping**:
-  - Global optimization with local minimization steps
-  - Temperature controls acceptance of worse solutions
-  - Step size affects exploration range
-
-- **Differential Evolution**:
-  - Population-based optimization with vector differences
-  - Configurable mutation and recombination rates
-  - Multiple strategy options for population evolution
-
-#### Input Data (`input_data.json`)
+### Input Data
+Mission parameters are defined in `input_data.json`:
 ```json
 {
     "parameters": {
@@ -484,99 +143,39 @@ Key configuration parameters:
 }
 ```
 
-#### Output Files
-- `stage_results.csv`: Detailed results for each stage
-  - Stage number
-  - Delta-V contribution
-  - Mass ratio (λ)
-  - Percentage contribution
-  - Optimization method
+## Usage Guide
 
-- `optimization_summary.csv`: Overall performance metrics
-  - Method name
-  - Final payload fraction
-  - Optimization error
-  - Execution time
-
-### 3. Analysis Tools
-
-- **CSV Generation** (`src/reporting/latex.py`):
-  - Generates structured CSV files for result analysis
-  - Calculates mass ratios and payload fractions
-  - Tracks optimization performance metrics
-
-- **LaTeX Reports**:
-  - Professional-grade PDF reports
-  - Performance comparisons across methods
-  - Detailed stage-by-stage analysis
-
-## Usage
-
-1. **Setup Input**:
+1. **Setup**:
    ```bash
-   # Modify input_data.json with your parameters
-   {
-       "parameters": {"TOTAL_DELTA_V": your_delta_v},
-       "stages": [
-           {"stage": 1, "ISP": isp1, "EPSILON": epsilon1},
-           {"stage": 2, "ISP": isp2, "EPSILON": epsilon2}
-       ]
-   }
+   # Configure mission parameters
+   edit input_data.json
+   # Adjust optimization settings
+   edit config.json
    ```
 
-2. **Run Optimization**:
+2. **Run**:
    ```bash
-   python main.py [input_file.json]
+   python main.py
    ```
 
-3. **View Results**:
-   - Check `output/stage_results.csv` for detailed stage analysis
-   - Check `output/optimization_summary.csv` for method comparison
-   - View `output/optimization_report.tex` for full LaTeX report
+3. **Results**:
+   - Check `output/stage_results.csv` for stage analysis
+   - View `output/optimization_summary.csv` for method comparison
+   - See `output/optimization_report.tex` for detailed report
 
 ## Testing
-
-Comprehensive test suite in `test_payload_optimization.py`:
 ```bash
 python -m pytest test_payload_optimization.py -v
 ```
 
 Tests cover:
-- Input data loading and validation
 - Mass ratio calculations
 - Payload fraction optimization
-- CSV output structure and consistency
-- Optimization algorithm performance
-
-## Dependencies
-
-- NumPy: Numerical computations
-- SciPy: Optimization algorithms
-- Pymoo: Genetic algorithm implementation
-- Pandas: Data manipulation
-- LaTeX: Report generation
-
-## Performance Notes
-
-1. **Algorithm Selection**:
-   - SLSQP: Fast, good for well-behaved problems
-   - GA/DE: Better for avoiding local minima
-   - PSO: Good balance of exploration/exploitation
-
-2. **Convergence**:
-   - All methods should achieve similar payload fractions
-   - Execution times vary significantly
-   - Error values indicate constraint satisfaction
-
-3. **Validation**:
-   - Mass ratios follow theoretical calculations
-   - Total delta-V constraint is enforced
-   - Stage contributions are properly balanced
+- CSV output validation
+- Algorithm performance
 
 ## Contributing
-
-When contributing:
-1. Follow the existing code structure
+1. Follow existing code structure
 2. Add tests for new features
 3. Update documentation
-4. Verify optimization results against theory
+4. Verify optimization results
