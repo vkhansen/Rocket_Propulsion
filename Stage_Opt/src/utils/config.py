@@ -37,6 +37,13 @@ except Exception as e:
                 "tol": 1e-6,
                 "mutation": [0.5, 1.0],
                 "recombination": 0.7
+            },
+            "genetic_algorithm": {
+                "population_size": 100,
+                "max_generations": 200,
+                "xtol": 1e-6,
+                "ftol": 1e-6,
+                "period": 20
             }
         }
     }

@@ -9,7 +9,8 @@ from src.utils.data import load_input_data
 from src.optimization.solvers import (
     solve_with_slsqp,
     solve_with_basin_hopping,
-    solve_with_differential_evolution
+    solve_with_differential_evolution,
+    solve_with_genetic_algorithm
 )
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_report
@@ -39,6 +40,8 @@ def optimize_stages(parameters, stages, method='SLSQP'):
             optimal_dv = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'DIFFERENTIAL_EVOLUTION':
             optimal_dv = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+        elif method.upper() == 'GENETIC_ALGORITHM':
+            optimal_dv = solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         else:
             raise ValueError(f"Unsupported optimization method: {method}")
         
@@ -67,7 +70,7 @@ def main():
         parameters, stages = load_input_data(input_file)
         
         # Run optimization with different methods
-        methods = ['SLSQP', 'differential_evolution', 'BASIN-HOPPING']
+        methods = ['SLSQP', 'DIFFERENTIAL_EVOLUTION', 'BASIN-HOPPING', 'GENETIC_ALGORITHM']
         results = {}
         
         for method in methods:
@@ -82,6 +85,12 @@ def main():
                     'payload_fraction': payload_fraction,
                     'time': end_time - start_time
                 }
+                
+                logger.info(f"{method} results:")
+                logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
+                logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
+                logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+                logger.info(f"  Time: {end_time - start_time:.3f} seconds")
                 
             except Exception as e:
                 logger.error(f"Method {method} failed: {e}")
