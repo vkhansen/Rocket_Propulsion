@@ -50,102 +50,185 @@ def read_input_json(filename):
         logger.error(f"Failed to read input file: {e}")
         raise
 
-def payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff=None):
-    """
-    Reverted payload fraction objective (first method):
-    For each stage, compute the stage ratio as:
-        f_i = exp(-dv_i / (G0 * ISP_i)) - EPSILON_i
-    Return the negative product of all stage ratios.
-    """
-    dv = np.asarray(dv).flatten()  # Ensure dv is 1D
-    product = 1.0
-    for i, dvi in enumerate(dv):
-        f_i = np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i]
-        if f_i <= 0:
-            return 1e6  # High penalty if stage ratio is not positive
-        product *= f_i
-    return -product
+def calculate_mass_ratios(dv, ISP, EPSILON):
+    """Calculate mass ratios for each stage."""
+    try:
+        dv = np.asarray(dv).flatten()
+        mass_ratios = []
+        for i, dvi in enumerate(dv):
+            ratio = np.exp(dvi / (9.81 * ISP[i])) - EPSILON[i]
+            mass_ratios.append(float(ratio))
+        return np.array(mass_ratios)
+    except Exception as e:
+        logger.error(f"Error calculating mass ratios: {e}")
+        return np.array([float('inf')] * len(dv))
 
-def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff=1e6, tol=1e-6):
-    """
-    Objective wrapper that adds a penalty if the equality constraint
-    sum(dv) == TOTAL_DELTA_V is not met.
-    """
-    dv = np.asarray(dv).flatten()
-    constraint_error = abs(np.sum(dv) - TOTAL_DELTA_V)
-    penalty = penalty_coeff * constraint_error if constraint_error > tol else 0.0
-    return payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
+def calculate_payload_fraction(mass_ratios):
+    """Calculate payload fraction from mass ratios."""
+    try:
+        if any(r <= 0 for r in mass_ratios):
+            return 0.0
+        return float(np.prod(1.0 / mass_ratios))
+    except Exception as e:
+        logger.error(f"Error calculating payload fraction: {e}")
+        return 0.0
+
+def payload_fraction_objective(dv, G0, ISP, EPSILON):
+    """Calculate the payload fraction objective."""
+    try:
+        mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        
+        # Add a small penalty for solutions close to constraint violations
+        penalty = 0.0
+        for ratio in mass_ratios:
+            if ratio <= 0.1:  # Penalize solutions close to physical limits
+                penalty += 100.0 * (0.1 - ratio)**2
+                
+        return float(-payload_fraction + penalty)  # Negative for minimization
+    except Exception as e:
+        logger.error(f"Error in payload fraction calculation: {e}")
+        return 1e6  # Large but finite penalty
+
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
+    """Calculate objective with penalty for constraint violation."""
+    try:
+        # Base objective
+        base_obj = payload_fraction_objective(dv, G0, ISP, EPSILON)
+        
+        # Constraint violation penalty
+        dv_sum = float(np.sum(dv))
+        constraint_violation = abs(dv_sum - TOTAL_DELTA_V)
+        penalty = 1e3 * constraint_violation  # Reduced penalty coefficient
+        
+        return float(base_obj + penalty)
+    except Exception as e:
+        logger.error(f"Error in objective calculation: {e}")
+        return 1e6  # Large but finite penalty
+
+def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Sequential Least Squares Programming (SLSQP)."""
+    try:
+        def objective(dv):
+            return payload_fraction_objective(dv, G0, ISP, EPSILON)
+            
+        def constraint(dv):
+            return float(np.sum(dv) - TOTAL_DELTA_V)
+            
+        constraints = {'type': 'eq', 'fun': constraint}
+        
+        result = minimize(
+            objective,
+            initial_guess,
+            method='SLSQP',
+            bounds=bounds,
+            constraints=constraints,
+            options={
+                'ftol': config["optimization"]["tolerance"],
+                'maxiter': config["optimization"]["max_iterations"]
+            }
+        )
+        
+        if not result.success:
+            logger.warning(f"SLSQP optimization warning: {result.message}")
+            
+        return result.x
+        
+    except Exception as e:
+        logger.error(f"SLSQP optimization failed: {e}")
+        raise
+
+def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Basin-Hopping."""
+    try:
+        def objective(dv):
+            return objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
+        
+        minimizer_kwargs = {
+            "method": "L-BFGS-B",
+            "bounds": bounds,
+            "options": {
+                'ftol': config["optimization"]["tolerance"],
+                'maxiter': config["optimization"]["max_iterations"]
+            }
+        }
+        
+        result = basinhopping(
+            objective,
+            initial_guess,
+            minimizer_kwargs=minimizer_kwargs,
+            niter=config["optimization"]["max_iterations"],
+            T=1.0,
+            stepsize=0.5,
+            interval=50,  # Adjust temperature every 50 steps
+            niter_success=10  # Stop after 10 successive successes
+        )
+        
+        if not result.lowest_optimization_result.success:
+            logger.warning(f"Basin-hopping optimization warning: {result.message}")
+            
+        return result.x
+        
+    except Exception as e:
+        logger.error(f"Basin-Hopping optimization failed: {e}")
+        raise
 
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
-        start_time = time.time()
-        
         class OptimizationProblem(Problem):
-            def __init__(self):
+            def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, **kwargs):
                 super().__init__(n_var=len(initial_guess),
-                                 n_obj=1,
-                                 n_constr=1,
-                                 xl=bounds[:, 0],
-                                 xu=bounds[:, 1])
-                self.tol = 1e-6  # tolerance for constraint satisfaction
-                self.history = []  # Store optimization history
-
+                               n_obj=1,
+                               n_constr=1,
+                               xl=bounds[:, 0],
+                               xu=bounds[:, 1],
+                               **kwargs)
+                self.G0 = G0
+                self.ISP = ISP
+                self.EPSILON = EPSILON
+                self.TOTAL_DELTA_V = TOTAL_DELTA_V
+            
             def _evaluate(self, x, out, *args, **kwargs):
-                # Evaluate the objective for each candidate solution
-                f = np.array([
-                    payload_fraction_objective(dv, G0, ISP, EPSILON,
-                                               config["optimization"]["penalty_coefficient"])
-                    for dv in x
-                ])
-                # Enforce the equality constraint: sum(dv) == TOTAL_DELTA_V (within tol)
-                g = np.array([np.abs(np.sum(dv) - TOTAL_DELTA_V) - self.tol for dv in x])
+                # Handle both single solutions and population
+                if len(x.shape) == 1:
+                    x = x.reshape(1, -1)
                 
-                # Record current state
-                best_idx = np.argmin(f)
-                self.history.append({
-                    'generation': len(self.history),
-                    'best_fitness': float(f[best_idx]),
-                    'mean_fitness': float(np.mean(f)),
-                    'best_solution': x[best_idx].copy(),
-                    'constraint_violation': float(g[best_idx])
-                })
+                # Calculate objectives
+                f = []
+                for xi in x:
+                    try:
+                        val = payload_fraction_objective(xi, self.G0, self.ISP, self.EPSILON)
+                        f.append(float(val))
+                    except:
+                        f.append(1e6)  # Large but finite penalty
                 
-                out["F"] = f
-                out["G"] = g
-
-        # Setup and run GA
-        problem = OptimizationProblem()
+                out["F"] = np.array(f).reshape(-1, 1)
+                
+                # Calculate constraints: sum(dv) - TOTAL_DELTA_V = 0
+                g = []
+                for xi in x:
+                    try:
+                        val = float(np.sum(xi) - self.TOTAL_DELTA_V)
+                        g.append(val)
+                    except:
+                        g.append(1e6)
+                
+                out["G"] = np.array(g).reshape(-1, 1)
+        
+        problem = OptimizationProblem(G0, ISP, EPSILON, TOTAL_DELTA_V)
+        
         algorithm = GA(
-            pop_size=config["optimization"]["ga"]["population_size"],
+            pop_size=config["optimization"]["population_size"],
             eliminate_duplicates=True
         )
         
         res = pymoo_minimize(problem,
-                             algorithm,
-                             termination=('n_gen', config["optimization"]["ga"]["n_generations"]),
-                             seed=1,
-                             verbose=False)
+                           algorithm,
+                           termination=('n_gen', config["optimization"]["max_iterations"]),
+                           verbose=False)
         
-        execution_time = time.time() - start_time
-        optimal_solution = res.X
-        
-        # Calculate metrics for the optimal solution
-        mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON)
-        payload_fraction = calculate_payload_mass(optimal_solution, ISP, EPSILON)
-        
-        # Return results in format expected by plotting functions
-        return {
-            'method': 'GA',
-            'time': execution_time,
-            'solution': optimal_solution,
-            'fitness': float(res.F[0]),
-            'mass_ratios': mass_ratios,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_solution,  # For delta-v breakdown plot
-            'error': float(res.G[0]),  # Constraint violation
-            'history': problem.history  # For convergence plots
-        }
+        return res.X  # Return best solution
         
     except Exception as e:
         logger.error(f"GA optimization failed: {e}")
@@ -338,222 +421,6 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         logger.error(f"Adaptive GA optimization failed: {e}")
         raise
 
-def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Particle Swarm Optimization."""
-    try:
-        pso_config = config["optimization"]["pso"]
-        def pso_objective(x):
-            return np.array([
-                objective_with_penalty(pos, G0, ISP, EPSILON, TOTAL_DELTA_V, 
-                                    config["optimization"]["penalty_coefficient"])
-                for pos in x
-            ])
-
-        optimizer = GlobalBestPSO(
-            n_particles=pso_config["n_particles"],
-            dimensions=len(initial_guess),
-            options={
-                'c1': pso_config["c1"],
-                'c2': pso_config["c2"],
-                'w': pso_config["w"]
-            },
-            bounds=(bounds[:, 0], bounds[:, 1])
-        )
-        
-        best_cost, best_pos = optimizer.optimize(
-            pso_objective,
-            iters=pso_config["n_iterations"]
-        )
-        return best_pos
-    except Exception as e:
-        logger.error(f"PSO optimization failed: {e}")
-        raise
-
-def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Differential Evolution."""
-    try:
-        start_time = time.time()
-        penalty_coeff = config["optimization"]["penalty_coefficient"]
-        
-        def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON)
-        
-        result = differential_evolution(objective, bounds, 
-                                     popsize=config["optimization"]["population_size"],
-                                     maxiter=config["optimization"]["max_iterations"],
-                                     tol=config["optimization"]["tolerance"])
-        
-        optimal_dv = result.x
-        execution_time = time.time() - start_time
-        payload_fraction = -objective(optimal_dv)
-        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-        
-        return {
-            'time': execution_time,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_dv,
-            'mass_ratios': mass_ratios,
-            'solution': optimal_dv,
-            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
-        }
-        
-    except Exception as e:
-        logger.error(f"Differential Evolution optimization failed: {e}")
-        raise
-
-def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Basin-Hopping."""
-    try:
-        start_time = time.time()
-        penalty_coeff = config["optimization"]["penalty_coefficient"]
-        
-        def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON)
-        
-        minimizer_kwargs = {
-            "method": "L-BFGS-B",
-            "bounds": bounds
-        }
-        
-        result = basinhopping(objective, initial_guess,
-                            niter=config["optimization"]["max_iterations"],
-                            minimizer_kwargs=minimizer_kwargs,
-                            stepsize=0.1)
-        
-        optimal_dv = result.x
-        execution_time = time.time() - start_time
-        payload_fraction = -objective(optimal_dv)
-        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-        
-        return {
-            'time': execution_time,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_dv,
-            'mass_ratios': mass_ratios,
-            'solution': optimal_dv,
-            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
-        }
-        
-    except Exception as e:
-        logger.error(f"Basin-Hopping optimization failed: {e}")
-        raise
-
-def solve_with_nelder_mead(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Nelder-Mead with bounds handling."""
-    try:
-        start_time = time.time()
-        penalty_coeff = config["optimization"]["penalty_coefficient"]
-        
-        def objective(x):
-            # Apply bounds through penalty
-            lower_bounds = bounds[:, 0]
-            upper_bounds = bounds[:, 1]
-            
-            # Calculate bounds violation penalty
-            lower_violation = np.sum(np.maximum(0, lower_bounds - x)**2)
-            upper_violation = np.sum(np.maximum(0, x - upper_bounds)**2)
-            bounds_penalty = 1e6 * (lower_violation + upper_violation)
-            
-            # Calculate original objective
-            obj_value = payload_fraction_objective(x, G0, ISP, EPSILON)
-            
-            return obj_value + bounds_penalty
-        
-        # Run Nelder-Mead optimization
-        result = minimize(objective, initial_guess, method='Nelder-Mead',
-                        options={'maxiter': config["optimization"]["max_iterations"],
-                                'xatol': config["optimization"]["tolerance"],
-                                'fatol': config["optimization"]["tolerance"]})
-        
-        # Ensure result is within bounds
-        optimal_dv = np.clip(result.x, bounds[:, 0], bounds[:, 1])
-        execution_time = time.time() - start_time
-        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
-        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-        
-        return {
-            'time': execution_time,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_dv,
-            'mass_ratios': mass_ratios,
-            'solution': optimal_dv,
-            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
-        }
-        
-    except Exception as e:
-        logger.error(f"Nelder-Mead optimization failed: {e}")
-        raise
-
-def solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Dynamic Programming."""
-    try:
-        start_time = time.time()
-        penalty_coeff = config["optimization"]["penalty_coefficient"]
-        
-        # DP grid parameters
-        n_points = 100  # Number of grid points
-        n_stages = len(initial_guess)
-        
-        # Create grid for each stage
-        grid = np.linspace(0, TOTAL_DELTA_V, n_points)
-        value_table = np.zeros((n_stages, n_points))
-        decision_table = np.zeros((n_stages, n_points))
-        
-        # Fill tables using backward recursion
-        for stage in range(n_stages-1, -1, -1):
-            for i, dv in enumerate(grid):
-                remaining_dv = TOTAL_DELTA_V - dv
-                if stage == n_stages-1:
-                    if abs(remaining_dv) <= 1e-6:  # Last stage must use remaining dv
-                        value_table[stage, i] = -payload_fraction_objective(
-                            np.array([dv]), [G0[stage]], [ISP[stage]], [EPSILON[stage]], penalty_coeff
-                        )
-                    continue
-                
-                # Try different allocations of remaining dv
-                best_value = -np.inf
-                best_next_dv = 0
-                for j, next_dv in enumerate(grid):
-                    if next_dv > remaining_dv:
-                        break
-                    
-                    current_value = -payload_fraction_objective(
-                        np.array([dv]), [G0[stage]], [ISP[stage]], [EPSILON[stage]], penalty_coeff
-                    )
-                    total_value = current_value + value_table[stage+1, j]
-                    
-                    if total_value > best_value:
-                        best_value = total_value
-                        best_next_dv = next_dv
-                
-                value_table[stage, i] = best_value
-                decision_table[stage, i] = best_next_dv
-        
-        # Reconstruct optimal solution
-        optimal_dv = np.zeros(n_stages)
-        current_dv = 0
-        for stage in range(n_stages):
-            idx = np.abs(grid - current_dv).argmin()
-            optimal_dv[stage] = decision_table[stage, idx]
-            current_dv = optimal_dv[stage]
-        
-        execution_time = time.time() - start_time
-        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
-        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
-        
-        return {
-            'time': execution_time,
-            'payload_fraction': payload_fraction,
-            'dv': optimal_dv,
-            'mass_ratios': mass_ratios,
-            'solution': optimal_dv,
-            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
-        }
-        
-    except Exception as e:
-        logger.error(f"Dynamic Programming optimization failed: {e}")
-        raise
-
 def optimize_stages(stages, method='SLSQP'):
     try:
         n = len(stages)
@@ -561,7 +428,7 @@ def optimize_stages(stages, method='SLSQP'):
         ISP = [stage['ISP'] for stage in stages]
         EPSILON = [stage['EPSILON'] for stage in stages]
 
-        required_dv = TOTAL_DELTA_V
+        required_dv = TOTAL_DELTA_V 
         penalty_coeff = CONFIG["optimization"]["penalty_coefficient"]
 
         initial_guess = np.ones(n) * required_dv / n
@@ -573,140 +440,58 @@ def optimize_stages(stages, method='SLSQP'):
         start_time = time.time()
 
         if method.upper() == 'SLSQP':
-            constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - required_dv}
-            res = minimize(payload_fraction_objective, initial_guess,
-                           args=(G0, ISP, EPSILON),
-                           method='SLSQP', bounds=bounds, constraints=constraints)
-            optimal_dv = res.x
-            execution_time = time.time() - start_time
-            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
-            mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+            optimal_dv = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
             
-            results = {
-                'method': method,
-                'time': execution_time,
-                'payload_fraction': payload_fraction,
-                'dv': optimal_dv,
-                'mass_ratios': mass_ratios,
-                'solution': optimal_dv,
-                'error': abs(np.sum(optimal_dv) - required_dv)
-            }
-
+        elif method.upper() == 'differential_evolution':
+            optimal_dv = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            
         elif method.upper() == 'GA':
-            results = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            results['method'] = method
-
-        elif method.upper() == 'ADAPTIVE-GA':
-            results = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            results['method'] = method
-
+            optimal_dv = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            
         elif method.upper() == 'PSO':
             optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            execution_time = time.time() - start_time
-            payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
-            mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
             
-            results = {
-                'method': method,
-                'time': execution_time,
-                'payload_fraction': payload_fraction,
-                'dv': optimal_dv,
-                'mass_ratios': mass_ratios,
-                'solution': optimal_dv,
-                'error': abs(np.sum(optimal_dv) - required_dv)
-            }
-
-        elif method.upper() == 'DIFFERENTIAL_EVOLUTION':
-            results = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            results['method'] = method
-
         elif method.upper() == 'BASIN-HOPPING':
-            results = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            results['method'] = method
-
+            optimal_dv = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            
         elif method.upper() == 'DP':
-            results = solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
-            results['method'] = method
-
+            optimal_dv = solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            
+        elif method.upper() == 'ADAPTIVE-GA':
+            optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, required_dv, CONFIG)
+            
         else:
             raise NotImplementedError(f"Optimization method {method} is not implemented")
 
-        logger.info(f"Optimization completed in {results['time']:.6f} seconds")
+        execution_time = time.time() - start_time
+        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON)
+        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+        error = abs(np.sum(optimal_dv) - required_dv)
+        
+        results = {
+            'method': method,
+            'time': execution_time,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_dv,
+            'mass_ratios': mass_ratios,
+            'solution': optimal_dv,
+            'error': error
+        }
+        
+        logger.info(f"Optimization completed in {execution_time:.6f} seconds")
+        logger.info(f"Successfully optimized using {method}")
+        
         return results
 
     except Exception as e:
         logger.error(f"Optimization failed: {e}")
+        logger.error(f"Failed to optimize using {method}: {e}")
         raise
 
 def calculate_payload_mass(dv, ISP, EPSILON):
     """Calculate payload mass as the product of stage mass ratios."""
     mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
     return np.prod(mass_ratios)
-
-def calculate_mass_ratios(dv, ISP, EPSILON):
-    """Calculate mass ratios for given solution."""
-    try:
-        n = len(dv)
-        mf = np.ones(n)
-        for i in range(n-1, -1, -1):
-            mf[i] = np.exp(-dv[i]/(ISP[i]*9.81))
-        
-        mass_ratios = []
-        for i in range(n):
-            eps = EPSILON[i]
-            mf_i = mf[i]
-            ratio = eps/(1-mf_i*(1-eps))
-            mass_ratios.append(ratio)
-        
-        return mass_ratios
-    except Exception as e:
-        logger.error(f"Mass ratio calculation failed: {e}")
-        raise
-
-def generate_report(results, output_file):
-    """Generate LaTeX report."""
-    try:
-        # Generate plots
-        plot_results(results)
-        
-        # Generate LaTeX report
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write('\\documentclass{article}\n')
-            f.write('\\usepackage{graphicx}\n')  # For including images
-            f.write('\\begin{document}\n')
-            f.write('\\section{Optimization Results}\n')
-            
-            # Add results table
-            f.write('\\begin{table}[h]\n')
-            f.write('\\centering\n')
-            f.write('\\begin{tabular}{|l|c|c|c|}\n')
-            f.write('\\hline\n')
-            f.write('Method & Time (s) & Payload Fraction & Error \\\\\n')
-            f.write('\\hline\n')
-            
-            for result in results:
-                method = result['method'].replace('_', '\\_')  # Escape underscores for LaTeX
-                f.write(f"{method} & {result['time']:.3f} & {result['payload_fraction']:.4f} & {result.get('error', 'N/A')} \\\\\n")
-            
-            f.write('\\hline\n')
-            f.write('\\end{tabular}\n')
-            f.write('\\caption{Optimization Results}\n')
-            f.write('\\end{table}\n')
-            
-            # Include plots
-            f.write('\\begin{figure}[h]\n')
-            f.write('\\centering\n')
-            f.write('\\includegraphics[width=0.8\\textwidth]{dv_breakdown.png}\n')
-            f.write('\\caption{$\\Delta$V Breakdown per Method}\n')
-            f.write('\\end{figure}\n')
-            
-            f.write('\\end{document}\n')
-        
-        logger.info("Report generated successfully: " + output_file)
-        
-    except Exception as e:
-        logger.error(f"Report generation failed: {e}")
-        raise
 
 def plot_results(results):
     """Generate plots for optimization results."""
@@ -783,6 +568,51 @@ def plot_objective_error(results, filename="objective_error.png"):
     plt.tight_layout()
     plt.savefig(filename)
     plt.close()
+
+def generate_report(results, output_file):
+    """Generate LaTeX report."""
+    try:
+        # Generate plots
+        plot_results(results)
+        
+        # Generate LaTeX report
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write('\\documentclass{article}\n')
+            f.write('\\usepackage{graphicx}\n')  # For including images
+            f.write('\\begin{document}\n')
+            f.write('\\section{Optimization Results}\n')
+            
+            # Add results table
+            f.write('\\begin{table}[h]\n')
+            f.write('\\centering\n')
+            f.write('\\begin{tabular}{|l|c|c|c|}\n')
+            f.write('\\hline\n')
+            f.write('Method & Time (s) & Payload Fraction & Error \\\\\n')
+            f.write('\\hline\n')
+            
+            for result in results:
+                method = result['method'].replace('_', '\\_')  # Escape underscores for LaTeX
+                f.write(f"{method} & {result['time']:.3f} & {result['payload_fraction']:.4f} & {result.get('error', 'N/A')} \\\\\n")
+            
+            f.write('\\hline\n')
+            f.write('\\end{tabular}\n')
+            f.write('\\caption{Optimization Results}\n')
+            f.write('\\end{table}\n')
+            
+            # Include plots
+            f.write('\\begin{figure}[h]\n')
+            f.write('\\centering\n')
+            f.write('\\includegraphics[width=0.8\\textwidth]{dv_breakdown.png}\n')
+            f.write('\\caption{$\\Delta$V Breakdown per Method}\n')
+            f.write('\\end{figure}\n')
+            
+            f.write('\\end{document}\n')
+        
+        logger.info("Report generated successfully: " + output_file)
+        
+    except Exception as e:
+        logger.error(f"Report generation failed: {e}")
+        raise
 
 if __name__ == "__main__":
     try:
