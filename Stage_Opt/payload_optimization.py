@@ -368,8 +368,22 @@ def generate_report(parameters, stages, results):
     def format_value(x):
         if isinstance(x, (np.floating, np.integer)):
             return float(x)
-        elif isinstance(x, list):
-            return str(x).replace('[', '').replace(']', '')  # Remove brackets from lists
+        elif isinstance(x, (list, np.ndarray)):
+            # Format array elements with proper precision
+            if isinstance(x, np.ndarray):
+                x = x.tolist()
+            return ', '.join(f'{val:.2f}' for val in x)
+        elif isinstance(x, str) and 'np.float64' in x:
+            # Clean up numpy float64 string representations
+            return x.replace('np.float64(', '').replace(')', '')
+        elif isinstance(x, str) and '[' in x and ']' in x:
+            # Handle string representations of arrays
+            try:
+                # Extract numbers from the string and format them
+                nums = [float(n) for n in x.strip('[]').split()]
+                return ', '.join(f'{val:.2f}' for val in nums)
+            except:
+                return x
         return x
     
     results_df = results_df.applymap(format_value)
@@ -461,7 +475,7 @@ def generate_report(parameters, stages, results):
         results_df.to_latex(
             index=False,
             escape=True,
-            float_format=lambda x: '{:.6f}'.format(x) if abs(x) < 1000 else '{:.2e}'.format(x),
+            float_format=lambda x: '{:.6f}'.format(x) if isinstance(x, (float, np.floating)) and abs(x) < 1000 else '{:.2e}'.format(x) if isinstance(x, (float, np.floating)) else str(x),
             column_format='l' + 'c' * (len(results_df.columns) - 1),
             na_rep='--'
         ).replace('\\toprule', '\\toprule\n\\midrule').replace('\\bottomrule', '\\midrule\n\\bottomrule'),
