@@ -1,4 +1,5 @@
 """Optimization solvers."""
+import time
 import numpy as np
 from scipy.optimize import minimize, basinhopping, differential_evolution
 from pymoo.algorithms.soo.nonconvex.ga import GA
@@ -8,11 +9,19 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PolynomialMutation
 from pymoo.core.repair import Repair
 from pymoo.termination.default import DefaultSingleObjectiveTermination
-import time
 
 from .objective import payload_fraction_objective, objective_with_penalty
 from ..utils.config import logger
 from ..utils.data import calculate_mass_ratios, calculate_payload_fraction
+
+__all__ = [
+    'solve_with_slsqp',
+    'solve_with_basin_hopping',
+    'solve_with_differential_evolution',
+    'solve_with_ga',
+    'solve_with_adaptive_ga',
+    'solve_with_pso'
+]
 
 class DeltaVRepair(Repair):
     """Repair operator to ensure delta-v sum constraint."""
@@ -53,11 +62,6 @@ class RocketOptimizationProblem(Problem):
 def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Sequential Least Squares Programming (SLSQP)."""
     try:
-        logger.info(f"Starting SLSQP optimization with parameters:")
-        logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
-        
         def objective(dv):
             return payload_fraction_objective(dv, G0, ISP, EPSILON)
             
@@ -80,14 +84,6 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         
         if not result.success:
             logger.warning(f"SLSQP optimization warning: {result.message}")
-        else:
-            # Calculate performance metrics
-            mass_ratios = calculate_mass_ratios(result.x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            logger.info(f"SLSQP optimization succeeded:")
-            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.x]} m/s")
-            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
-            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
             
         return result.x
         
@@ -98,16 +94,11 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
 def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Basin-Hopping."""
     try:
-        logger.info(f"Starting Basin-Hopping optimization with parameters:")
-        logger.info(f"Initial guess: {initial_guess}")
-        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
-        
         def objective(dv):
             return objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-            
+        
         minimizer_kwargs = {
-            "method": "SLSQP",
+            "method": "L-BFGS-B",
             "bounds": bounds,
             "options": {
                 'ftol': config["optimization"]["tolerance"],
@@ -119,21 +110,15 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
             objective,
             initial_guess,
             minimizer_kwargs=minimizer_kwargs,
-            niter=config["optimization"]["basin_hopping"]["n_iterations"],
-            T=config["optimization"]["basin_hopping"]["temperature"],
-            stepsize=config["optimization"]["basin_hopping"]["step_size"]
+            niter=config["optimization"]["max_iterations"],
+            T=1.0,
+            stepsize=0.5,
+            interval=50,  # Adjust temperature every 50 steps
+            niter_success=10  # Stop after 10 successive successes
         )
         
         if not result.lowest_optimization_result.success:
-            logger.warning(f"Basin-Hopping optimization warning: {result.message}")
-        else:
-            # Calculate performance metrics
-            mass_ratios = calculate_mass_ratios(result.x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            logger.info(f"Basin-Hopping optimization succeeded:")
-            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.x]} m/s")
-            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
-            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+            logger.warning(f"Basin-hopping optimization warning: {result.message}")
             
         return result.x
         
@@ -143,6 +128,8 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
 
 def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Differential Evolution."""
+    start_time = time.time()
+    
     try:
         logger.info(f"Starting Differential Evolution optimization with parameters:")
         logger.info(f"Initial guess: {initial_guess}")
@@ -150,35 +137,51 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
         def objective(dv):
-            return objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
+            return payload_fraction_objective(dv, G0, ISP, EPSILON)
             
+        def constraint(dv):
+            return [float(np.sum(dv) - TOTAL_DELTA_V)]  # Return as list for scipy
+            
+        de_config = config["optimization"]["differential_evolution"]
         result = differential_evolution(
             objective,
-            bounds,
-            strategy=config["optimization"]["differential_evolution"]["strategy"],
-            maxiter=config["optimization"]["differential_evolution"]["max_iterations"],
-            popsize=config["optimization"]["differential_evolution"]["population_size"],
-            tol=config["optimization"]["differential_evolution"]["tol"],
-            mutation=config["optimization"]["differential_evolution"]["mutation"],
-            recombination=config["optimization"]["differential_evolution"]["recombination"]
+            bounds=bounds,
+            strategy=de_config["strategy"],
+            maxiter=de_config["max_iterations"],
+            popsize=de_config["population_size"],
+            mutation=de_config["mutation"],
+            recombination=de_config["recombination"],
+            tol=de_config["tol"],
+            constraints=({'type': 'eq', 'fun': constraint}),
+            x0=initial_guess
         )
         
         if not result.success:
-            logger.warning(f"Differential Evolution optimization warning: {result.message}")
-        else:
-            # Calculate performance metrics
-            mass_ratios = calculate_mass_ratios(result.x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            logger.info(f"Differential Evolution optimization succeeded:")
-            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result.x]} m/s")
-            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
-            logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+            logger.error(f"Differential Evolution optimization failed: {result.message}")
+            return None
             
-        return result.x
+        # Calculate performance metrics
+        execution_time = time.time() - start_time
+        optimal_dv = result.x
+        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
+        
+        logger.info(f"Differential Evolution optimization succeeded:")
+        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
+        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
+        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+        
+        return {
+            'method': 'Differential Evolution',
+            'optimal_dv': list(optimal_dv),
+            'stage_ratios': list(stage_ratios),
+            'payload_fraction': float(payload_fraction),
+            'execution_time': execution_time
+        }
         
     except Exception as e:
-        logger.error(f"Differential Evolution optimization failed: {e}")
-        raise
+        logger.error(f"Error in Differential Evolution optimization: {e}")
+        return None
 
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
@@ -193,16 +196,13 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                     current_sum = np.sum(x)
                     if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
                         # Scale the solution to match total ΔV
-                        scale = TOTAL_DELTA_V / current_sum
-                        x = x * scale
-                        # Ensure bounds are satisfied while maintaining proportions
-                        x_clipped = np.clip(x, problem.xl, problem.xu)
-                        if not np.array_equal(x, x_clipped):
-                            # If clipping changed values, rescale while preserving proportions
-                            x = x_clipped
-                            current_sum = np.sum(x)
-                            if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                                x = x * (TOTAL_DELTA_V / current_sum)
+                        x = x * (TOTAL_DELTA_V / current_sum)
+                        # Ensure bounds are satisfied
+                        x = np.clip(x, problem.xl, problem.xu)
+                        # Re-normalize if clipping changed the sum
+                        current_sum = np.sum(x)
+                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                            x = x * (TOTAL_DELTA_V / current_sum)
                         X[i] = x
                 return X
 
@@ -224,9 +224,8 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
                                   for dvi, isp, eps in zip(dv, self.ISP, self.EPSILON)]
                     payload = -np.prod(stage_ratios)  # Negative because GA minimizes
                     
-                    # Add softer penalty for total ΔV constraint
-                    delta_v_error = abs(np.sum(dv) - self.total_delta_v)
-                    penalty = 100.0 * delta_v_error if delta_v_error > 1e-6 else 0.0
+                    # Add penalty for total ΔV constraint
+                    penalty = 1e6 * abs(np.sum(dv) - self.total_delta_v)
                     f.append(payload + penalty)
                     
                 out["F"] = np.column_stack([f])
@@ -244,25 +243,19 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         problem.EPSILON = EPSILON
 
         algorithm = GA(
-            pop_size=config["optimization"]["ga"]["population_size"],
+            pop_size=config["optimization"]["population_size"],
             eliminate_duplicates=True,
-            mutation=PolynomialMutation(
-                prob=config["optimization"]["ga"]["mutation_prob"],
-                eta=config["optimization"]["ga"]["mutation_eta"]
-            ),
-            crossover=SBX(
-                prob=config["optimization"]["ga"]["crossover_prob"],
-                eta=config["optimization"]["ga"]["crossover_eta"]
-            ),
+            mutation=PolynomialMutation(prob=0.2, eta=20),
+            crossover=SBX(prob=0.9, eta=15),
             repair=RepairDeltaV()
         )
 
         termination = DefaultSingleObjectiveTermination(
-            xtol=1e-4,  # Relaxed tolerance
-            cvtol=1e-4,  # Relaxed tolerance
-            ftol=1e-4,  # Relaxed tolerance
+            xtol=1e-6,
+            cvtol=1e-6,
+            ftol=1e-6,
             period=20,
-            n_max_gen=config["optimization"]["ga"]["n_generations"],
+            n_max_gen=config["optimization"]["max_iterations"],
             n_max_evals=None
         )
         
@@ -271,49 +264,69 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             algorithm,
             termination,
             seed=1,
-            verbose=True  # Enable verbose output for debugging
+            verbose=False
         )
 
-        if res.X is None:
-            logger.warning(f"GA optimization failed to find a solution: {res.message}")
-            return None
-            
-        # Verify the solution meets the total delta-v constraint
-        if abs(np.sum(res.X) - TOTAL_DELTA_V) > 1e-4:
-            logger.warning(f"GA solution violates total delta-v constraint by {abs(np.sum(res.X) - TOTAL_DELTA_V)}")
-            return None
+        if res.X is None or not res.success:
+            logger.warning(f"GA optimization warning: {res.message}")
+            return initial_guess
             
         return res.X
         
     except Exception as e:
-        logger.error(f"GA optimization failed with error: {str(e)}")
-        return None
+        logger.error(f"GA optimization failed: {e}")
+        raise
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
+    start_time = time.time()
+    
     try:
         logger.info(f"Starting Adaptive GA optimization with parameters:")
         logger.info(f"Initial guess: {initial_guess}")
         logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
         logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
         
-        n_vars = len(initial_guess)
+        # Initialize adaptive GA
+        ga_config = config["optimization"]["adaptive_ga"]
+        aga = AdaptiveGA(
+            config=config,
+            n_vars=len(initial_guess),
+            bounds=bounds,
+            total_delta_v=TOTAL_DELTA_V,
+            isp=ISP,
+            epsilon=EPSILON
+        )
         
-        # Initialize and run the adaptive GA
-        ga = AdaptiveGA(config, n_vars, bounds, TOTAL_DELTA_V, ISP, EPSILON)
-        result = ga.optimize()
+        # Run optimization
+        result = aga.optimize()
         
-        if result is not None:
-            logger.info(f"Adaptive GA optimization succeeded:")
-            logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result['optimal_dv']]} m/s")
-            logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in result['stage_ratios']]}")
-            logger.info(f"  Payload fraction: {result['payload_fraction']:.3f}")
-            logger.info(f"  Time: {result['execution_time']:.3f} seconds")
+        if result is None:
+            logger.error("Adaptive GA optimization failed")
+            return None
+            
+        # Calculate performance metrics
+        execution_time = time.time() - start_time
+        optimal_dv = result['optimal_dv']
+        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
-        return result
+        logger.info(f"Adaptive GA optimization succeeded:")
+        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
+        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
+        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+        
+        return {
+            'method': 'Adaptive GA',
+            'optimal_dv': list(optimal_dv),
+            'stage_ratios': list(stage_ratios),
+            'payload_fraction': float(payload_fraction),
+            'execution_time': execution_time,
+            'history': result['history']
+        }
         
     except Exception as e:
-        logger.error(f"Adaptive GA optimization failed: {e}")
+        logger.error(f"Error in Adaptive GA optimization: {e}")
         return None
 
 class AdaptiveGA:
@@ -477,7 +490,7 @@ class AdaptiveGA:
                 return parent1.copy(), parent2.copy()
                 
             # Arithmetic crossover with random weights per dimension
-            alpha = np.random.random(self.n_vars)
+            alpha = np.random.rand(self.n_vars)
             child1 = alpha * parent1 + (1 - alpha) * parent2
             child2 = (1 - alpha) * parent1 + alpha * parent2
             
@@ -488,8 +501,8 @@ class AdaptiveGA:
                 # Rescale to meet total delta-v
                 current_sum = np.sum(child)
                 if abs(current_sum - self.total_delta_v) > 1e-6:
-                    scale = self.total_delta_v / current_sum
-                    child = child * scale
+                    scale_factor = self.total_delta_v / current_sum
+                    child *= scale_factor
                     # If scaling caused bounds violations, iteratively repair
                     iteration = 0
                     while (np.any(child < self.bounds_low) or \
@@ -498,8 +511,8 @@ class AdaptiveGA:
                         child = np.clip(child, self.bounds_low, self.bounds_high)
                         current_sum = np.sum(child)
                         if abs(current_sum - self.total_delta_v) > 1e-6:
-                            scale = self.total_delta_v / current_sum
-                            child = child * scale
+                            scale_factor = self.total_delta_v / current_sum
+                            child *= scale_factor
                         iteration += 1
             
             return child1, child2
@@ -664,28 +677,18 @@ class AdaptiveGA:
             return None
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Particle Swarm Optimization (PSO).
-    
-    Args:
-        initial_guess (list): Initial solution guess
-        bounds (list): List of tuples defining bounds for each variable
-        G0 (float): Gravitational constant
-        ISP (list): List of specific impulses for each stage
-        EPSILON (list): List of structural coefficients for each stage
-        TOTAL_DELTA_V (float): Total required delta-V
-        config (dict): Configuration parameters
-        
-    Returns:
-        dict: Dictionary containing optimization results
-    """
+    """Solve using Particle Swarm Optimization."""
     start_time = time.time()
     
     try:
-        n_particles = config.get('pso_particles', 50)
-        n_iterations = config.get('pso_iterations', 100)
-        c1 = config.get('pso_c1', 2.0)  # Cognitive parameter
-        c2 = config.get('pso_c2', 2.0)  # Social parameter
-        w = config.get('pso_w', 0.7)     # Inertia weight
+        logger.info(f"Starting PSO optimization with parameters:")
+        logger.info(f"Initial guess: {initial_guess}")
+        logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
+        logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
+        
+        pso_config = config.get("optimization", {}).get("pso", {})
+        n_particles = pso_config.get("n_particles", 50)
+        max_iterations = pso_config.get("max_iterations", 100)
         
         # Initialize particles
         particles = np.random.uniform(
@@ -694,98 +697,80 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
             size=(n_particles, len(initial_guess))
         )
         
-        # Initialize velocities
-        velocity_bounds = [(-(b[1] - b[0]), (b[1] - b[0])) for b in bounds]
-        velocities = np.random.uniform(
-            low=[b[0] for b in velocity_bounds],
-            high=[b[1] for b in velocity_bounds],
-            size=(n_particles, len(initial_guess))
-        )
-        
-        # Initialize personal best positions and scores
+        # Scale initial particles to satisfy total delta-V constraint
+        sums = np.sum(particles, axis=1)
+        non_zero_mask = sums > 0  # Avoid division by zero
+        if np.any(non_zero_mask):
+            # Scale to meet total delta-V
+            scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 0)
+            particles[non_zero_mask] *= scale_factors[non_zero_mask, np.newaxis]
+            
+        velocities = np.zeros_like(particles)
         personal_best_pos = particles.copy()
-        personal_best_scores = np.array([
-            objective_with_penalty(p, G0, ISP, EPSILON, TOTAL_DELTA_V)
-            for p in particles
-        ])
+        personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+        global_best_pos = personal_best_pos[np.argmin(personal_best_val)]
+        global_best_val = np.min(personal_best_val)
         
-        # Initialize global best
-        global_best_idx = np.argmin(personal_best_scores)
-        global_best_pos = personal_best_pos[global_best_idx].copy()
-        global_best_score = personal_best_scores[global_best_idx]
+        w = pso_config.get("inertia", 0.7)
+        c1 = pso_config.get("cognitive", 1.5)
+        c2 = pso_config.get("social", 1.5)
         
-        # Optimization loop
-        history = []
-        for iteration in range(n_iterations):
-            # Update velocities
+        for iteration in range(max_iterations):
+            # Update velocities and positions
             r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
-            cognitive_velocity = c1 * r1 * (personal_best_pos - particles)
-            social_velocity = c2 * r2 * (global_best_pos - particles)
-            velocities = w * velocities + cognitive_velocity + social_velocity
+            velocities = (w * velocities +
+                        c1 * r1 * (personal_best_pos - particles) +
+                        c2 * r2 * (global_best_pos - particles))
             
-            # Clip velocities to bounds
-            for i, bounds in enumerate(velocity_bounds):
-                velocities[:, i] = np.clip(velocities[:, i], bounds[0], bounds[1])
-            
-            # Update positions
             particles += velocities
             
-            # Clip positions to bounds and repair solutions
-            for i, bounds in enumerate(bounds):
-                particles[:, i] = np.clip(particles[:, i], bounds[0], bounds[1])
+            # Clip to bounds
+            for j in range(len(initial_guess)):
+                particles[:, j] = np.clip(particles[:, j], bounds[j][0], bounds[j][1])
             
-            # Repair total delta-V constraint
-            for i in range(n_particles):
-                current_sum = np.sum(particles[i])
-                if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
-                    scale_factor = TOTAL_DELTA_V / current_sum
-                    particles[i] *= scale_factor
+            # Scale to meet total delta-V constraint
+            sums = np.sum(particles, axis=1)
+            non_zero_mask = sums > 0
+            if np.any(non_zero_mask):
+                scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 0)
+                scale_factors = scale_factors.reshape(-1, 1)  # Reshape for broadcasting
+                particles[non_zero_mask] *= scale_factors[non_zero_mask]
             
-            # Evaluate new positions
-            scores = np.array([
-                objective_with_penalty(p, G0, ISP, EPSILON, TOTAL_DELTA_V)
-                for p in particles
-            ])
-            
-            # Update personal bests
-            improved = scores < personal_best_scores
+            # Update personal and global bests
+            values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+            improved = values < personal_best_val
             personal_best_pos[improved] = particles[improved]
-            personal_best_scores[improved] = scores[improved]
+            personal_best_val[improved] = values[improved]
             
-            # Update global best
-            min_score_idx = np.argmin(scores)
-            if scores[min_score_idx] < global_best_score:
-                global_best_score = scores[min_score_idx]
-                global_best_pos = particles[min_score_idx].copy()
-            
-            # Store history
-            history.append({
-                'iteration': iteration,
-                'best_score': float(global_best_score),
-                'mean_score': float(np.mean(scores)),
-                'std_score': float(np.std(scores))
-            })
-            
-            # Early stopping if converged
-            if iteration > 10 and abs(history[-1]['best_score'] - history[-10]['best_score']) < 1e-8:
+            min_val_idx = np.argmin(values)
+            if values[min_val_idx] < global_best_val:
+                global_best_val = values[min_val_idx]
+                global_best_pos = particles[min_val_idx].copy()
+                
+            # Check convergence
+            if iteration > 10 and np.std(values) < 1e-6:
+                logger.info(f"PSO converged after {iteration} iterations")
                 break
-        
-        # Calculate final metrics
+                
+        # Calculate final results
         execution_time = time.time() - start_time
-        optimal_dv = global_best_pos
+        optimal_dv = list(map(float, global_best_pos))  # Convert to list of floats
         stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
         payload_fraction = calculate_payload_fraction(stage_ratios)
         
+        logger.info(f"PSO optimization succeeded:")
+        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
+        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
+        logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+        
         return {
             'method': 'PSO',
-            'optimal_dv': list(optimal_dv),
-            'stage_ratios': list(stage_ratios),
+            'optimal_dv': optimal_dv,
+            'stage_ratios': list(map(float, stage_ratios)),
             'payload_fraction': float(payload_fraction),
-            'execution_time': execution_time,
-            'history': history,
-            'error': float(abs(np.sum(optimal_dv) - TOTAL_DELTA_V))
+            'execution_time': float(execution_time)
         }
         
     except Exception as e:
-        logger.error(f"PSO optimization failed: {str(e)}")
-        raise
+        logger.error(f"Error in PSO optimization: {e}")
+        return None

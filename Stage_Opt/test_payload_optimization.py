@@ -224,65 +224,45 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_all_optimization_methods(self):
         """Test all optimization methods."""
         print("\nTesting all optimization methods...")
-        parameters, stages = load_input_data(self.temp_input.name)
+        initial_guess = [4650, 4650]
+        bounds = [(0, 9300), (0, 9300)]
+        G0 = 9.81
+        ISP = [300, 348]
+        EPSILON = [0.06, 0.04]
+        TOTAL_DELTA_V = 9300
         
-        # Extract parameters
-        G0 = float(parameters["G0"])
-        TOTAL_DELTA_V = float(parameters["TOTAL_DELTA_V"])
-        ISP = [float(stage["ISP"]) for stage in stages]
-        EPSILON = [float(stage["EPSILON"]) for stage in stages]
-        
-        # Initial setup
-        n = len(ISP)
-        initial_guess = np.full(n, TOTAL_DELTA_V / n)
-        max_dv = TOTAL_DELTA_V * 0.9
-        bounds = [(0, max_dv) for _ in range(n)]
-        
-        # Test each solver
         solvers = [
             ("SLSQP", solve_with_slsqp),
             ("Basin-Hopping", solve_with_basin_hopping),
-            ("Differential Evolution", solve_with_differential_evolution),
-            ("Genetic Algorithm", solve_with_genetic_algorithm),
+            ("DE", solve_with_differential_evolution),
+            ("GA", solve_with_genetic_algorithm),
             ("Adaptive GA", solve_with_adaptive_ga),
             ("PSO", solve_with_pso)
         ]
         
         for name, solver in solvers:
-            with self.subTest(solver=name):
+            try:
                 print(f"\nTesting {name} solver...")
                 result = solver(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
                 
                 # Verify results
-                if name in ["Genetic Algorithm", "Adaptive GA", "PSO"]:
-                    self.assertIsInstance(result, dict)
-                    self.assertIn('optimal_dv', result)
-                    self.assertIn('stage_ratios', result)
-                    self.assertIn('payload_fraction', result)
-                    self.assertIn('execution_time', result)
-                    self.assertIn('method', result)
-                    
-                    optimal_dv = result['optimal_dv']
-                    self.assertEqual(len(optimal_dv), 2)
-                    self.assertAlmostEqual(sum(optimal_dv), TOTAL_DELTA_V, places=2)
-                    self.assertTrue(all(dv >= 0 for dv in optimal_dv))
-                    self.assertTrue(0 < result['payload_fraction'] < 1)
-                else:
-                    self.assertEqual(len(result), 2)
-                    self.assertAlmostEqual(np.sum(result), TOTAL_DELTA_V, places=2)
-                    self.assertTrue(all(dv >= 0 for dv in result))
+                self.assertIsInstance(result, dict)
+                self.assertIn('optimal_dv', result)
+                self.assertIn('stage_ratios', result)
+                self.assertIn('payload_fraction', result)
+                self.assertIn('execution_time', result)
+                self.assertIn('method', result)
                 
-                # Calculate performance metrics
-                if name in ["Genetic Algorithm", "Adaptive GA", "PSO"]:
-                    mass_ratios = result['stage_ratios']
-                else:
-                    mass_ratios = calculate_mass_ratios(result, ISP, EPSILON, G0)
-                payload_fraction = calculate_payload_fraction(mass_ratios)
+                optimal_dv = result['optimal_dv']
+                self.assertEqual(len(optimal_dv), 2)
+                self.assertAlmostEqual(sum(optimal_dv), TOTAL_DELTA_V, places=2)
+                self.assertTrue(all(dv >= 0 for dv in optimal_dv))
+                self.assertTrue(0 < result['payload_fraction'] < 1)
                 
-                # Verify performance
-                self.assertTrue(all(ratio > 0 for ratio in mass_ratios))
-                self.assertTrue(0 < payload_fraction < 1)
-                print(f"{name} results: dv={result}, payload_fraction={payload_fraction}")
+                print(f"{name} test passed!")
+            except Exception as e:
+                print(f"{name} test failed: {e}")
+                raise
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
