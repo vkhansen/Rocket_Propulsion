@@ -2,7 +2,6 @@
     "optimization": {
         "penalty_coefficient": 1000.0,
         "tolerance": 1e-6,
-        "population_size": 100,
         "max_iterations": 200,
         "bounds": {
             "min_dv": 0.0,
@@ -10,7 +9,11 @@
         },
         "ga": {
             "population_size": 100,
-            "n_generations": 200
+            "n_generations": 200,
+            "crossover_prob": 0.9,
+            "crossover_eta": 15,
+            "mutation_prob": 0.2,
+            "mutation_eta": 20
         },
         "adaptive_ga": {
             "initial_pop_size": 100,

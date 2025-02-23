@@ -196,9 +196,11 @@ def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_
             TOTAL_DELTA_V=TOTAL_DELTA_V
         )
 
+        ga_config = config["optimization"]["genetic_algorithm"]
+        
         algorithm = GA(
-            pop_size=config["optimization"]["genetic_algorithm"]["population_size"],
-            sampling=initial_guess,
+            pop_size=ga_config["population_size"],
+            sampling=np.array([initial_guess]),  # Convert to 2D array for pymoo
             crossover=SBX(prob=0.9, eta=15),
             mutation=PolynomialMutation(eta=20),
             repair=DeltaVRepair(TOTAL_DELTA_V),
@@ -206,10 +208,10 @@ def solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_
         )
 
         termination = DefaultSingleObjectiveTermination(
-            xtol=config["optimization"]["genetic_algorithm"]["xtol"],
-            ftol=config["optimization"]["genetic_algorithm"]["ftol"],
-            period=config["optimization"]["genetic_algorithm"]["period"],
-            n_max_gen=config["optimization"]["genetic_algorithm"]["max_generations"]
+            xtol=ga_config["xtol"],
+            ftol=ga_config["ftol"],
+            period=ga_config["period"],
+            n_max_gen=ga_config["max_generations"]
         )
 
         result = pymoo_minimize(

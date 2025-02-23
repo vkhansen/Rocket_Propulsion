@@ -5,12 +5,13 @@ import time
 import numpy as np
 
 from src.utils.config import CONFIG, logger, OUTPUT_DIR
-from src.utils.data import load_input_data
+from src.utils.data import load_input_data, calculate_mass_ratios, calculate_payload_fraction
 from src.optimization.solvers import (
     solve_with_slsqp,
     solve_with_basin_hopping,
     solve_with_differential_evolution,
-    solve_with_genetic_algorithm
+    solve_with_ga,
+    solve_with_adaptive_ga
 )
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_report
@@ -40,13 +41,14 @@ def optimize_stages(parameters, stages, method='SLSQP'):
             optimal_dv = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'DIFFERENTIAL_EVOLUTION':
             optimal_dv = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
-        elif method.upper() == 'GENETIC_ALGORITHM':
-            optimal_dv = solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+        elif method.upper() == 'GA':
+            optimal_dv = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+        elif method.upper() == 'ADAPTIVE_GA':
+            optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         else:
             raise ValueError(f"Unsupported optimization method: {method}")
         
         # Calculate final results
-        from src.utils.data import calculate_mass_ratios, calculate_payload_fraction
         stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
         payload_fraction = calculate_payload_fraction(stage_ratios)
         
@@ -70,7 +72,7 @@ def main():
         parameters, stages = load_input_data(input_file)
         
         # Run optimization with different methods
-        methods = ['SLSQP', 'DIFFERENTIAL_EVOLUTION', 'BASIN-HOPPING', 'GENETIC_ALGORITHM']
+        methods = ['SLSQP', 'DIFFERENTIAL_EVOLUTION', 'BASIN-HOPPING', 'GA', 'ADAPTIVE_GA']
         results = {}
         
         for method in methods:
