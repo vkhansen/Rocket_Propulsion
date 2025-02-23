@@ -11,7 +11,8 @@ from src.optimization.solvers import (
     solve_with_basin_hopping,
     solve_with_differential_evolution,
     solve_with_genetic_algorithm,
-    solve_with_adaptive_ga
+    solve_with_adaptive_ga,
+    solve_with_pso
 )
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_report
@@ -45,6 +46,8 @@ def optimize_stages(parameters, stages, method='SLSQP'):
             optimal_dv = solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'GA-ADAPTIVE':
             optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+        elif method.upper() == 'PSO':
+            optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         else:
             raise ValueError(f"Unsupported optimization method: {method}")
         
@@ -72,7 +75,7 @@ def main():
         parameters, stages = load_input_data(input_file)
         
         # Run optimization with different methods
-        methods = ['SLSQP', 'DIFFERENTIAL_EVOLUTION', 'BASIN-HOPPING', 'GA', 'GA-ADAPTIVE']
+        methods = ['SLSQP', 'DIFFERENTIAL_EVOLUTION', 'BASIN-HOPPING', 'GA', 'GA-ADAPTIVE', 'PSO']
         results = {}
         
         for method in methods:
