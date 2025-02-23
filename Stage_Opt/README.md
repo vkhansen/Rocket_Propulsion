@@ -36,10 +36,61 @@ where `ε` represents the fraction of the initial mass that is structural rather
     ```json
     {
         "optimization": {
+            "penalty_coefficient": 1000.0,
             "tolerance": 1e-6,
             "max_iterations": 200,
-            "ga": { "population_size": 100, "n_generations": 200 },
-            "pso": { "n_particles": 50, "n_iterations": 200 }
+            "bounds": {
+                "min_dv": 0.0,
+                "max_dv_factor": 1.0
+            },
+            "ga": {
+                "population_size": 100,
+                "n_generations": 200,
+                "crossover_prob": 0.9,
+                "crossover_eta": 15,
+                "mutation_prob": 0.2,
+                "mutation_eta": 20
+            },
+            "adaptive_ga": {
+                "initial_pop_size": 100,
+                "max_pop_size": 200,
+                "min_pop_size": 50,
+                "initial_mutation_rate": 0.1,
+                "max_mutation_rate": 0.3,
+                "min_mutation_rate": 0.01,
+                "initial_crossover_rate": 0.8,
+                "max_crossover_rate": 0.95,
+                "min_crossover_rate": 0.6,
+                "diversity_threshold": 0.1,
+                "stagnation_threshold": 10,
+                "n_generations": 200,
+                "elite_size": 2
+            },
+            "pso": {
+                "n_particles": 50,
+                "n_iterations": 200,
+                "c1": 0.5,
+                "c2": 0.3,
+                "w": 0.9
+            },
+            "basin_hopping": {
+                "n_iterations": 100,
+                "temperature": 1.0,
+                "step_size": 0.5
+            },
+            "differential_evolution": {
+                "population_size": 15,
+                "max_iterations": 1000,
+                "mutation": [0.5, 1.0],
+                "recombination": 0.7,
+                "strategy": "best1bin",
+                "tol": 1e-6
+            }
+        },
+        "logging": {
+            "file": "Stage_Opt/optimization.log",
+            "level": "INFO",
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         }
     }
     ```
@@ -213,7 +264,104 @@ Stage_Opt/
 
 ### 2. Input/Output
 
-#### Input (`input_data.json`)
+#### Configuration (`config.json`)
+The configuration file controls the optimization parameters and logging settings:
+
+```json
+{
+    "optimization": {
+        "penalty_coefficient": 1000.0,
+        "tolerance": 1e-6,
+        "max_iterations": 200,
+        "bounds": {
+            "min_dv": 0.0,
+            "max_dv_factor": 1.0
+        },
+        "ga": {
+            "population_size": 100,
+            "n_generations": 200,
+            "crossover_prob": 0.9,
+            "crossover_eta": 15,
+            "mutation_prob": 0.2,
+            "mutation_eta": 20
+        },
+        "adaptive_ga": {
+            "initial_pop_size": 100,
+            "max_pop_size": 200,
+            "min_pop_size": 50,
+            "initial_mutation_rate": 0.1,
+            "max_mutation_rate": 0.3,
+            "min_mutation_rate": 0.01,
+            "initial_crossover_rate": 0.8,
+            "max_crossover_rate": 0.95,
+            "min_crossover_rate": 0.6,
+            "diversity_threshold": 0.1,
+            "stagnation_threshold": 10,
+            "n_generations": 200,
+            "elite_size": 2
+        },
+        "pso": {
+            "n_particles": 50,
+            "n_iterations": 200,
+            "c1": 0.5,
+            "c2": 0.3,
+            "w": 0.9
+        },
+        "basin_hopping": {
+            "n_iterations": 100,
+            "temperature": 1.0,
+            "step_size": 0.5
+        },
+        "differential_evolution": {
+            "population_size": 15,
+            "max_iterations": 1000,
+            "mutation": [0.5, 1.0],
+            "recombination": 0.7,
+            "strategy": "best1bin",
+            "tol": 1e-6
+        }
+    },
+    "logging": {
+        "file": "Stage_Opt/optimization.log",
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    }
+}
+```
+
+Key configuration parameters:
+- **General Optimization**:
+  - `penalty_coefficient`: Weight of constraint violation penalty
+  - `tolerance`: Convergence tolerance
+  - `max_iterations`: Maximum iterations for optimization
+  - `bounds`: Delta-V constraints for each stage
+
+- **Genetic Algorithm (GA)**:
+  - Population-based optimization with selection, crossover, and mutation
+  - Configurable population size and generation count
+  - Tunable crossover and mutation parameters
+
+- **Adaptive GA**:
+  - Dynamic population size and genetic operators
+  - Adjusts parameters based on diversity and convergence
+  - Prevents premature convergence
+
+- **Particle Swarm Optimization (PSO)**:
+  - Swarm-based optimization with social and cognitive components
+  - `c1`, `c2`: Cognitive and social learning factors
+  - `w`: Inertia weight
+
+- **Basin Hopping**:
+  - Global optimization with local minimization steps
+  - Temperature controls acceptance of worse solutions
+  - Step size affects exploration range
+
+- **Differential Evolution**:
+  - Population-based optimization with vector differences
+  - Configurable mutation and recombination rates
+  - Multiple strategy options for population evolution
+
+#### Input Data (`input_data.json`)
 ```json
 {
     "parameters": {
