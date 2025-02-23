@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from pyswarms.single.global_best import GlobalBestPSO
 import cma
+from constants import TOTAL_DELTA_V, GRAVITY_LOSS, DRAG_LOSS, BOUNDS
 
 # Load configuration
 def load_config():
@@ -362,11 +363,6 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         logger.error(f"Adaptive GA optimization failed: {e}")
         raise
 
-def calculate_payload_mass(dv, ISP, EPSILON):
-    """Calculate payload mass as the product of stage mass ratios."""
-    mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
-    return np.prod(mass_ratios)
-
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
     try:
@@ -397,6 +393,190 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
     except Exception as e:
         logger.error(f"PSO optimization failed: {e}")
         raise
+
+def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Differential Evolution."""
+    try:
+        start_time = time.time()
+        penalty_coeff = config["optimization"]["penalty_coefficient"]
+        
+        def objective(dv):
+            return payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+        
+        result = differential_evolution(objective, bounds, 
+                                     popsize=config["optimization"]["population_size"],
+                                     maxiter=config["optimization"]["max_iterations"],
+                                     tol=config["optimization"]["tolerance"])
+        
+        optimal_dv = result.x
+        execution_time = time.time() - start_time
+        payload_fraction = -objective(optimal_dv)
+        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+        
+        return {
+            'time': execution_time,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_dv,
+            'mass_ratios': mass_ratios,
+            'solution': optimal_dv,
+            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+        }
+        
+    except Exception as e:
+        logger.error(f"Differential Evolution optimization failed: {e}")
+        raise
+
+def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Basin-Hopping."""
+    try:
+        start_time = time.time()
+        penalty_coeff = config["optimization"]["penalty_coefficient"]
+        
+        def objective(dv):
+            return payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+        
+        minimizer_kwargs = {
+            "method": "L-BFGS-B",
+            "bounds": bounds
+        }
+        
+        result = basinhopping(objective, initial_guess,
+                            niter=config["optimization"]["max_iterations"],
+                            minimizer_kwargs=minimizer_kwargs,
+                            stepsize=0.1)
+        
+        optimal_dv = result.x
+        execution_time = time.time() - start_time
+        payload_fraction = -objective(optimal_dv)
+        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+        
+        return {
+            'time': execution_time,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_dv,
+            'mass_ratios': mass_ratios,
+            'solution': optimal_dv,
+            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+        }
+        
+    except Exception as e:
+        logger.error(f"Basin-Hopping optimization failed: {e}")
+        raise
+
+def solve_with_cmaes(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using CMA-ES."""
+    try:
+        start_time = time.time()
+        penalty_coeff = config["optimization"]["penalty_coefficient"]
+        
+        def objective(dv):
+            return payload_fraction_objective(dv, G0, ISP, EPSILON, penalty_coeff)
+        
+        # Set up CMA-ES parameters
+        sigma0 = 0.5  # Initial step size
+        options = {
+            'maxiter': config["optimization"]["max_iterations"],
+            'popsize': config["optimization"]["population_size"],
+            'bounds': bounds.T.tolist(),
+            'tolfun': config["optimization"]["tolerance"]
+        }
+        
+        es = cma.CMAEvolutionStrategy(initial_guess, sigma0, options)
+        
+        # Run optimization
+        es.optimize(objective)
+        optimal_dv = es.result.xbest
+        execution_time = time.time() - start_time
+        payload_fraction = -objective(optimal_dv)
+        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+        
+        return {
+            'time': execution_time,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_dv,
+            'mass_ratios': mass_ratios,
+            'solution': optimal_dv,
+            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+        }
+        
+    except Exception as e:
+        logger.error(f"CMA-ES optimization failed: {e}")
+        raise
+
+def solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Dynamic Programming."""
+    try:
+        start_time = time.time()
+        penalty_coeff = config["optimization"]["penalty_coefficient"]
+        
+        # DP grid parameters
+        n_points = 100  # Number of grid points
+        n_stages = len(initial_guess)
+        
+        # Create grid for each stage
+        grid = np.linspace(0, TOTAL_DELTA_V, n_points)
+        value_table = np.zeros((n_stages, n_points))
+        decision_table = np.zeros((n_stages, n_points))
+        
+        # Fill tables using backward recursion
+        for stage in range(n_stages-1, -1, -1):
+            for i, dv in enumerate(grid):
+                remaining_dv = TOTAL_DELTA_V - dv
+                if stage == n_stages-1:
+                    if abs(remaining_dv) <= 1e-6:  # Last stage must use remaining dv
+                        value_table[stage, i] = -payload_fraction_objective(
+                            np.array([dv]), [G0[stage]], [ISP[stage]], [EPSILON[stage]], penalty_coeff
+                        )
+                    continue
+                
+                # Try different allocations of remaining dv
+                best_value = -np.inf
+                best_next_dv = 0
+                for j, next_dv in enumerate(grid):
+                    if next_dv > remaining_dv:
+                        break
+                    
+                    current_value = -payload_fraction_objective(
+                        np.array([dv]), [G0[stage]], [ISP[stage]], [EPSILON[stage]], penalty_coeff
+                    )
+                    total_value = current_value + value_table[stage+1, j]
+                    
+                    if total_value > best_value:
+                        best_value = total_value
+                        best_next_dv = next_dv
+                
+                value_table[stage, i] = best_value
+                decision_table[stage, i] = best_next_dv
+        
+        # Reconstruct optimal solution
+        optimal_dv = np.zeros(n_stages)
+        current_dv = 0
+        for stage in range(n_stages):
+            idx = np.abs(grid - current_dv).argmin()
+            optimal_dv[stage] = decision_table[stage, idx]
+            current_dv = optimal_dv[stage]
+        
+        execution_time = time.time() - start_time
+        payload_fraction = -payload_fraction_objective(optimal_dv, G0, ISP, EPSILON, penalty_coeff)
+        mass_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON)
+        
+        return {
+            'time': execution_time,
+            'payload_fraction': payload_fraction,
+            'dv': optimal_dv,
+            'mass_ratios': mass_ratios,
+            'solution': optimal_dv,
+            'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+        }
+        
+    except Exception as e:
+        logger.error(f"Dynamic Programming optimization failed: {e}")
+        raise
+
+def calculate_payload_mass(dv, ISP, EPSILON):
+    """Calculate payload mass as the product of stage mass ratios."""
+    mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON)
+    return np.prod(mass_ratios)
 
 def optimize_stages(stages, method='SLSQP'):
     try:
@@ -458,6 +638,22 @@ def optimize_stages(stages, method='SLSQP'):
                 'solution': optimal_dv,
                 'error': abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
             }
+
+        elif method.upper() == 'DIFFERENTIAL_EVOLUTION':
+            results = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results['method'] = method
+
+        elif method.upper() == 'BASIN-HOPPING':
+            results = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results['method'] = method
+
+        elif method.upper() == 'CMA-ES':
+            results = solve_with_cmaes(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results['method'] = method
+
+        elif method.upper() == 'DP':
+            results = solve_with_dynamic_programming(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            results['method'] = method
 
         else:
             raise NotImplementedError(f"Optimization method {method} is not implemented")
@@ -607,6 +803,7 @@ if __name__ == "__main__":
         input_file = sys.argv[1]
         stages = read_input_json(input_file)
         
+        # Run all optimization methods
         methods = ['SLSQP', 'differential_evolution', 'GA', 'PSO', 'BASIN-HOPPING', 'CMA-ES', 'dp', 'ADAPTIVE-GA']
         optimization_results = []
         
