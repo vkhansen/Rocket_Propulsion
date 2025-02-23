@@ -11,16 +11,9 @@ def load_input_data(filename):
             
         # Extract global parameters
         parameters = data['parameters']
-        total_delta_v = float(parameters['TOTAL_DELTA_V'])
-        g0 = float(parameters.get('G0', 9.81))
         
         # Sort stages by stage number
         stages = sorted(data['stages'], key=lambda x: x['stage'])
-        
-        # Add global parameters to each stage if not present
-        for stage in stages:
-            if 'G0' not in stage:
-                stage['G0'] = g0
         
         return parameters, stages
         

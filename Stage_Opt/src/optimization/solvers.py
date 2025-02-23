@@ -180,99 +180,104 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         logger.error(f"Differential Evolution optimization failed: {e}")
         raise
 
-def solve_with_ga(n, g0, isp, epsilon, dv_total, x0, bounds):
-    """Genetic Algorithm solver for stage optimization."""
+def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+    """Solve using Genetic Algorithm."""
     try:
-        # Create config dictionary
-        config = {
-            'n': n,
-            'g0': g0,
-            'isp': isp,
-            'epsilon': epsilon,
-            'total_dv': dv_total,
-            'initial_guess': x0,
-            'bounds': bounds
-        }
-        
-        # Define problem with proper bounds and repair
-        problem = get_problem_definition(config)
-        
-        # Configure algorithm with safe numerical parameters
-        algorithm = GA(
-            pop_size=50,
-            eliminate_duplicates=True,
-            n_offsprings=20,
-            sampling=FloatRandomSampling(),
-            crossover=SBX(prob=0.9, eta=15),  # Reduced eta for more exploration
-            mutation=PM(prob=0.2, eta=20),    # Increased probability and eta
-            repair=ClipRepair(),              # Ensure values stay within bounds
+        class RepairDeltaV(Repair):
+            def _do(self, problem, X, **kwargs):
+                if len(X.shape) == 1:
+                    X = X.reshape(1, -1)
+                    
+                for i in range(len(X)):
+                    x = X[i]
+                    current_sum = np.sum(x)
+                    if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                        # Scale the solution to match total ΔV
+                        x = x * (TOTAL_DELTA_V / current_sum)
+                        # Ensure bounds are satisfied
+                        x = np.clip(x, problem.xl, problem.xu)
+                        # Re-normalize if clipping changed the sum
+                        current_sum = np.sum(x)
+                        if abs(current_sum - TOTAL_DELTA_V) > 1e-6:
+                            x = x * (TOTAL_DELTA_V / current_sum)
+                        X[i] = x
+                return X
+
+        class OptimizationProblem(Problem):
+            """Problem class for GA optimization."""
+            def __init__(self, n_var, n_obj, xl, xu):
+                super().__init__(n_var=n_var, n_obj=n_obj, xl=xl, xu=xu)
+                self.total_delta_v = None
+                self.G0 = None
+                self.ISP = None
+                self.EPSILON = None
+
+            def _evaluate(self, x, out, *args, **kwargs):
+                """Evaluate the objective function for GA."""
+                f = []
+                for dv in x:
+                    # Calculate payload fraction
+                    stage_ratios = [np.exp(-dvi / (self.G0 * isp)) - eps 
+                                  for dvi, isp, eps in zip(dv, self.ISP, self.EPSILON)]
+                    payload = -np.prod(stage_ratios)  # Negative because GA minimizes
+                    
+                    # Add penalty for total ΔV constraint
+                    penalty = 1e6 * abs(np.sum(dv) - self.total_delta_v)
+                    f.append(payload + penalty)
+                    
+                out["F"] = np.column_stack([f])
+
+        problem = OptimizationProblem(
+            n_var=len(initial_guess),
+            n_obj=1,
+            xl=bounds[:, 0],
+            xu=bounds[:, 1]
         )
 
-        # Create termination criteria
-        termination = get_termination(config)
+        problem.total_delta_v = TOTAL_DELTA_V
+        problem.G0 = G0
+        problem.ISP = ISP
+        problem.EPSILON = EPSILON
 
-        # Run optimization with error catching
-        try:
-            res = minimize(
-                problem,
-                algorithm,
-                termination,
-                seed=42,
-                save_history=True,
-                verbose=False
-            )
-            
-            if res.X is None or not np.isfinite(res.X).all():
-                logger.warning("GA optimization produced invalid results")
-                return None
-                
-            # Extract results and validate
-            dv_values = res.X
-            if not np.isclose(np.sum(dv_values), dv_total, rtol=1e-3):
-                logger.warning(f"GA solution does not meet ΔV constraint: {np.sum(dv_values)} != {dv_total}")
-                return None
-                
-            # Calculate mass ratios using safe operations
-            stage_ratios = []
-            for i, dv in enumerate(dv_values):
-                try:
-                    ratio = np.exp(dv / (g0 * isp[i]))
-                    if not np.isfinite(ratio) or ratio <= 1.0:
-                        logger.warning(f"Invalid mass ratio calculated: {ratio}")
-                        return None
-                    stage_ratios.append(ratio)
-                except Exception as e:
-                    logger.warning(f"Error calculating mass ratio: {e}")
-                    return None
-            
-            # Calculate payload fraction
-            try:
-                payload_fraction = 1.0
-                for i, ratio in enumerate(stage_ratios):
-                    payload_fraction *= (1 - epsilon[i]) / ratio
-                if not (0 < payload_fraction < 1):
-                    logger.warning(f"Invalid payload fraction: {payload_fraction}")
-                    return None
-            except Exception as e:
-                logger.warning(f"Error calculating payload fraction: {e}")
-                return None
-            
-            # Return results in standardized format
-            return {
-                'method': 'GA',
-                'dv': [float(x) for x in dv_values],
-                'stage_ratios': [float(x) for x in stage_ratios],
-                'payload_fraction': float(payload_fraction),
-                'time': float(res.exec_time),
-                'error': None
-            }
-            
-        except Exception as e:
-            logger.warning(f"GA optimization error: {e}")
+        algorithm = GA(
+            pop_size=config["optimization"]["ga"]["population_size"],
+            eliminate_duplicates=True,
+            mutation=PolynomialMutation(
+                prob=config["optimization"]["ga"]["mutation_prob"],
+                eta=config["optimization"]["ga"]["mutation_eta"]
+            ),
+            crossover=SBX(
+                prob=config["optimization"]["ga"]["crossover_prob"],
+                eta=config["optimization"]["ga"]["crossover_eta"]
+            ),
+            repair=RepairDeltaV()
+        )
+
+        termination = DefaultSingleObjectiveTermination(
+            xtol=1e-6,
+            cvtol=1e-6,
+            ftol=1e-6,
+            period=20,
+            n_max_gen=config["optimization"]["ga"]["n_generations"],
+            n_max_evals=None
+        )
+        
+        res = pymoo_minimize(
+            problem,
+            algorithm,
+            termination,
+            seed=1,
+            verbose=False
+        )
+
+        if res.X is None or not res.success:
+            logger.warning(f"GA optimization warning: {res.message}")
             return None
             
+        return res.X
+        
     except Exception as e:
-        logger.warning(f"GA solver setup error: {e}")
+        logger.error(f"GA optimization failed: {e}")
         return None
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):

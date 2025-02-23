@@ -1,0 +1,185 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{siunitx}
+
+\begin{document}
+
+\section*{Single Stage Rocket Parameters}
+
+\begin{tabular}{ll}
+    Initial mass & $m_0 = 100 \, \text{kg}$ \\
+    Propellant mass & $m_p = 20 \, \text{kg}$ \\
+    Average $I_{sp}$ & $I_{sp} = 255 \, \text{sec}$ \\
+    Launch Angle & $\theta_0 = 70^\circ$ \\
+    Burn time & $t_{burn} = 2 \, \text{sec}$ \\
+    Neglect drag & $C_D = 0$
+\end{tabular}
+
+\textbf{Find:}
+
+\begin{itemize}
+    \item[(a)] Initial and burnout acceleration
+    \item[(b)] Burnout velocity, flight angle, position
+    \item[(c)] Apogee, range, time of flight
+\end{itemize}
+
+\subsection*{Calculations}
+
+\textbf{From}
+
+\[
+\begin{aligned}
+    (a_x)_x &= \frac{F\cos\theta - g}{m_0}, \\
+    (a_x)_y &= \frac{F\sin\theta - g}{m_0}
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+    F &= \dot{m}_p I_{sp} g = \frac{m_p}{t_{burn}} (I_{sp} g) = \frac{20}{2} (255 \cdot 9.81) = 2510.5 \, \text{N}
+\end{aligned}
+\]
+
+\textbf{so}
+
+\[
+\begin{aligned}
+    (a_x)_x &= \frac{F\cos\theta - g}{m_0} = \frac{(2510.5)\cos(70^\circ) - 9.81}{100} = 7.75 \, \text{m/s}^2, \\
+    (a_x)_y &= \frac{F\sin\theta - g}{m_0} = \frac{(2510.5)\sin(70^\circ) - 9.81}{100} = 22.11 \, \text{m/s}^2
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+    a_0 &= \sqrt{(a_x)_x^2 + (a_x)_y^2} = 23.66 \, \text{m/s}^2
+\end{aligned}
+\]
+
+\textbf{From}
+
+\[
+\begin{aligned}
+    (u_p)_x &= -c \ln\left(\frac{m_f}{m_0}\right) \cos\theta_0 = -(255 \cdot 9.81) \ln\left(\frac{80}{100}\right) \cos(70^\circ) = 160.42 \, \text{m/s}, \\
+    (u_p)_y &= c \ln\left(\frac{m_f}{m_0}\right) \sin\theta_0 - g t_p = (255 \cdot 9.81) \ln\left(\frac{80}{100}\right) \sin(70^\circ) - (9.81 \cdot 2) = 507.82 \, \text{m/s}
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+    u_p &= \sqrt{(u_p)_x^2 + (u_p)_y^2} = 534.53 \, \text{m/s}
+\end{aligned}
+\]
+
+\textbf{so}
+
+\[
+\begin{aligned}
+    \theta_p &= \arctan\left(\frac{(u_p)_y}{(u_p)_x}\right) = 71.14^\circ
+\end{aligned}
+\]
+
+\textbf{From (gravity loss) $\dot{g}_{t_p}$}
+
+\[
+\begin{aligned}
+    \dot{g}_{t_p} &= -c \ln(M_{t_p}) - u_p = 18.7 \, \text{m/s} \implies \dot{g} = \frac{18.7}{2} = 4.145 \, \text{m/s}^2
+\end{aligned}
+\]
+
+\textbf{power flight:}
+
+\[
+\begin{aligned}
+    y_f &= c t_p \left[1 - \ln\left(\frac{m_f}{m_0}\right) \sin\theta - \frac{1}{2} g t_p = 2510.5 (2) \left(1 - \ln\left(\frac{80}{100}\right) \sin(71.14^\circ) - \frac{(9.81 \cdot 2)}{2}\right) = 483.11 \, \text{m}
+\end{aligned}
+\]
+
+\textbf{unpowered:}
+
+\[
+\begin{aligned}
+    y_z &= \frac{(u_p)_y^2}{2g} = \frac{(507.82)^2}{2 \cdot 9.81} = 13247.1 \, \text{m}
+\end{aligned}
+\]
+
+\textbf{so zenith location}
+
+\[
+\begin{aligned}
+    y_z &= 13977.21 \, \text{m} \quad (\text{will be zenith location}) = \text{apogee}
+\end{aligned}
+\]
+
+\textbf{From}
+
+\[
+\begin{aligned}
+    g_0 &= g \left[\frac{R_e}{R_e + h}\right] = 9.81 \left[\frac{6378383}{6378383 + 483.11}\right] = 9.78 \, \text{m/s}^2
+\end{aligned}
+\]
+
+\textbf{so}
+
+\[
+\begin{aligned}
+    (a_g)_x &= \frac{F\cos\theta - g}{(m_f} = \frac{(2510.5)\cos(71.14^\circ) - 9.78}{80} = 10.1 \, \text{m/s}^2, \\
+    (a_g)_y &= \frac{F\sin\theta - g}{m_f} = \frac{(2510.5)\sin(71.14^\circ) - 9.78}{80} = 20.01 \, \text{m/s}^2
+\end{aligned}
+\]
+
+\[
+\begin{aligned}
+    a_g &= \sqrt{(a_g)_x^2 + (a_g)_y^2} = 22.38 \, \text{m/s}^2
+\end{aligned}
+\]
+
+\textbf{From}
+
+\[
+\begin{aligned}
+    t_{f_{max}} &= \sqrt{\frac{2y_z}{g}} = \sqrt{\frac{2 \cdot 13977.21}{9.81}} = 53.97 \, \text{sec} + t_{f_{max}} = t_f = 53.97 \, \text{sec} \quad (\text{only effect by gravity})
+\end{aligned}
+\]
+
+\textbf{since no drag}
+
+\[
+\begin{aligned}
+    x_p &= c t_p \left[1 - \ln\left(\frac{m_f}{m_0}\right) \cos\theta_0 = 2510.5 (2) \left(1 - \ln\left(\frac{80}{100}\right) \cos(70^\circ)\right) = 140.42 \, \text{m}
+\end{aligned}
+\]
+
+\textbf{so}
+
+\[
+\begin{aligned}
+    x_f &= 140.42 (51.17) + 140.07 = 10011.72 \, \text{m}
+\end{aligned}
+\]
+
+\textbf{From}
+
+\[
+\begin{aligned}
+    t_{down} &= \sqrt{\frac{2y_z}{g}} = \sqrt{\frac{2 \cdot (13977.21)}{9.81}} = 53.97 \, \text{sec} \quad \text{TOF} = t_f + t_{down} = 53.97 + 53.97 = 105.94 \, \text{sec}
+\end{aligned}
+\]
+
+\textbf{so}
+
+\[
+\begin{aligned}
+    x_{range} &= x_f + x_{down} = 10011.72 + 10008.05 = 20019.77 \, \text{m}
+\end{aligned}
+\]
+
+\textbf{KE input}
+
+\[
+\begin{aligned}
+    \text{KE}_{\text{input}} &= \frac{1}{2} m_0 \left[(u_0)_x^2 + (u_0)_y^2\right] = 0.5 (100) \left((140.42)^2 + (507.82)^2\right) = 13.09 \, \text{MJ}
+\end{aligned}
+\]
+
+\end{document}
