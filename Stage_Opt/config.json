@@ -6,6 +6,21 @@
             "population_size": 100,
             "n_generations": 200
         },
+        "adaptive_ga": {
+            "initial_pop_size": 100,
+            "max_pop_size": 200,
+            "min_pop_size": 50,
+            "initial_mutation_rate": 0.1,
+            "max_mutation_rate": 0.3,
+            "min_mutation_rate": 0.01,
+            "initial_crossover_rate": 0.8,
+            "max_crossover_rate": 0.95,
+            "min_crossover_rate": 0.6,
+            "diversity_threshold": 0.1,
+            "stagnation_threshold": 10,
+            "n_generations": 200,
+            "elite_size": 2
+        },
         "pso": {
             "n_particles": 50,
             "n_iterations": 200,
