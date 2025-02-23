@@ -213,7 +213,7 @@ Method & {Payload Fraction} & {Error} & {Time (\si{\second})} \\
 \midrule
 """
         # Add solver results with consistent spacing
-        for method, result in valid_results.items():
+        for method, result in sorted(valid_results.items(), key=lambda x: x[1]['payload_fraction'], reverse=True):
             try:
                 payload = result['payload_fraction']
                 time = result['execution_time']
@@ -248,7 +248,7 @@ Method & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambd
 \\midrule
 """
             # Add data for each method
-            for method, result in valid_results.items():
+            for method, result in sorted(valid_results.items(), key=lambda x: x[1]['payload_fraction'], reverse=True):
                 dv = result['dv'][stage]
                 ratio = result['stage_ratios'][stage]
                 contribution = (dv / sum(result['dv']) * 100)
@@ -278,7 +278,7 @@ Method & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambd
         report_content += " & {Total $\\lambda$} \\\\\n\\midrule\n"
 
         # Add data for each method
-        for method, result in valid_results.items():
+        for method, result in sorted(valid_results.items(), key=lambda x: x[1]['payload_fraction'], reverse=True):
             total_dv = sum(result['dv'])
             report_content += f"{method:<12}"
             
