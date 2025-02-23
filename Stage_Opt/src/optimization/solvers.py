@@ -457,86 +457,97 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
-    try:
-        pso_config = config["optimization"]["pso"]
-        n_particles = pso_config["n_particles"]
-        max_iterations = pso_config["n_iterations"]
-        w = pso_config["w"]
-        c1 = pso_config["c1"]
-        c2 = pso_config["c2"]
+    n_particles = config.get('n_particles', 50)
+    max_iter = config.get('max_iter', 100)
+    w = config.get('w', 0.7)  # Inertia weight
+    c1 = config.get('c1', 2.0)  # Cognitive parameter
+    c2 = config.get('c2', 2.0)  # Social parameter
+    
+    # Set minimum delta-v per stage (1% of total delta-v)
+    MIN_DELTA_V = TOTAL_DELTA_V * 0.01
+    
+    def enforce_min_delta_v(particles):
+        """Enforce minimum delta-v for each stage while maintaining total delta-v."""
+        n_stages = particles.shape[1]
         
-        # Initialize particles
-        particles = np.random.uniform(
-            low=[b[0] for b in bounds],
-            high=[b[1] for b in bounds],
-            size=(n_particles, len(initial_guess))
-        )
+        # First ensure minimum values
+        particles = np.maximum(particles, MIN_DELTA_V)
         
-        # Scale initial particles to satisfy total delta-V constraint
+        # Then scale to meet total delta-v constraint
         sums = np.sum(particles, axis=1)
-        non_zero_mask = sums > 1e-10  # Use small epsilon instead of exact zero
-        if np.any(non_zero_mask):
-            scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 1.0)
-            scale_factors = scale_factors.reshape(-1, 1)  # Reshape for broadcasting
-            particles[non_zero_mask] *= scale_factors[non_zero_mask]
-            
-        # Handle zero-sum particles by distributing delta-V equally
-        zero_mask = ~non_zero_mask
-        if np.any(zero_mask):
-            n_vars = particles.shape[1]
-            particles[zero_mask] = TOTAL_DELTA_V / n_vars
+        scale_factors = (TOTAL_DELTA_V / sums).reshape(-1, 1)
+        particles *= scale_factors
         
-        velocities = np.zeros_like(particles)
-        personal_best_pos = particles.copy()
-        personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
-        global_best_pos = personal_best_pos[np.argmin(personal_best_val)]
-        global_best_val = np.min(personal_best_val)
+        # If scaling made any values too small, redistribute the excess
+        while np.any(particles < MIN_DELTA_V):
+            below_min = particles < MIN_DELTA_V
+            excess_needed = MIN_DELTA_V - particles[below_min]
+            particles[below_min] = MIN_DELTA_V
+            
+            # Calculate how much we need to reduce from other stages
+            for i in range(particles.shape[0]):
+                row_below_min = below_min[i]
+                if np.any(row_below_min):
+                    # Get indices not below minimum
+                    above_min_idx = ~row_below_min
+                    if np.sum(above_min_idx) > 0:
+                        # Calculate total excess needed for this particle
+                        total_excess = np.sum(excess_needed[i * n_stages:(i + 1) * n_stages][row_below_min])
+                        # Reduce proportionally from stages above minimum
+                        reduction_per_stage = total_excess / np.sum(above_min_idx)
+                        particles[i][above_min_idx] -= reduction_per_stage
         
-        for iteration in range(max_iterations):
-            # Update velocities and positions
-            r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
-            velocities = (w * velocities +
-                        c1 * r1 * (personal_best_pos - particles) +
-                        c2 * r2 * (global_best_pos - particles))
-            
-            particles += velocities
-            
-            # Clip to bounds
-            for j in range(len(initial_guess)):
-                particles[:, j] = np.clip(particles[:, j], bounds[j][0], bounds[j][1])
-            
-            # Scale to meet total delta-V constraint
-            sums = np.sum(particles, axis=1)
-            non_zero_mask = sums > 1e-10  # Use small epsilon instead of exact zero
-            if np.any(non_zero_mask):
-                scale_factors = np.where(non_zero_mask, TOTAL_DELTA_V / sums, 1.0)
-                scale_factors = scale_factors.reshape(-1, 1)  # Reshape for broadcasting
-                particles[non_zero_mask] *= scale_factors[non_zero_mask]
-            
-            # Handle zero-sum particles by distributing delta-V equally
-            zero_mask = ~non_zero_mask
-            if np.any(zero_mask):
-                n_vars = particles.shape[1]
-                particles[zero_mask] = TOTAL_DELTA_V / n_vars
-            
-            # Update personal and global bests
-            values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
-            improved = values < personal_best_val
-            personal_best_pos[improved] = particles[improved]
-            personal_best_val[improved] = values[improved]
-            
-            min_val_idx = np.argmin(values)
-            if values[min_val_idx] < global_best_val:
-                global_best_val = values[min_val_idx]
-                global_best_pos = particles[min_val_idx].copy()
-                
-            # Check convergence
-            if iteration > 10 and np.std(values) < 1e-6:
-                logger.info(f"PSO converged after {iteration} iterations")
-                break
+        return particles
+    
+    # Initialize particles
+    particles = np.random.uniform(
+        low=[b[0] for b in bounds],
+        high=[b[1] for b in bounds],
+        size=(n_particles, len(initial_guess))
+    )
+    
+    # Add initial guess as one of the particles
+    particles[0] = initial_guess
+    
+    # Enforce minimum delta-v and scale to meet constraint
+    particles = enforce_min_delta_v(particles)
+    
+    velocities = np.zeros_like(particles)
+    personal_best_pos = particles.copy()
+    personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+    global_best_pos = personal_best_pos[np.argmin(personal_best_val)]
+    global_best_val = np.min(personal_best_val)
+    
+    for iteration in range(max_iter):
+        # Update velocities and positions
+        r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
+        velocities = (w * velocities +
+                    c1 * r1 * (personal_best_pos - particles) +
+                    c2 * r2 * (global_best_pos - particles))
         
-        return global_best_pos
+        particles += velocities
         
-    except Exception as e:
-        logger.error(f"Error in PSO optimization: {e}")
-        return initial_guess
+        # Clip to bounds
+        for j in range(len(initial_guess)):
+            particles[:, j] = np.clip(particles[:, j], bounds[j][0], bounds[j][1])
+        
+        # Enforce minimum delta-v and scale to meet constraint
+        particles = enforce_min_delta_v(particles)
+        
+        # Update personal and global bests
+        values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
+        improved = values < personal_best_val
+        personal_best_pos[improved] = particles[improved]
+        personal_best_val[improved] = values[improved]
+        
+        min_val_idx = np.argmin(values)
+        if values[min_val_idx] < global_best_val:
+            global_best_val = values[min_val_idx]
+            global_best_pos = particles[min_val_idx].copy()
+            
+        # Check convergence
+        if iteration > 10 and np.std(values) < 1e-6:
+            logger.info(f"PSO converged after {iteration} iterations")
+            break
+    
+    return global_best_pos
