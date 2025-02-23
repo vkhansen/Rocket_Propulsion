@@ -148,10 +148,10 @@ def main():
         
         # Initial setup for optimization
         n = len(stages)
-        g0 = parameters['g0']
-        isp = [stage['isp'] for stage in stages]
-        epsilon = [stage['epsilon'] for stage in stages]
-        dv_total = parameters['total_dv']
+        g0 = float(stages[0]['G0'])  # G0 is in uppercase in input
+        isp = [float(stage['ISP']) for stage in stages]  # ISP is in uppercase
+        epsilon = [float(stage['EPSILON']) for stage in stages]  # EPSILON is in uppercase
+        dv_total = float(parameters['TOTAL_DELTA_V'])  # TOTAL_DELTA_V is in uppercase
         x0 = np.array([dv_total/n] * n)  # Equal split initial guess
         
         # Calculate bounds
