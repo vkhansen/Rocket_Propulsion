@@ -17,6 +17,33 @@ from src.optimization.solvers import (
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_report
 
+def plot_results(results):
+    """Generate all plots."""
+    try:
+        # Standardize result format
+        formatted_results = []
+        for result in results:
+            if result is not None:
+                formatted_result = {
+                    'method': result.get('method', 'Unknown'),
+                    'time': result.get('time', result.get('execution_time', 0.0)),
+                    'dv': result.get('dv', result.get('optimal_dv', [])),
+                    'stage_ratios': result.get('stage_ratios', []),
+                    'payload_fraction': result.get('payload_fraction', 0.0),
+                    'error': result.get('error', 0.0)
+                }
+                formatted_results.append(formatted_result)
+        
+        if formatted_results:
+            plot_dv_breakdown(formatted_results)
+            plot_execution_time(formatted_results)
+            plot_payload_fraction(formatted_results)
+        else:
+            logger.warning("No valid results to plot")
+            
+    except Exception as e:
+        logger.error(f"Error in plotting results: {e}")
+
 def optimize_stages(parameters, stages, method='SLSQP'):
     """Run optimization with specified method."""
     try:
@@ -110,41 +137,75 @@ def main():
         if len(sys.argv) != 2:
             print(f"Usage: {sys.argv[0]} input_data.json")
             sys.exit(1)
-
+        
+        # Load input data
         input_file = sys.argv[1]
         parameters, stages = load_input_data(input_file)
         
-        # Run optimization with different methods
-        methods = ['SLSQP', 'DIFFERENTIAL_EVOLUTION', 'BASIN-HOPPING', 'GA', 'GA-ADAPTIVE', 'PSO']
-        results = {}
+        # Initialize results list
+        results = []
         
+        # Run optimizations with all methods
+        methods = ['SLSQP', 'BASIN-HOPPING', 'GA', 'GA-ADAPTIVE', 'PSO']
+        
+        # Initial setup for optimization
+        n = len(stages)
+        initial_guess = np.full(n, parameters['TOTAL_DELTA_V'] / n)
+        max_dv = parameters['TOTAL_DELTA_V'] * 0.9
+        bounds = np.array([(0, max_dv) for _ in range(n)])
+        ISP = [float(stage['ISP']) for stage in stages]
+        EPSILON = [float(stage['EPSILON']) for stage in stages]
+        G0 = float(stages[0]['G0'])
+        TOTAL_DELTA_V = float(parameters['TOTAL_DELTA_V'])
+
         for method in methods:
             try:
-                result = optimize_stages(parameters, stages, method)
-                if result is not None:
-                    results[method] = result
-                    if method.upper() != 'GA':
-                        logger.info(f"{method} results:")
-                        logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result['optimal_dv']]} m/s")
-                        logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in result['stage_ratios']]}")
-                        logger.info(f"  Payload fraction: {result['payload_fraction']:.3f}")
-                        logger.info(f"  Time: {result['execution_time']:.3f} seconds")
+                start_time = time.time()
+                solver_result = None
                 
+                if method == 'GA':
+                    solver_result = solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                elif method == 'GA-ADAPTIVE':
+                    solver_result = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                elif method == 'PSO':
+                    solver_result = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                elif method == 'BASIN-HOPPING':
+                    solver_result = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                else:  # SLSQP
+                    solver_result = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+                
+                execution_time = time.time() - start_time
+                logger.info(f"Optimization completed in {execution_time:.3f} seconds")
+                
+                if solver_result is not None:
+                    # Add execution time if not present
+                    if isinstance(solver_result, dict) and 'time' not in solver_result:
+                        solver_result['time'] = execution_time
+                    results.append(solver_result)
+                else:
+                    logger.error(f"Method {method} failed to produce valid results")
+                    
             except Exception as e:
                 logger.error(f"Method {method} failed: {e}")
                 continue
         
-        # Generate plots
-        if results:  # Only plot if we have results
-            plot_results(results)
-            generate_report(results, stages, OUTPUT_DIR)
-            logger.info("Optimization completed successfully")
-        else:
-            logger.error("No optimization methods succeeded")
+        # Generate plots if we have results
+        if results:
+            try:
+                plot_results(results)
+            except Exception as e:
+                logger.error(f"Error in plotting results: {e}")
+            
+            try:
+                generate_report(results, stages, OUTPUT_DIR)
+            except Exception as e:
+                logger.error(f"Error generating LaTeX report: {e}")
+        
+        logger.info("Optimization completed successfully")
         
     except Exception as e:
-        logger.error(f"Error during optimization: {e}")
-        raise
+        logger.error(f"Program failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
