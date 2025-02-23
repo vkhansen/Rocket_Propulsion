@@ -82,7 +82,7 @@ def main():
         if results:
             plot_results(results)
             try:
-                generate_report(results, stages)
+                generate_report(results, stages, output_dir=OUTPUT_DIR)  # Pass stages here
             except Exception as e:
                 logger.error(f"Error generating report: {str(e)}")
         

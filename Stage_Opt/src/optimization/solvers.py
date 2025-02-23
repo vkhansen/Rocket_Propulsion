@@ -49,6 +49,11 @@ class RocketOptimizationProblem(Problem):
                 ratio = np.exp(-dv / (self.G0 * isp)) - eps
                 stage_ratios.append(ratio)
             
+            # Store ratios for later use
+            if not hasattr(self, '_last_ratios'):
+                self._last_ratios = {}
+            self._last_ratios[tuple(x[i])] = stage_ratios
+            
             f[i] = -np.prod(stage_ratios)  # Negative because we minimize
             
             # Constraint: total delta-v

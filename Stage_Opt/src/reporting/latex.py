@@ -48,8 +48,7 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
                         continue
                     total_dv = sum(result['dv'])
                     
-                    # Recalculate mass ratios using correct formula
-                    stage_ratios = []
+                    # Calculate mass ratios using correct formula
                     for i, (dv, stage) in enumerate(zip(result['dv'], stages)):
                         # Correct mass ratio formula: λ = exp(-ΔV/(g₀·ISP)) - ε
                         ratio = np.exp(-dv / (9.81 * stage['ISP'])) - stage['EPSILON']
