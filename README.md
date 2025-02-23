@@ -1,146 +1,150 @@
-# Payload Optimization for Multi-Stage Rockets
-
-This repository contains a collection of Python scripts designed to optimize the allocation of a rocket's total available ΔV (delta-V) among its multiple stages. The goal is to maximize the overall payload fraction, taking into account the rocket’s physical constraints and stage-specific parameters. The code leverages several optimization solvers to address this non-linear, constrained optimization problem.
-
----
+# Rocket Stage Optimization
 
 ## Overview
+This project focuses on optimizing the staging of a multi-stage rocket to maximize payload fraction while satisfying mission constraints. The optimization process leverages **Tsiolkovsky's Rocket Equation** and multiple numerical solvers to distribute the velocity change (**Delta-V**) among stages efficiently.
 
-The payload optimization problem is based on a modified version of the Tsiolkovsky rocket equation. For each stage, the **stage ratio** is defined as:
+## Theoretical Background
+The fundamental equation governing rocket staging is:
 
-  **f₍ᵢ₎ = exp(–ΔV₍ᵢ₎ / (G₀ · Isp₍ᵢ₎)) – ε₍ᵢ₎**
+\[ \Delta V = I_{sp} \cdot g_0 \cdot \ln \left( \frac{m_0}{m_f} \right) \]
 
-where:  
-- **ΔV₍ᵢ₎** is the delta-V allocated to stage *i*,  
-- **G₀** is the standard gravitational acceleration,  
-- **Isp₍ᵢ₎** is the specific impulse of stage *i*, and  
-- **ε₍ᵢ₎** represents structural ratio for stage *i*.
+Where:
+- \( \Delta V \) is the total velocity change required for the mission.
+- \( I_{sp} \) is the **specific impulse** of each stage, a measure of fuel efficiency.
+- \( g_0 \) is the standard gravitational acceleration (9.81 m/s²).
+- \( m_0 \) is the initial mass (including fuel and structure).
+- \( m_f \) is the final mass after stage separation.
 
-The overall payload fraction is computed as the product of the stage ratios. Since optimization routines generally minimize functions, the code minimizes the **negative product** of the stage ratios while ensuring that the sum of ΔV allocations equals the total available ΔV. Each stage's ΔV is also constrained by a maximum value determined by the condition that the stage ratio remains positive.
+The mass fraction can also be expressed in terms of the **structural mass ratio** (\( \epsilon \)):
 
----
+\[ \frac{m_f}{m_0} = 1 - \epsilon \]
 
-## File Structure
+where \( \epsilon \) represents the fraction of the initial mass that is structural rather than propellant. The optimization seeks to minimize \( \epsilon \) while ensuring sufficient Delta-V for the mission.
 
-- **payload_optimization.py**  
-  Contains the main routines for reading input data, computing the objective function, and performing the optimization. It supports multiple solver methods:
-  - **SLSQP** (Sequential Least Squares Programming) via SciPy’s `minimize` with equality constraints.
-  - **Differential Evolution** via SciPy’s `differential_evolution`, using a penalty-based approach.
-  - **Genetic Algorithm (GA)** via the [pymoo](https://pymoo.org/) library, which uses an evolutionary approach.
-  
-  citeturn0file1
+The goal of the optimization is to determine the optimal **mass distribution per stage** to minimize structural mass while maximizing the payload fraction.
 
-- **test_payload_optimization.py**  
-  Contains unit tests that verify the correct behavior of the CSV input reader, objective function, and each optimization method. This ensures that any modifications do not break the underlying logic.  
-  citeturn0file0
+## Implementation Details
 
-- **input_data.csv**  
-  A sample CSV file that provides the global parameters and stage data in the following format:
-  - **Section 1 (Global Parameters):**  
-    ```
-    Parameter,Value
-    G0,9.81
-    TOTAL_DELTA_V,9500
-    ```
-  - **Section 2 (Stage Data):**  
-    ```
-    stage,ISP,EPSILON
-    1,300,0.1
-    2,320,0.08
+### 1. **Input Handling**
+- **Configuration File (`config.json`)**:
+  - Defines solver parameters including penalty coefficients, iteration limits, and solver-specific configurations (e.g., genetic algorithm settings, PSO parameters).
+  - Example:
+    ```json
+    {
+        "optimization": {
+            "tolerance": 1e-6,
+            "max_iterations": 200,
+            "ga": { "population_size": 100, "n_generations": 200 },
+            "pso": { "n_particles": 50, "n_iterations": 200 }
+        }
+    }
     ```
 
-- **Optimization Output Files:**  
-  The main script generates several output files upon execution:
-  - **optimization_results.csv** – Contains the detailed results of the optimization.
-  - **stage_data.csv** and **input_variables.csv** – Contain the parsed input data.
-  - **report.tex** – A LaTeX report that integrates plots and tabulated results.
-  - **dv_breakdown.png**, **execution_time.png**, and **payload_fraction.png** – Plots visualizing the ΔV allocation breakdown, solver execution times, and achieved payload fractions.
+- **Mission Data (`input_data.json`)**:
+  - Specifies the mission’s global parameters and stage details.
+  - Example:
+    ```json
+    {
+        "parameters": {
+            "G0": 9.81,
+            "TOTAL_DELTA_V": 9300.0
+        },
+        "stages": [
+            {"stage": 1, "ISP": 280, "EPSILON": 0.15},
+            {"stage": 2, "ISP": 348, "EPSILON": 0.04}
+        ]
+    }
+    ```
 
-- **test_debug.log**  
-  Logs from running the unit tests are stored here, helping in debugging and verifying test execution.  
-  citeturn0file2
+- **Function (`load_input_data`)**:
+  - Loads input data and sorts stages.
+  - **Inputs:** JSON filename
+  - **Outputs:** `parameters` dictionary, `stages` list
 
----
+### 2. **Optimization Algorithms** (`solvers.py`)
+This project implements multiple numerical solvers:
+- **SLSQP (Sequential Least Squares Quadratic Programming)**: Gradient-based method.
+- **Basin-Hopping**: Stochastic global search algorithm.
+- **Genetic Algorithm (GA & Adaptive GA)**: Evolutionary approach mimicking natural selection.
+- **Differential Evolution (DE)**: Population-based optimization.
+- **Particle Swarm Optimization (PSO)**: Simulated swarming behavior to find optima.
 
-## Theory
+Each solver iterates over different Delta-V distributions to find the best combination that maximizes payload fraction while respecting constraints.
 
-The core idea of this project stems from the classical Tsiolkovsky rocket equation, which relates the change in velocity (ΔV) to the mass ratio of the rocket. In a multi-stage rocket, the payload fraction is determined by the product of the stage ratios. However, real-world considerations such as structural losses (modeled via the ε parameter) require a modified formulation:
+### 3. **Execution Flow (`main.py`)**
+- Reads input files.
+- Defines initial conditions and constraints.
+- Iterates through multiple solvers to optimize staging.
+- Logs performance and saves results.
 
-1. **Stage Ratio Calculation:**  
-   Each stage’s performance is modeled as:  
-   > f₍ᵢ₎ = exp(–ΔV₍ᵢ₎ / (G₀ · Isp₍ᵢ₎)) – ε₍ᵢ₎  
-   This captures the idealized mass loss (via the exponential term) and subtracts a penalty for inefficiencies.
+### 4. **Function Breakdown**
 
-2. **Optimization Objective:**  
-   The overall payload fraction is the product of the stage ratios:  
-   > Payload Fraction = ∏ f₍ᵢ₎  
-   Since optimization routines are designed for minimization, the code minimizes the negative product, turning the maximization into a minimization problem.
+#### **Objective Functions (`objective.py`)**
+- `payload_fraction_objective(dv, G0, ISP, EPSILON)`:
+  - Computes the payload fraction for a given Delta-V distribution.
+  - **Inputs:** Delta-V distribution, gravity, ISP, structural mass ratio.
+  - **Outputs:** Negative payload fraction (for minimization).
 
-3. **Constraints:**  
-   - **Equality Constraint:** The sum of ΔV allocated to each stage must equal the total available ΔV.  
-   - **Inequality Constraints:** Each ΔV allocation is bounded between zero and a maximum value, computed as:  
-     > max_ΔV = –G₀ · Isp · ln(ε)  
-     This ensures that the stage ratio remains positive.
+- `objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)`:
+  - Adds constraint violations to the objective function.
+  - **Inputs:** Delta-V distribution, mission parameters.
+  - **Outputs:** Objective function value with penalties.
 
----
+#### **Data Processing (`data.py`)**
+- `calculate_mass_ratios(dv, ISP, EPSILON, G0)`:
+  - Computes stage mass ratios using the rocket equation.
+  - **Inputs:** Delta-V values, ISP, structural mass ratios, gravity.
+  - **Outputs:** Mass ratios per stage.
 
-## Optimization Solvers
+- `calculate_payload_fraction(mass_ratios)`:
+  - Computes overall payload fraction as a product of stage ratios.
+  - **Inputs:** Mass ratios array.
+  - **Outputs:** Payload fraction value.
 
-The project implements three different optimization strategies to solve the payload allocation problem:
+#### **Report Generation (`latex.py`)**
+- `generate_report(results, stages, output_dir)`:
+  - Creates a LaTeX report with optimization results.
+  - **Inputs:** Optimization results dictionary, stage details.
+  - **Outputs:** LaTeX file summarizing optimization.
 
-1. **SLSQP (Sequential Least Squares Programming):**  
-   - A gradient-based optimization method available in SciPy's `minimize` function.
-   - Directly handles equality constraints (i.e., the sum of ΔV must equal TOTAL_DELTA_V).
-   
-2. **Differential Evolution:**  
-   - A stochastic, population-based optimization algorithm available in SciPy.
-   - Uses a penalty function to enforce the equality constraint by penalizing deviations from the total ΔV.
+#### **Visualization (`plots.py`)**
+- `plot_dv_breakdown(results, filename)`:
+  - Generates a bar chart showing Delta-V distribution.
+  - **Inputs:** Optimization results dictionary.
+  - **Outputs:** PNG file with stacked bars per stage.
 
-3. **Genetic Algorithm (GA):**  
-   - An evolutionary algorithm implemented via the pymoo library.
-   - A custom problem class is defined to evaluate the objective with a penalty, making it suitable for the non-linear, constrained nature of the problem.
+- `plot_execution_time(results, filename)`:
+  - Plots solver execution time.
+  - **Inputs:** Optimization results dictionary.
+  - **Outputs:** PNG bar plot.
 
-Each solver has its strengths, and the repository provides a framework for comparing their performance in terms of execution time and the resulting payload fraction.
+- `plot_payload_fraction(results, filename)`:
+  - Compares payload fractions among solvers.
+  - **Inputs:** Optimization results dictionary.
+  - **Outputs:** PNG bar plot.
 
----
+### 5. **Output & Visualization**
+- **Plots (`plots.py`)**: Generates breakdowns of Delta-V allocation, execution time, and payload fraction.
+- **LaTeX Report (`latex.py`)**: Summarizes results in a structured document.
+- **Output Directory (`output/`)**:
+  - `dv_breakdown.png`: Shows Delta-V allocation per stage.
+  - `execution_time.png`: Solver performance comparison.
+  - `payload_fraction.png`: Impact of staging on payload.
+  - `optimization_report.tex`: Generated LaTeX report.
 
-## Installation
+## Running the Project
 
-Ensure you have Python 3 installed. Then, install the required packages using pip:
-
+### Dependencies
+Ensure you have Python 3 and install required packages:
 ```bash
-pip install numpy scipy matplotlib pandas pymoo
+pip install -r requirements.txt
 ```
-
----
-
-## Usage
 
 ### Running the Optimization
-
-To run the optimization using the CSV input file:
-
 ```bash
-python payload_optimization.py input_data.csv
+python main.py input_data.json
 ```
+This will execute the optimization using all solvers and store results in `output/`.
 
-This will:
-- Parse the input CSV.
-- Optimize the ΔV allocation for each solver (SLSQP, Differential Evolution, and GA).
-- Generate plots, CSV reports, and a LaTeX report summarizing the results.
-
-### Running the Unit Tests
-
-To run the unit tests:
-
-```bash
-python -m unittest test_payload_optimization.py
-```
-
-This ensures that all functions behave as expected and that the optimization routines work correctly.
-
----
-
-## License
-
-This project is released under the [MIT License](LICENSE).
+## Conclusion
+This project provides a comprehensive framework for optimizing multi-stage rockets using various numerical techniques. It enables engineers to explore different staging strategies and analyze their impact on payload capacity efficiently.

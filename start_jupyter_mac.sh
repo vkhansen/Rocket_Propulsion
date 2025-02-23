@@ -16,7 +16,7 @@ pip3 install jupyterlab
 
 # Install dependencies
 echo "Installing required dependencies..."
-pip3 install numpy pandas matplotlib scipy
+pip install numpy pandas matplotlib scipy pymoo
 
 # Start Jupyter Lab
 echo "Starting Jupyter Lab..."
