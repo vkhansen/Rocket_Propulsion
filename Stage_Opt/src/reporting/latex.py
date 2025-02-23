@@ -311,7 +311,7 @@ Method & {{$\\Delta V$ (\\si{{\\meter\\per\\second}})}} & {{Mass Ratio ($\\lambd
         if even_split_methods:
             # Create the split text pattern (e.g., "33.3/33.3/33.3")
             split_pattern = "/".join([f"{even_split_value:.1f}"] * num_stages)
-            report_content += r"\item " + f"Methods with even ΔV distribution (≈{split_pattern}): {', '.join(even_split_methods)}\n"
+            report_content += r"\item Methods with even $\Delta$V distribution ($\approx" + split_pattern + "$): " + ", ".join(even_split_methods) + "\n"
         if uneven_methods:
             report_content += r"\item " + f"Methods with uneven distribution: {', '.join(uneven_methods)}\n"
             

@@ -27,7 +27,7 @@ pip install jupyterlab
 
 :: Install dependencies
 echo Installing required dependencies...
-pip install numpy pandas matplotlib scipy pymoo pdflatex
+pip install numpy pandas matplotlib scipy pymoo
 
 :: Start Jupyter Lab
 echo Starting Jupyter Lab...
