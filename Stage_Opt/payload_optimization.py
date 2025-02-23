@@ -30,11 +30,32 @@ def load_config():
 
 def setup_logging(config):
     """Set up logging configuration."""
+    # Ensure output directory exists
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Configure logging with both file and console output
+    log_file = os.path.join(output_dir, "optimization_run.log")  
     logging.basicConfig(
-        level=getattr(logging, config["logging"]["level"]),
-        format=config["logging"]["format"]
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, mode='w'),
+            logging.StreamHandler(sys.stdout)  
+        ]
     )
-    return logging.getLogger(__name__)
+    
+    # Suppress matplotlib debug messages
+    logging.getLogger("matplotlib").setLevel(logging.INFO)
+    
+    # Log system info
+    logger = logging.getLogger(__name__)
+    logger.info("Starting optimization run")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"Log file: {log_file}")
+    
+    return logger
 
 # Initialize globals from config
 CONFIG = load_config()
@@ -138,6 +159,11 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
 def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Sequential Least Squares Programming (SLSQP)."""
     try:
+        logger.info("Starting SLSQP optimization")
+        logger.debug(f"Initial guess: {initial_guess}")
+        logger.debug(f"Bounds: {bounds}")
+        logger.debug(f"Configuration: {config['optimization']['slsqp']}")
+        
         def objective(dv):
             return payload_fraction_objective(dv, G0, ISP, EPSILON)
             
@@ -160,7 +186,11 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         
         if not result.success:
             logger.warning(f"SLSQP optimization warning: {result.message}")
-            
+        else:
+            logger.info(f"SLSQP succeeded after {result.nit} iterations")
+            logger.info(f"Final objective value: {result.fun}")
+            logger.info(f"Optimal solution: {result.x}")
+        
         return result.x
         
     except Exception as e:
@@ -170,6 +200,11 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
 def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Basin-Hopping."""
     try:
+        logger.info("Starting Basin-Hopping optimization")
+        logger.debug(f"Initial guess: {initial_guess}")
+        logger.debug(f"Bounds: {bounds}")
+        logger.debug(f"Configuration: {config['optimization']['basin_hopping']}")
+        
         def objective(dv):
             return objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
         
@@ -195,7 +230,11 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         
         if not result.lowest_optimization_result.success:
             logger.warning(f"Basin-hopping optimization warning: {result.message}")
-            
+        else:
+            logger.info(f"Basin-hopping succeeded after {result.nit} iterations")
+            logger.info(f"Final objective value: {result.fun}")
+            logger.info(f"Optimal solution: {result.x}")
+        
         return result.x
         
     except Exception as e:
@@ -205,6 +244,11 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
+        logger.info("Starting GA optimization")
+        logger.debug(f"Initial guess: {initial_guess}")
+        logger.debug(f"Bounds: {bounds}")
+        logger.debug(f"Configuration: {config['optimization']['ga']}")
+        
         class RepairDeltaV(Repair):
             def _do(self, problem, X, **kwargs):
                 if len(X.shape) == 1:
@@ -290,6 +334,10 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             logger.warning(f"GA optimization warning: {res.message}")
             return initial_guess
             
+        logger.info(f"GA succeeded after {res.exec_time} seconds")
+        logger.info(f"Final objective value: {res.F[0]}")
+        logger.info(f"Optimal solution: {res.X}")
+        
         return res.X
         
     except Exception as e:
@@ -299,6 +347,11 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
     try:
+        logger.info("Starting Adaptive GA optimization")
+        logger.debug(f"Initial guess: {initial_guess}")
+        logger.debug(f"Bounds: {bounds}")
+        logger.debug(f"Configuration: {config['optimization']['adaptive_ga']}")
+        
         class AdaptiveGA:
             def __init__(self, config, n_vars, bounds, total_delta_v, isp, epsilon):
                 self.config = config["optimization"]["adaptive_ga"]
@@ -459,6 +512,10 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                     self.update_parameters(population, fitnesses, generations_without_improvement)
                 
                 self.execution_time = time.time() - start_time
+                logger.info(f"Adaptive GA optimization completed in {self.execution_time:.3f} seconds")
+                logger.info(f"Best solution found: {best_solution}")
+                logger.info(f"Best fitness: {best_fitness}")
+                
                 return best_solution
         
         # Create and run adaptive GA, passing TOTAL_DELTA_V, ISP, and EPSILON
@@ -475,6 +532,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
 def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Differential Evolution."""
     try:
+        logger.info("Starting Differential Evolution optimization")
+        logger.debug(f"Initial guess: {initial_guess}")
+        logger.debug(f"Bounds: {bounds}")
+        logger.debug(f"Configuration: {config['optimization']['differential_evolution']}")
+
         def objective(x):
             """Objective function with penalty for DE."""
             x = np.asarray(x).flatten()
@@ -490,26 +552,32 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
                 if ratio <= 0.1:
                     penalty += 100.0 * (0.1 - ratio) ** 2
             
-            return -payload_fraction + penalty  # Negative because DE minimizes
-        
+            result = -payload_fraction + penalty
+            logger.debug(f"DE evaluation - DV: {x}, Mass ratios: {mass_ratios}, Payload: {payload_fraction}, Penalty: {penalty}")
+            return result
+
         # Run differential evolution
         result = differential_evolution(
             objective,
             bounds,
-            strategy='best1bin',
-            maxiter=config["optimization"].get("max_iterations", 1000),
-            popsize=config["optimization"].get("population_size", 15),
-            tol=1e-6,
-            mutation=(0.5, 1.0),
-            recombination=0.7,
+            strategy=config["optimization"]["differential_evolution"].get("strategy", 'best1bin'),
+            maxiter=config["optimization"]["differential_evolution"].get("max_iterations", 1000),
+            popsize=config["optimization"]["differential_evolution"].get("population_size", 15),
+            tol=config["optimization"]["differential_evolution"].get("tol", 1e-6),
+            mutation=config["optimization"]["differential_evolution"].get("mutation", (0.5, 1.0)),
+            recombination=config["optimization"]["differential_evolution"].get("recombination", 0.7),
             seed=None,
-            disp=False,
+            disp=True,
             polish=True,
             updating='immediate'
         )
         
         if not result.success:
             logger.warning(f"Differential Evolution warning: {result.message}")
+        else:
+            logger.info(f"Differential Evolution succeeded after {result.nit} iterations")
+            logger.info(f"Final objective value: {result.fun}")
+            logger.info(f"Optimal solution: {result.x}")
         
         return result.x
         
@@ -533,67 +601,33 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
     Returns:
         tuple: (optimal_dv, stage_ratios, payload_fraction)
     """
-    n = len(ISP)
-    if n != len(EPSILON):
-        raise ValueError("ISP and EPSILON lists must have the same length")
-    
-    # Initial guess - equal distribution of delta-V
-    initial_guess = np.full(n, TOTAL_DELTA_V / n)
-    
-    # Define bounds for each stage
-    max_dv = TOTAL_DELTA_V * 0.9  # No stage should use more than 90% of total dV
-    bounds = [(0, max_dv) for _ in range(n)]
-    
-    # Define the constraint that sum of dV equals TOTAL_DELTA_V
-    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - TOTAL_DELTA_V}]
-    
     try:
-        if method.upper() == 'SLSQP':
-            result = minimize(
-                lambda x: -payload_fraction_objective(x, G0, ISP, EPSILON),
-                initial_guess,
-                method='SLSQP',
-                bounds=bounds,
-                constraints=constraints
-            )
-            optimal_dv = result.x.flatten()
-            
-        elif method.upper() == 'GA':
-            problem = OptimizationProblem(n_var=n, n_obj=1, xl=0, xu=max_dv)
-            problem.total_delta_v = TOTAL_DELTA_V
-            problem.G0 = G0
-            problem.ISP = ISP
-            problem.EPSILON = EPSILON
-            
-            algorithm = GA(pop_size=100)
-            res = pymoo_minimize(problem, algorithm, termination=('n_gen', 100))
-            optimal_dv = np.array(res.X).flatten()
-            
-        elif method.upper() == 'BASIN-HOPPING':
-            minimizer_kwargs = {
-                'method': 'SLSQP',
-                'bounds': bounds,
-                'constraints': constraints
-            }
-            res = basinhopping(
-                lambda x: -payload_fraction_objective(x, G0, ISP, EPSILON),
-                initial_guess,
-                minimizer_kwargs=minimizer_kwargs,
-                niter=100
-            )
-            optimal_dv = res.x.flatten()
-            
+        logger.info(f"Starting optimization with method: {method}")
+        logger.info(f"Total Delta-V: {TOTAL_DELTA_V}, ISP: {ISP}, EPSILON: {EPSILON}")
+        
+        n = len(ISP)  # Number of stages
+        initial_guess = np.array([TOTAL_DELTA_V / n] * n)
+        max_dv = TOTAL_DELTA_V * 1.5  # Allow some margin for optimization
+        bounds = [(0, max_dv)] * n
+        
+        logger.debug(f"Number of stages: {n}")
+        logger.debug(f"Initial guess: {initial_guess}")
+        logger.debug(f"Bounds: {bounds}")
+        
+        if method == 'SLSQP':
+            optimal_dv = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         else:
+            logger.error(f"Unsupported optimization method: {method}")
             raise ValueError(f"Unsupported optimization method: {method}")
+            
+        # Calculate final results
+        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
-        # Calculate stage ratios and payload fraction
-        stage_ratios = []
-        for i, dv in enumerate(optimal_dv):
-            ratio = float(np.exp(-dv / (G0 * ISP[i])) - EPSILON[i])
-            stage_ratios.append(ratio)
-        
-        payload_fraction = float(np.prod(stage_ratios))
-        optimal_dv = [float(x) for x in optimal_dv]
+        logger.info("Optimization completed successfully")
+        logger.info(f"Optimal Delta-V allocation: {optimal_dv}")
+        logger.info(f"Stage mass ratios: {stage_ratios}")
+        logger.info(f"Final payload fraction: {payload_fraction}")
         
         return optimal_dv, stage_ratios, payload_fraction
         
