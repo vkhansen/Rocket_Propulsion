@@ -148,3 +148,164 @@ This will execute the optimization using all solvers and store results in `outpu
 
 ## Conclusion
 This project provides a comprehensive framework for optimizing multi-stage rockets using various numerical techniques. It enables engineers to explore different staging strategies and analyze their impact on payload capacity efficiently.
+
+# Rocket Stage Optimization (Stage_Opt)
+
+This module performs multi-stage rocket optimization to maximize payload fraction while satisfying delta-V requirements. It implements various optimization algorithms and provides detailed analysis through CSV outputs and LaTeX reports.
+
+## Theory
+
+The optimization is based on the rocket equation and mass ratio calculations:
+
+- **Mass Ratio (λ)**: For each stage i, λᵢ = exp(-ΔVᵢ/(g₀·ISPᵢ)) - εᵢ
+  - ΔVᵢ: Delta-V contribution of stage i
+  - g₀: Standard gravity (9.81 m/s²)
+  - ISPᵢ: Specific impulse of stage i
+  - εᵢ: Mass fraction of stage i
+
+- **Payload Fraction**: Product of all stage mass ratios
+- **Total Delta-V**: Sum of individual stage delta-Vs must meet mission requirement
+
+## Directory Structure
+
+```
+Stage_Opt/
+├── input/                  # Input configuration files
+├── output/                 # Generated results and reports
+├── src/                   # Source code
+│   ├── optimization/      # Optimization algorithms
+│   ├── reporting/        # CSV and LaTeX report generation
+│   ├── utils/           # Utility functions and configuration
+│   └── visualization/   # Plotting and visualization tools
+└── tests/               # Test suite
+```
+
+## Key Components
+
+### 1. Optimization Algorithms (`src/optimization/solvers.py`)
+- **SLSQP**: Sequential Least Squares Programming
+- **Basin-Hopping**: Global optimization with local minimization
+- **Genetic Algorithm (GA)**: Standard and adaptive variants
+- **Differential Evolution (DE)**: Population-based optimization
+- **Particle Swarm Optimization (PSO)**: Swarm intelligence approach
+
+### 2. Input/Output
+
+#### Input (`input_data.json`)
+```json
+{
+    "parameters": {
+        "G0": 9.81,
+        "TOTAL_DELTA_V": 9300.0
+    },
+    "stages": [
+        {
+            "stage": 1,
+            "ISP": 300,
+            "EPSILON": 0.06
+        },
+        {
+            "stage": 2,
+            "ISP": 348,
+            "EPSILON": 0.04
+        }
+    ]
+}
+```
+
+#### Output Files
+- `stage_results.csv`: Detailed results for each stage
+  - Stage number
+  - Delta-V contribution
+  - Mass ratio (λ)
+  - Percentage contribution
+  - Optimization method
+
+- `optimization_summary.csv`: Overall performance metrics
+  - Method name
+  - Final payload fraction
+  - Optimization error
+  - Execution time
+
+### 3. Analysis Tools
+
+- **CSV Generation** (`src/reporting/latex.py`):
+  - Generates structured CSV files for result analysis
+  - Calculates mass ratios and payload fractions
+  - Tracks optimization performance metrics
+
+- **LaTeX Reports**:
+  - Professional-grade PDF reports
+  - Performance comparisons across methods
+  - Detailed stage-by-stage analysis
+
+## Usage
+
+1. **Setup Input**:
+   ```bash
+   # Modify input_data.json with your parameters
+   {
+       "parameters": {"TOTAL_DELTA_V": your_delta_v},
+       "stages": [
+           {"stage": 1, "ISP": isp1, "EPSILON": epsilon1},
+           {"stage": 2, "ISP": isp2, "EPSILON": epsilon2}
+       ]
+   }
+   ```
+
+2. **Run Optimization**:
+   ```bash
+   python main.py [input_file.json]
+   ```
+
+3. **View Results**:
+   - Check `output/stage_results.csv` for detailed stage analysis
+   - Check `output/optimization_summary.csv` for method comparison
+   - View `output/optimization_report.tex` for full LaTeX report
+
+## Testing
+
+Comprehensive test suite in `test_payload_optimization.py`:
+```bash
+python -m pytest test_payload_optimization.py -v
+```
+
+Tests cover:
+- Input data loading and validation
+- Mass ratio calculations
+- Payload fraction optimization
+- CSV output structure and consistency
+- Optimization algorithm performance
+
+## Dependencies
+
+- NumPy: Numerical computations
+- SciPy: Optimization algorithms
+- Pymoo: Genetic algorithm implementation
+- Pandas: Data manipulation
+- LaTeX: Report generation
+
+## Performance Notes
+
+1. **Algorithm Selection**:
+   - SLSQP: Fast, good for well-behaved problems
+   - GA/DE: Better for avoiding local minima
+   - PSO: Good balance of exploration/exploitation
+
+2. **Convergence**:
+   - All methods should achieve similar payload fractions
+   - Execution times vary significantly
+   - Error values indicate constraint satisfaction
+
+3. **Validation**:
+   - Mass ratios follow theoretical calculations
+   - Total delta-V constraint is enforced
+   - Stage contributions are properly balanced
+
+## Contributing
+
+When contributing:
+1. Follow the existing code structure
+2. Add tests for new features
+3. Update documentation
+4. Verify optimization results against theory
