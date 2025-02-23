@@ -11,16 +11,16 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
             logger.error("No results to plot for ΔV breakdown")
             return
             
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(14, 7))
         
         # Get number of methods
         n_methods = len(results)
         method_positions = np.arange(n_methods)
-        bar_width = 0.35
+        bar_width = 0.5
         
         # Create stacked bars for each method
         bottom = np.zeros(n_methods)
-        colors = ['dodgerblue', 'orange', 'green']  # Colors for up to 3 stages
+        colors = ['dodgerblue', 'orange', 'green', 'red', 'purple']  # More colors for stages
         
         # Plot each stage
         n_stages = len(next(iter(results.values()))['optimal_dv'])
@@ -53,9 +53,10 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         plt.ylabel('ΔV (m/s)')
         plt.xlabel('Optimization Method')
         plt.title('ΔV Solution per Solver')
-        plt.xticks(method_positions, list(results.keys()))
-        plt.legend()
+        plt.xticks(method_positions, list(results.keys()), rotation=45, ha='right')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, alpha=0.3)
+        plt.tight_layout()
         
         # Save plot
         plt.savefig(os.path.join(OUTPUT_DIR, filename))
