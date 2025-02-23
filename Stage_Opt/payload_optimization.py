@@ -24,7 +24,7 @@ import csv
 import sys
 import time  # for timing
 import numpy as np
-from scipy.optimize import minimize, differential_evolution
+from scipy.optimize import minimize, differential_evolution, approx_fprime
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.optimize import minimize as pymoo_minimize
 from pymoo.core.problem import Problem
@@ -190,14 +190,13 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
     initial_guess = np.full(n, TOTAL_DELTA_V / n)
     bounds = [(0, max_dv_i) for max_dv_i in max_dv]
     
-    # For SLSQP we can use the constraint directly.
-    if method == 'SLSQP':
+    if method.upper() == 'SLSQP':
         constraints = {'type': 'eq', 'fun': lambda dv: np.sum(dv) - TOTAL_DELTA_V}
         res = minimize(payload_fraction_objective, initial_guess, 
                       args=(G0, ISP, EPSILON, penalty_coeff), 
                       method=method, bounds=bounds, constraints=constraints)
-    elif method == 'differential_evolution':
-        # Use the penalized objective for DE.
+        optimal_dv = res.x
+    elif method.lower() == 'differential_evolution':
         res = differential_evolution(
             objective_with_penalty, 
             bounds, 
@@ -209,38 +208,89 @@ def optimize_payload_allocation(TOTAL_DELTA_V, ISP, EPSILON, G0=9.81, method='SL
             recombination=0.7,
             polish=True
         )
-    elif method == 'GA':
-        # Use the penalized objective within the GA evaluation.
+        optimal_dv = res.x
+    elif method.upper() == 'GA':
+        # Use the penalized objective within the GA evaluation with custom initialization to ensure a minimum delta-V for the first stage.
+        # Set a minimum lower bound for the first stage as 10% of TOTAL_DELTA_V
+        min_bounds = np.zeros(n)
+        min_bounds[0] = TOTAL_DELTA_V * 0.1
+
         class OptimizationProblem(Problem):
             def __init__(self):
-                super().__init__(n_var=n, n_obj=1, xl=np.zeros(n), xu=max_dv)
+                # Use custom lower bounds for the first stage, and 0 for others
+                super().__init__(n_var=n, n_obj=1, xl=min_bounds, xu=max_dv)
+
             def _evaluate(self, x, out, *args, **kwargs):
-                if x.ndim == 1:
-                    x = x.reshape(1, -1)
-                F = np.array([
-                    objective_with_penalty(np.asarray(xi).flatten(), G0, ISP, EPSILON, 
-                                        TOTAL_DELTA_V, penalty_coeff, tol)
-                    for xi in x
-                ])
-                out["F"] = F.reshape(-1, 1)
-        
+                out["F"] = np.apply_along_axis(lambda dv: objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), 1, x)
+
         problem = OptimizationProblem()
-        algorithm = GA(pop_size=100)
-        res_obj = pymoo_minimize(problem, algorithm, termination=('n_gen', 100))
+
+        # Set GA population size to 200
+        pop_size = 200
+
+        # Custom initial population that respects the minimum for the first stage
+        custom_pop = np.random.uniform(0, 1, size=(pop_size, n))
+        # For first stage, sample between min_bounds[0] and max_dv[0]
+        custom_pop[:, 0] = np.random.uniform(min_bounds[0], max_dv[0], size=pop_size)
+        # Scale each individual's allocation so that the sum equals TOTAL_DELTA_V
+        custom_pop = (custom_pop.T / custom_pop.sum(axis=1) * TOTAL_DELTA_V).T
+
+        algorithm = GA(pop_size=pop_size, eliminate_duplicates=True)
+        # Set the custom initialization if supported
+        algorithm.initial_population = custom_pop
+
+        # Increase termination generation count
+        res_obj = pymoo_minimize(problem, algorithm, termination=('n_gen', 200))
         res = res_obj.X  # GA returns the best solution directly
-
-    # For SLSQP and differential_evolution, check that optimization was successful.
-    if method in ['SLSQP', 'differential_evolution']:
-        if not res.success:
-            raise RuntimeError(f"Optimization failed: {res.message}")
-        optimal_dv = res.x
-    else:
         optimal_dv = res
-
-    optimal_stage_ratio = [np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i] for i, dvi in enumerate(optimal_dv)]
-    overall_payload = np.prod(optimal_stage_ratio)
+    elif method.lower() == 'newton':
+        jacobian = lambda x: approx_fprime(x, lambda dv: objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), 1e-8)
+        res = minimize(objective_with_penalty, initial_guess, args=(G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol), method='Newton-CG', jac=jacobian)
+        optimal_dv = res.x
+    elif method.lower() == 'dp':
+        if n > 3:
+            raise ValueError('Dynamic programming approach only supports up to 3 stages')
+        if n == 1:
+            optimal_dv = np.array([TOTAL_DELTA_V])
+        elif n == 2:
+            best_obj = np.inf
+            best_alloc = None
+            steps = 1000
+            step_size = TOTAL_DELTA_V / steps
+            for i in range(steps+1):
+                dv1 = i * step_size
+                dv2 = TOTAL_DELTA_V - dv1
+                dv = np.array([dv1, dv2])
+                obj = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol)
+                if obj < best_obj:
+                    best_obj = obj
+                    best_alloc = dv
+            optimal_dv = best_alloc
+        elif n == 3:
+            best_obj = np.inf
+            best_alloc = None
+            resolution = 100  # coarse resolution for 3 stages
+            step_size = TOTAL_DELTA_V / resolution
+            for i in range(resolution+1):
+                for j in range(resolution+1 - i):
+                    dv1 = i * step_size
+                    dv2 = j * step_size
+                    dv3 = TOTAL_DELTA_V - dv1 - dv2
+                    if dv3 < 0:
+                        continue
+                    dv = np.array([dv1, dv2, dv3])
+                    obj = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeff, tol)
+                    if obj < best_obj:
+                        best_obj = obj
+                        best_alloc = dv
+            optimal_dv = best_alloc
+    else:
+        raise ValueError(f"Unsupported optimization method: {method}")
+ 
+    stage_ratios = [np.exp(-dvi / (G0 * ISP[i])) - EPSILON[i] for i, dvi in enumerate(optimal_dv)]
+    overall_payload = np.prod(stage_ratios)
     
-    return optimal_dv, optimal_stage_ratio, overall_payload
+    return optimal_dv, stage_ratios, overall_payload
 
 def plot_dv_breakdown(results, total_delta_v, gravity_loss, drag_loss, filename="dv_breakdown.png"):
     """
@@ -288,6 +338,7 @@ def generate_report(parameters, stages, results):
     input_df = pd.DataFrame(list(parameters.items()), columns=["Parameter", "Value"])
     stages_df = pd.DataFrame(stages)
     results_df = pd.DataFrame(results)
+    results_df = results_df.applymap(lambda x: float(x) if isinstance(x, (np.floating, np.integer)) else x)
     
     input_df.to_csv("input_variables.csv", index=False)
     stages_df.to_csv("stage_data.csv", index=False)
@@ -323,7 +374,7 @@ def main():
     ISP = [stage['ISP'] for stage in stages]
     EPSILON = [stage['EPSILON'] for stage in stages]
 
-    methods = ['SLSQP', 'differential_evolution', 'GA']
+    methods = ['SLSQP', 'differential_evolution', 'GA', 'newton', 'dp']
     optimization_results = []
 
     # Run optimization for each method.
