@@ -9,13 +9,19 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
             logger.error("No results to include in report")
             return None
             
+        # Filter out failed optimizations
+        valid_results = {k: v for k, v in results.items() if v is not None and 'optimal_dv' in v and 'stage_ratios' in v}
+        if not valid_results:
+            logger.error("No valid optimization results for report")
+            return None
+            
         report_path = os.path.join(output_dir, "report.tex")
         
         # Extract global parameters
         g0 = float(stages[0].get('G0', 9.81))  # Standard gravity
         
         # Create stage parameters table data
-        stage_data = [(stage['stage'], stage['ISP'], stage['EPSILON']) for stage in stages]
+        stage_data = [(i+1, stage['ISP'], stage['EPSILON']) for i, stage in enumerate(stages)]
         
         report_content = r"""\documentclass{article}
 \usepackage{booktabs}
@@ -51,74 +57,101 @@ G0 & """ + f"{g0:.2f}" + r""" \\
 \caption{Stage Parameters}
 \begin{tabular}{ccc}
 \toprule
-Stage & ISP & EPSILON \\
-\midrule"""
-
-        # Add stage data
-        for stage, isp, epsilon in stage_data:
-            report_content += f"\n{stage} & {isp:.3f} & {epsilon:.3f} \\\\"
+Stage & ISP & $\epsilon$ \\
+\midrule
+"""
         
-        report_content += r"""
-\bottomrule
+        # Add stage data rows
+        for stage_num, isp, epsilon in stage_data:
+            report_content += f"{stage_num} & {isp:.1f} & {epsilon:.3f} \\\\\n"
+            
+        report_content += r"""\bottomrule
 \end{tabular}
 \end{table}
 
-\section{Performance Analysis}
-\subsection{Execution Time}
-\begin{figure}[H]
+\section{Optimization Results}
+\subsection{Performance Comparison}
+\begin{table}[H]
 \centering
-\includegraphics[width=\textwidth]{execution_time.png}
-\caption{Execution time comparison between solvers}
-\end{figure}
+\caption{Solver Performance}
+\begin{tabular}{lccc}
+\toprule
+Method & Payload Fraction & Execution Time (s) & Convergence \\
+\midrule
+"""
+        
+        # Add solver results
+        for method, result in valid_results.items():
+            try:
+                payload = result['payload_fraction']
+                time = result['execution_time']
+                converged = "Yes" if abs(payload) < 1e6 else "No"  # Simple convergence check
+                report_content += f"{method} & {payload:.3f} & {time:.2f} & {converged} \\\\\n"
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Skipping incomplete result for {method}: {e}")
+                continue
+                
+        report_content += r"""\bottomrule
+\end{tabular}
+\end{table}
 
-\subsection{Payload Fraction}
-\begin{figure}[H]
+\subsection{Stage-wise Results}
+"""
+        
+        # Add detailed results for each method
+        for method, result in valid_results.items():
+            try:
+                report_content += f"\n\\subsubsection{{{method}}}\n"
+                report_content += r"""\begin{table}[H]
 \centering
-\includegraphics[width=\textwidth]{payload_fraction.png}
-\caption{Payload fraction comparison between solvers}
-\end{figure}
-
-\subsection{Delta-V Breakdown}
+\caption{""" + f"{method} Stage Results" + r"""}
+\begin{tabular}{cccc}
+\toprule
+Stage & $\Delta V$ (m/s) & Mass Ratio & Contribution (\%) \\
+\midrule
+"""
+                
+                total_dv = sum(result['optimal_dv'])
+                for i, (dv, ratio) in enumerate(zip(result['optimal_dv'], result['stage_ratios'])):
+                    contribution = (dv / total_dv) * 100 if total_dv > 0 else 0
+                    report_content += f"{i+1} & {dv:.1f} & {ratio:.3f} & {contribution:.1f} \\\\\n"
+                    
+                report_content += r"""\bottomrule
+\end{tabular}
+\end{table}
+"""
+            except (KeyError, TypeError, ZeroDivisionError) as e:
+                logger.warning(f"Skipping detailed results for {method}: {e}")
+                continue
+        
+        # Add figures
+        report_content += r"""
+\section{Visualizations}
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{dv_breakdown.png}
-\caption{Delta-V breakdown by solver}
+\caption{$\Delta V$ Distribution Across Stages}
 \end{figure}
 
-\section{Optimization Results}
-\begin{table}[H]
+\begin{figure}[H]
 \centering
-\caption{Optimization Results by Solver}
-\small
-\begin{tabular}{lcccc}
-\toprule
-Method & Time (s) & Payload Fraction & $\Delta$V & Mass Ratio \\
-\midrule"""
+\includegraphics[width=\textwidth]{execution_time.png}
+\caption{Solver Execution Time Comparison}
+\end{figure}
 
-        # Add results data
-        for method, data in results.items():
-            time = data.get('time', 0)
-            payload = data.get('payload_fraction', 0)
-            dv = data.get('optimal_dv', [0, 0])
-            ratios = data.get('stage_ratios', [0, 0])
-            
-            dv_str = f"{dv[0]:.2f}, {dv[1]:.2f}"
-            ratio_str = f"{ratios[0]:.2f}, {ratios[1]:.2f}"
-            
-            report_content += f"\n{method} & {time:.6f} & {payload:.6f} & {dv_str} & {ratio_str} \\\\"
-
-        report_content += r"""
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{payload_fraction.png}
+\caption{Payload Fraction Comparison}
+\end{figure}
 
 \end{document}
 """
-
-        with open(report_path, 'w') as f:
-            f.write(report_content)
         
-        logger.info(f"Generated LaTeX report at {report_path}")
+        # Write the report
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(report_content)
+            
         return report_path
         
     except Exception as e:

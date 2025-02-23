@@ -36,33 +36,63 @@ def optimize_stages(parameters, stages, method='SLSQP'):
         bounds = [(0, max_dv) for _ in range(n)]
         
         # Select solver
+        solver_result = None
         if method.upper() == 'SLSQP':
             optimal_dv = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            if optimal_dv is not None:
+                stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+                payload_fraction = calculate_payload_fraction(stage_ratios)
+                solver_result = {
+                    'method': 'SLSQP',
+                    'optimal_dv': optimal_dv.tolist() if isinstance(optimal_dv, np.ndarray) else optimal_dv,
+                    'stage_ratios': stage_ratios.tolist() if isinstance(stage_ratios, np.ndarray) else stage_ratios,
+                    'payload_fraction': float(payload_fraction),
+                    'execution_time': time.time() - start_time
+                }
         elif method.upper() == 'BASIN-HOPPING':
             optimal_dv = solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            if optimal_dv is not None:
+                stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+                payload_fraction = calculate_payload_fraction(stage_ratios)
+                solver_result = {
+                    'method': 'Basin-Hopping',
+                    'optimal_dv': optimal_dv.tolist() if isinstance(optimal_dv, np.ndarray) else optimal_dv,
+                    'stage_ratios': stage_ratios.tolist() if isinstance(stage_ratios, np.ndarray) else stage_ratios,
+                    'payload_fraction': float(payload_fraction),
+                    'execution_time': time.time() - start_time
+                }
         elif method.upper() == 'DIFFERENTIAL_EVOLUTION':
             optimal_dv = solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            if optimal_dv is not None:
+                stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
+                payload_fraction = calculate_payload_fraction(stage_ratios)
+                solver_result = {
+                    'method': 'Differential Evolution',
+                    'optimal_dv': optimal_dv.tolist() if isinstance(optimal_dv, np.ndarray) else optimal_dv,
+                    'stage_ratios': stage_ratios.tolist() if isinstance(stage_ratios, np.ndarray) else stage_ratios,
+                    'payload_fraction': float(payload_fraction),
+                    'execution_time': time.time() - start_time
+                }
         elif method.upper() == 'GA':
-            optimal_dv = solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            solver_result = solve_with_genetic_algorithm(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'GA-ADAPTIVE':
-            optimal_dv = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            solver_result = solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         elif method.upper() == 'PSO':
-            optimal_dv = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
+            solver_result = solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG)
         else:
             raise ValueError(f"Unsupported optimization method: {method}")
         
-        # Calculate final results
-        stage_ratios = calculate_mass_ratios(optimal_dv, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
-        
+        if solver_result is None:
+            raise Exception(f"{method} optimization failed to produce valid results")
+            
         execution_time = time.time() - start_time
         logger.info(f"Optimization completed in {execution_time:.3f} seconds")
         
-        return optimal_dv, stage_ratios, payload_fraction
+        return solver_result
         
     except Exception as e:
         logger.error(f"Error in {method} optimization: {e}")
-        raise
+        return None
 
 def main():
     """Main function."""
@@ -80,22 +110,14 @@ def main():
         
         for method in methods:
             try:
-                start_time = time.time()
-                optimal_dv, stage_ratios, payload_fraction = optimize_stages(parameters, stages, method)
-                end_time = time.time()
-                
-                results[method] = {
-                    'optimal_dv': optimal_dv,
-                    'stage_ratios': stage_ratios,
-                    'payload_fraction': payload_fraction,
-                    'time': end_time - start_time
-                }
-                
-                logger.info(f"{method} results:")
-                logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_dv]} m/s")
-                logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in stage_ratios]}")
-                logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-                logger.info(f"  Time: {end_time - start_time:.3f} seconds")
+                result = optimize_stages(parameters, stages, method)
+                if result is not None:
+                    results[method] = result
+                    logger.info(f"{method} results:")
+                    logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in result['optimal_dv']]} m/s")
+                    logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in result['stage_ratios']]}")
+                    logger.info(f"  Payload fraction: {result['payload_fraction']:.3f}")
+                    logger.info(f"  Time: {result['execution_time']:.3f} seconds")
                 
             except Exception as e:
                 logger.error(f"Method {method} failed: {e}")
