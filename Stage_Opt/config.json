@@ -1,0 +1,35 @@
+{
+    "optimization": {
+        "penalty_coefficient": 1000.0,
+        "tolerance": 1e-6,
+        "ga": {
+            "population_size": 100,
+            "n_generations": 200
+        },
+        "pso": {
+            "n_particles": 50,
+            "n_iterations": 200,
+            "c1": 0.5,
+            "c2": 0.3,
+            "w": 0.9
+        },
+        "basin_hopping": {
+            "n_iterations": 100,
+            "temperature": 1.0,
+            "step_size": 0.5
+        },
+        "cma_es": {
+            "sigma0": 0.5,
+            "max_iterations": 1000
+        }
+    },
+    "constants": {
+        "gravity_loss": 100.0,
+        "drag_loss": 100.0
+    },
+    "logging": {
+        "file": "Stage_Opt/optimization.log",
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    }
+}
