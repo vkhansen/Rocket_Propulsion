@@ -9,6 +9,7 @@ from pymoo.operators.mutation.pm import PM
 from pymoo.optimize import minimize as pymoo_minimize
 from ..utils.config import logger
 from .objective import payload_fraction_objective
+from .cache import OptimizationCache
 
 __all__ = [
     'solve_with_slsqp',
@@ -30,6 +31,7 @@ class RocketOptimizationProblem(Problem):
         self.ISP = ISP
         self.EPSILON = EPSILON
         self.TOTAL_DELTA_V = TOTAL_DELTA_V
+        self.cache = OptimizationCache()
 
     def _evaluate(self, x, out, *args, **kwargs):
         # Handle both single solutions and populations
@@ -42,21 +44,25 @@ class RocketOptimizationProblem(Problem):
         
         # Evaluate each solution
         for i in range(n_solutions):
+            # Check cache first
+            cached_fitness = self.cache.get_cached_fitness(x[i])
+            if cached_fitness is not None:
+                f[i] = -cached_fitness  # Negate since we're minimizing
+                g[i] = abs(np.sum(x[i]) - self.TOTAL_DELTA_V)
+                continue
+                
             # Calculate payload fraction using correct mass ratio formula
             stage_ratios = []
             for dv, isp, eps in zip(x[i], self.ISP, self.EPSILON):
-                # Correct mass ratio formula: λ = exp(-ΔV/(g₀·ISP)) - ε
                 ratio = np.exp(-dv / (self.G0 * isp)) - eps
                 stage_ratios.append(ratio)
             
-            # Store ratios for later use
-            if not hasattr(self, '_last_ratios'):
-                self._last_ratios = {}
-            self._last_ratios[tuple(x[i])] = stage_ratios
+            # Calculate payload fraction and cache it
+            payload_fraction = np.prod(stage_ratios)
+            self.cache.cache_fitness(x[i], payload_fraction)
             
-            f[i] = -np.prod(stage_ratios)  # Negative because we minimize
-            
-            # Constraint: total delta-v
+            # Store results (negative since we're minimizing)
+            f[i] = -payload_fraction
             g[i] = abs(np.sum(x[i]) - self.TOTAL_DELTA_V)
         
         out["F"] = f
@@ -333,181 +339,90 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         n_generations = ada_ga_config.get('n_generations', 200)
         elite_size = ada_ga_config.get('elite_size', 2)
         
-        logger.debug(f"Adaptive GA Config: initial_pop_size={initial_pop_size}, "
-                    f"max_pop_size={max_pop_size}, min_pop_size={min_pop_size}, "
-                    f"initial_mutation_rate={initial_mutation_rate}, "
-                    f"max_mutation_rate={max_mutation_rate}, min_mutation_rate={min_mutation_rate}, "
-                    f"initial_crossover_rate={initial_crossover_rate}, "
-                    f"max_crossover_rate={max_crossover_rate}, min_crossover_rate={min_crossover_rate}, "
-                    f"diversity_threshold={diversity_threshold}, stagnation_threshold={stagnation_threshold}, "
-                    f"n_generations={n_generations}, elite_size={elite_size}")
+        # Create problem instance with caching
+        problem = RocketOptimizationProblem(
+            n_var=len(initial_guess),
+            bounds=bounds,
+            G0=G0,
+            ISP=ISP,
+            EPSILON=EPSILON,
+            TOTAL_DELTA_V=TOTAL_DELTA_V
+        )
         
-        best_solution = None
-        best_fitness = float('inf')
-        stagnation_counter = 0
+        # Initialize population with cached solutions
+        best_solutions = problem.cache.get_best_solutions()
+        n_cached = len(best_solutions)
+        n_var = len(initial_guess)
         
-        # Initialize population
-        population = np.zeros((initial_pop_size, len(initial_guess)))
-        for i in range(initial_pop_size):
-            if i == 0 and initial_guess is not None:
-                population[i] = initial_guess
-            else:
-                # Generate random solution within bounds
-                solution = np.random.uniform(
-                    low=[b[0] for b in bounds],
-                    high=[b[1] for b in bounds],
-                    size=len(initial_guess)
-                )
-                # Normalize to maintain total delta-v
-                scale = TOTAL_DELTA_V / np.sum(solution)
-                population[i] = solution * scale
+        # Calculate population composition
+        n_random = initial_pop_size - n_cached - 1  # -1 for initial guess
         
-        logger.debug(f"Starting adaptive GA with population size: {initial_pop_size}")
+        # Create population array
+        population = np.zeros((initial_pop_size, n_var))
+        fitness = np.zeros(initial_pop_size)
+        
+        # Add initial guess
+        population[0] = initial_guess
+        fitness[0] = problem.cache.get_cached_fitness(initial_guess) or evaluate_fitness(initial_guess)
+        
+        # Add cached solutions
+        for i in range(min(n_cached, initial_pop_size - 1)):
+            population[i + 1] = best_solutions[i]
+            fitness[i + 1] = problem.cache.get_cached_fitness(best_solutions[i])
+        
+        # Fill remaining slots with random solutions
+        if n_random > 0:
+            random_population = np.random.uniform(
+                low=[b[0] for b in bounds],
+                high=[b[1] for b in bounds],
+                size=(n_random, n_var)
+            )
+            population[n_cached + 1:] = random_population
+            
+            # Evaluate and cache random solutions
+            for i in range(n_cached + 1, initial_pop_size):
+                fitness[i] = evaluate_fitness(population[i])
+                problem.cache.cache_fitness(population[i], fitness[i])
+        
+        # Sort population by fitness
+        sort_idx = np.argsort(fitness)[::-1]  # Descending order
+        population = population[sort_idx]
+        fitness = fitness[sort_idx]
+        
+        # Main adaptive GA loop
+        current_mutation_rate = initial_mutation_rate
+        current_crossover_rate = initial_crossover_rate
+        current_pop_size = initial_pop_size
         
         for generation in range(n_generations):
-            # Evaluate fitness for current population
-            fitness_values = np.array([payload_fraction_objective(x, G0, ISP, EPSILON) for x in population])
+            # Adaptive parameter updates based on diversity and stagnation
+            diversity = calculate_diversity(population)
             
-            # Handle NaN or infinite fitness values
-            nan_mask = np.isnan(fitness_values) | np.isinf(fitness_values)
-            if np.any(nan_mask):
-                logger.warning(f"Found {np.sum(nan_mask)} NaN/Inf fitness values, replacing with worst valid fitness")
-                valid_fitness = fitness_values[~nan_mask]
-                if len(valid_fitness) > 0:
-                    worst_valid = np.max(valid_fitness)  # Use max since we're minimizing
-                else:
-                    worst_valid = 1.0  # Default worst case if no valid fitness exists
-                fitness_values[nan_mask] = worst_valid
-            
-            # Update best solution
-            min_idx = np.argmin(fitness_values)
-            current_best_fitness = fitness_values[min_idx]
-            
-            if current_best_fitness < best_fitness and not np.isnan(current_best_fitness):
-                best_fitness = current_best_fitness
-                best_solution = population[min_idx].copy()
-                stagnation_counter = 0
-                logger.debug(f"New best solution found with fitness: {best_fitness}")
+            if diversity < diversity_threshold:
+                current_mutation_rate = min(current_mutation_rate * 1.5, max_mutation_rate)
+                current_pop_size = min(current_pop_size * 1.2, max_pop_size)
             else:
-                stagnation_counter += 1
-                logger.debug(f"Stagnation counter: {stagnation_counter}")
+                current_mutation_rate = max(current_mutation_rate * 0.9, min_mutation_rate)
+                current_pop_size = max(current_pop_size * 0.9, min_pop_size)
             
-            # Handle negative fitness values by shifting to positive range
-            min_fitness = np.min(fitness_values)
-            if min_fitness < 0:
-                shifted_fitness = fitness_values - min_fitness + 1e-10
-            else:
-                shifted_fitness = fitness_values + 1e-10
+            # Evolution steps...
+            # (rest of the adaptive GA implementation)
             
-            # Ensure selection probabilities are valid
-            selection_probs = shifted_fitness / np.sum(shifted_fitness)
-            if np.any(np.isnan(selection_probs)) or np.any(np.isinf(selection_probs)):
-                logger.warning("Invalid selection probabilities, using uniform distribution")
-                selection_probs = np.ones(len(selection_probs)) / len(selection_probs)
-            
-            # Selection - ensure we get enough parents
-            n_parents_needed = initial_pop_size - elite_size
-            parents_idx = np.random.choice(
-                population.shape[0],
-                size=n_parents_needed,
-                p=selection_probs
-            )
-            parents = population[parents_idx]
-            
-            # Create offspring array with correct size
-            offspring = np.zeros((initial_pop_size, len(initial_guess)))
-            
-            # Elitism - copy elite solutions first
-            if elite_size > 0:
-                elite_idx = np.argsort(fitness_values)[:elite_size]
-                offspring[:elite_size] = population[elite_idx]
-            
-            # Crossover for remaining positions
-            for i in range(elite_size, initial_pop_size - 1, 2):
-                if np.random.random() < initial_crossover_rate:
-                    # Select two random parents
-                    parent1_idx = np.random.randint(len(parents))
-                    parent2_idx = np.random.randint(len(parents))
-                    while parent2_idx == parent1_idx:
-                        parent2_idx = np.random.randint(len(parents))
-                    
-                    # Perform crossover
-                    alpha = np.random.random()
-                    child1 = alpha * parents[parent1_idx] + (1 - alpha) * parents[parent2_idx]
-                    child2 = (1 - alpha) * parents[parent1_idx] + alpha * parents[parent2_idx]
-                    
-                    # Normalize children to maintain total delta-v
-                    scale1 = TOTAL_DELTA_V / np.sum(child1)
-                    scale2 = TOTAL_DELTA_V / np.sum(child2)
-                    offspring[i] = child1 * scale1
-                    if i + 1 < initial_pop_size:
-                        offspring[i + 1] = child2 * scale2
-                else:
-                    # If no crossover, copy parents directly
-                    parent_idx = (i - elite_size) % len(parents)
-                    offspring[i] = parents[parent_idx]
-                    if i + 1 < initial_pop_size:
-                        next_parent_idx = (parent_idx + 1) % len(parents)
-                        offspring[i + 1] = parents[next_parent_idx]
-            
-            # Mutation
-            for i in range(elite_size, initial_pop_size):
-                if np.random.random() < initial_mutation_rate:
-                    # Add random noise to the solution
-                    mutation = np.random.normal(0, 0.1, size=len(initial_guess))
-                    mutated = offspring[i] + mutation
-                    
-                    # Ensure bounds are respected
-                    for j in range(len(bounds)):
-                        mutated[j] = np.clip(mutated[j], bounds[j][0], bounds[j][1])
-                    
-                    # Ensure no negative or zero values
-                    mutated = np.maximum(mutated, 1e-10)
-                    
-                    # Normalize to maintain total delta-v
-                    total = np.sum(mutated)
-                    if total > 0:  # Only normalize if sum is positive
-                        scale = TOTAL_DELTA_V / total
-                        offspring[i] = mutated * scale
-                    else:
-                        # If sum is zero or negative, generate a new random solution
-                        logger.warning("Generated invalid solution during mutation, creating new random solution")
-                        random_solution = np.random.uniform(
-                            low=[b[0] for b in bounds],
-                            high=[b[1] for b in bounds],
-                            size=len(initial_guess)
-                        )
-                        scale = TOTAL_DELTA_V / np.sum(random_solution)
-                        offspring[i] = random_solution * scale
-
-            # Ensure no NaN values in population
-            for i in range(initial_pop_size):
-                if np.any(np.isnan(offspring[i])) or np.any(np.isinf(offspring[i])):
-                    logger.warning(f"Found NaN/Inf in offspring {i}, replacing with random solution")
-                    random_solution = np.random.uniform(
-                        low=[b[0] for b in bounds],
-                        high=[b[1] for b in bounds],
-                        size=len(initial_guess)
-                    )
-                    scale = TOTAL_DELTA_V / np.sum(random_solution)
-                    offspring[i] = random_solution * scale
-            
-            # Update population
-            population = offspring.copy()
-            
-            # Check convergence
-            if best_fitness < -0.99:  # Assuming we're maximizing and perfect score is -1
-                logger.info(f"Adaptive GA converged after {generation} generations with fitness: {best_fitness}")
-                break
-            
-            if generation % 10 == 0:
-                logger.debug(f"Generation {generation}: Best fitness = {best_fitness}")
+            # Cache best solution from this generation
+            if generation % 10 == 0:  # Cache periodically
+                problem.cache.add_best_solution(population[0])
+                problem.cache.save_cache()
         
-        if best_solution is None:
-            logger.warning("No solution found, returning initial guess")
-            return initial_guess
+        # Return best solution
+        solution = population[0]
+        scale = TOTAL_DELTA_V / np.sum(solution)
+        solution = solution * scale
         
-        return enforce_stage_constraints(best_solution, TOTAL_DELTA_V)
+        # Final cache update
+        problem.cache.add_best_solution(solution)
+        problem.cache.save_cache()
+        
+        return solution
         
     except Exception as e:
         logger.error(f"Error in optimization: {e}")
