@@ -120,62 +120,27 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
         # Create output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
         
-        tex_path = os.path.join(output_dir, 'optimization_report.tex')
-        bib_path = os.path.join(output_dir, 'references.bib')
+        # Sort results by payload fraction
+        sorted_results = sorted(results.items(), 
+                              key=lambda x: x[1].get('payload_fraction', 0), 
+                              reverse=True) if results else []
         
-        # Write references.bib file first
-        bib_content = r"""@article{pso_ascent_2013,
-    author = {Kumar, H. and Garg, P. and Deb, K.},
-    title = {Particle Swarm Optimization of Ascent Trajectories of Multistage Launch Vehicles},
-    journal = {Journal of Spacecraft and Rockets},
-    volume = {50},
-    number = {6},
-    year = {2013},
-    pages = {1244--1251}
-}
-
-@article{evolutionary_rocket_2022,
-    author = {Silva, J. and Costa, R. and Pinto, A.},
-    title = {Coupled Preliminary Design and Trajectory Optimization of Rockets Using Evolutionary Algorithms},
-    journal = {Aerospace Science and Technology},
-    volume = {120},
-    year = {2022},
-    pages = {107275}
-}
-
-@article{pso_micro_launch_2012,
-    author = {Andrews, J. and Hall, J.},
-    title = {Performance Optimization of Multi-Stage Launch Vehicle Using Particle Swarm Algorithm},
-    journal = {Journal of Guidance, Control, and Dynamics},
-    volume = {35},
-    number = {3},
-    year = {2012},
-    pages = {764--775}
-}
-
-@article{de_ascent_2021,
-    author = {Wang, T. and Liu, C. and Zhang, Y.},
-    title = {Multiconstrained Ascent Trajectory Optimization Using an Improved Differential Evolution Algorithm},
-    journal = {Journal of Aerospace Engineering},
-    volume = {34},
-    number = {2},
-    year = {2021},
-    pages = {04020107}
-}"""
-
-        # Write references.bib file
-        with open(bib_path, 'w', encoding='utf-8') as f:
-            f.write(bib_content)
-
         # Generate LaTeX content
-        latex_content = r"""\documentclass{article}
+        latex_content = r"""\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
+\usepackage{lmodern}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{hyperref}
-\usepackage[style=authoryear]{natbib}
+\usepackage[numbers]{natbib}
 \usepackage{float}
 \usepackage{siunitx}
+\usepackage{setspace}
+
+\bibliographystyle{ieeetr}
+\setlength{\parskip}{1em}
+\onehalfspacing
 
 \title{Multi-Stage Rocket Optimization Analysis}
 \author{Stage\_Opt Analysis Report}
@@ -186,119 +151,155 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
 \maketitle
 
 \section{Introduction}
-This report presents a comprehensive analysis of multi-stage rocket optimization using various state-of-the-art optimization algorithms. The optimization process aims to maximize payload capacity by finding optimal stage configurations while satisfying various constraints including total delta-v requirements and structural mass ratios \autocite{pso_ascent_2013}.
+This report presents a comprehensive analysis of multi-stage rocket optimization using various state-of-the-art optimization algorithms. The optimization process aims to maximize payload capacity by finding optimal stage configurations while satisfying various constraints including total delta-v requirements and structural mass ratios \cite{pso_ascent_2013}.
 
-Our approach incorporates multiple optimization techniques from recent literature \autocite{evolutionary_rocket_2022,de_ascent_2021}:
+Our approach incorporates multiple optimization techniques from recent literature \cite{evolutionary_rocket_2022,de_ascent_2021}:
 
 \begin{itemize}
-    \item \textbf{Particle Swarm Optimization (PSO)}: Based on the work of \textcite{pso_ascent_2013}, this method simulates the collective behavior of particle swarms to explore the solution space effectively. Recent applications in micro-launch vehicles \autocite{pso_micro_launch_2012} have demonstrated its effectiveness in rocket trajectory optimization.
+    \item \textbf{Particle Swarm Optimization (PSO)}: Based on the work of \cite{pso_ascent_2013}, this method simulates the collective behavior of particle swarms to explore the solution space effectively. Recent applications in micro-launch vehicles \cite{pso_micro_launch_2012} have demonstrated its effectiveness in rocket trajectory optimization.
     
-    \item \textbf{Differential Evolution (DE)}: Following the methodology presented by \textcite{de_ascent_2021}, this algorithm employs vector differences for mutation operations, making it particularly effective for handling the multi-constraint nature of rocket stage optimization.
+    \item \textbf{Differential Evolution (DE)}: Following the methodology presented by \cite{de_ascent_2021}, this algorithm employs vector differences for mutation operations, making it particularly effective for handling the multi-constraint nature of rocket stage optimization.
     
-    \item \textbf{Genetic Algorithm (GA)}: Inspired by evolutionary processes and implemented following principles from \textcite{evolutionary_rocket_2022}, this method uses selection, crossover, and mutation operators to evolve optimal solutions. We include both standard and adaptive variants to enhance exploration capabilities.
+    \item \textbf{Genetic Algorithm (GA)}: Inspired by evolutionary processes and implemented following principles from \cite{evolutionary_rocket_2022}, this method uses selection, crossover, and mutation operators to evolve optimal solutions. We include both standard and adaptive variants to enhance exploration capabilities.
     
-    \item \textbf{Basin-Hopping}: A hybrid global optimization technique that combines local optimization with Monte Carlo sampling, effective for problems with multiple local optima \autocite{pso_micro_launch_2012}.
+    \item \textbf{Basin-Hopping}: A hybrid global optimization technique that combines local optimization with Monte Carlo sampling, effective for problems with multiple local optima \cite{pso_micro_launch_2012}.
     
-    \item \textbf{Sequential Least Squares Programming (SLSQP)}: A gradient-based optimization method for constrained nonlinear problems, particularly useful for fine-tuning solutions in smooth regions of the search space \autocite{de_ascent_2021}.
+    \item \textbf{Sequential Least Squares Programming (SLSQP)}: A gradient-based optimization method for constrained nonlinear problems, particularly useful for fine-tuning solutions in smooth regions of the search space \cite{de_ascent_2021}.
 \end{itemize}
 
 \section{Problem Formulation}
-The optimization problem involves finding the optimal distribution of total delta-v ($\\Delta$V) across multiple stages while considering:
+The optimization problem involves finding the optimal distribution of total delta-v ($\Delta$V) across multiple stages while considering:
 \begin{itemize}
-    \item Structural coefficients ($\\epsilon$) for each stage
+    \item Structural coefficients ($\epsilon$) for each stage
     \item Specific impulse (ISP) variations between stages
-    \item Mass ratio constraints \autocite{evolutionary_rocket_2022}
-    \item Total delta-v requirement \autocite{pso_ascent_2013}
+    \item Mass ratio constraints \cite{evolutionary_rocket_2022}
+    \item Total delta-v requirement \cite{pso_ascent_2013}
 \end{itemize}
 
 \section{Methodology}
-Each optimization method was implemented with specific adaptations for rocket stage optimization \autocite{de_ascent_2021}:
+Each optimization method was implemented with specific adaptations for rocket stage optimization \cite{de_ascent_2021}:
 
 \subsection{Particle Swarm Optimization}
-Following \textcite{pso_ascent_2013}, our PSO implementation uses adaptive inertia weights and local topology to balance exploration and exploitation. The algorithm has shown particular effectiveness in handling the nonlinear constraints of rocket trajectory optimization \autocite{pso_micro_launch_2012}.
+Following \cite{pso_ascent_2013}, our PSO implementation uses adaptive inertia weights and local topology to balance exploration and exploitation. The algorithm has shown particular effectiveness in handling the nonlinear constraints of rocket trajectory optimization \cite{pso_micro_launch_2012}.
 
 \subsection{Differential Evolution}
-Based on the approach outlined in \textcite{de_ascent_2021}, our DE implementation uses adaptive mutation rates and crossover operators specifically tuned for multi-stage rocket optimization. The algorithm effectively handles the coupling between stage configurations and overall system performance.
+Based on the approach outlined in \cite{de_ascent_2021}, our DE implementation uses adaptive mutation rates and crossover operators specifically tuned for multi-stage rocket optimization. The algorithm effectively handles the coupling between stage configurations and overall system performance.
 
 \subsection{Genetic Algorithm}
-Implementing concepts from \textcite{evolutionary_rocket_2022}, our GA variants use specialized crossover and mutation operators that maintain the feasibility of solutions while exploring the design space effectively. The adaptive version dynamically adjusts population size and genetic operators based on solution diversity and convergence behavior.
+Implementing concepts from \cite{evolutionary_rocket_2022}, our GA variants use specialized crossover and mutation operators that maintain the feasibility of solutions while exploring the design space effectively. The adaptive version dynamically adjusts population size and genetic operators based on solution diversity and convergence behavior.
 
 \section{Results and Analysis}
-The following methods were evaluated, sorted by their achieved payload ratio \autocite{pso_ascent_2013}:
+The following methods were evaluated, sorted by their achieved payload ratio \cite{pso_ascent_2013}:
 
 \begin{table}[H]
 \centering
+\caption{Optimization Methods Performance Comparison}
 \begin{tabular}{lc}
 \toprule
 Method & Payload Ratio \\
 \midrule
 """
 
-        # Sort methods by payload ratio
-        sorted_results = sorted(results.items(), key=lambda x: x[1].get('payload_fraction', 0), reverse=True)
-        
         # Add each method's results to the table
         for method, result in sorted_results:
             latex_content += f"{method} & {result.get('payload_fraction', 0):.4f} \\\\\n"
         
         latex_content += r"""\bottomrule
 \end{tabular}
-\caption{Optimization Methods Performance Comparison}
-\label{tab:performance}
 \end{table}
 
 \section{Stage Configuration Analysis}
 The following configurations were found for each method:
-"""
 
-        # Add stage configurations for each method
+\begin{itemize}
+"""
         for method, result in sorted_results:
-            latex_content += f"\n\\subsection{{{method}}}\n"
-            latex_content += "Stage configuration (ΔV distribution):\n\\begin{itemize}\n"
-            for i, dv in enumerate(result.get('dv', []), 1):
-                latex_content += f"\\item Stage {i}: {dv:.2f} m/s\n"
+            latex_content += f"\\item \\textbf{{{method}}}\n"
+            latex_content += "\\begin{itemize}\n"
+            
+            # Add stage details if available
+            if 'stages' in result:
+                for i, stage in enumerate(result['stages'], 1):
+                    latex_content += f"\\item Stage {i}: $\\Delta$V = {stage.get('delta_v', 0):.2f} m/s, "
+                    latex_content += f"$\\epsilon$ = {stage.get('epsilon', 0):.3f}\n"
+            
             latex_content += "\\end{itemize}\n"
             
             if method == "Particle Swarm Optimization":
-                latex_content += f"\nThis configuration was achieved using the PSO algorithm as described in \\citet{{pso_ascent_2013}}, which has shown particular effectiveness in handling the nonlinear constraints of stage optimization problems \\citep{{pso_micro_launch_2012}}.\n"
+                latex_content += f"\nThis configuration was achieved using the PSO algorithm as described in \\cite{{pso_ascent_2013}}, which has shown particular effectiveness in handling the nonlinear constraints of stage optimization problems \\cite{{pso_micro_launch_2012}}.\n"
             elif method == "Differential Evolution":
-                latex_content += f"\nThe DE algorithm, following the approach of \\citet{{de_ascent_2021}}, successfully balanced exploration and exploitation in the search space while maintaining constraint feasibility.\n"
+                latex_content += f"\nThe DE algorithm, following the approach of \\cite{{de_ascent_2021}}, successfully balanced exploration and exploitation in the search space while maintaining constraint feasibility.\n"
             elif method == "Genetic Algorithm" or method == "Adaptive Genetic Algorithm":
-                latex_content += f"\nThe evolutionary approach, similar to that described in \\citet{{evolutionary_rocket_2022}}, effectively handled the multi-objective nature of the optimization problem.\n"
+                latex_content += f"\nThe evolutionary approach, similar to that described in \\cite{{evolutionary_rocket_2022}}, effectively handled the multi-objective nature of the optimization problem.\n"
 
         latex_content += r"""
 \section{Conclusion}
-The optimization analysis revealed that """ + f"{sorted_results[0][0]}" + r""" achieved the best payload ratio of """ + f"{sorted_results[0][1].get('payload_fraction', 0):.4f}" + r""". This result demonstrates the effectiveness of modern optimization techniques in solving complex rocket design problems.
+""" + (f"The optimization analysis revealed that {sorted_results[0][0]} achieved the best payload ratio of {sorted_results[0][1].get('payload_fraction', 0):.4f}" if sorted_results else "The optimization analysis was completed successfully, though no results were available for comparison.") + r""". This result demonstrates the effectiveness of modern optimization techniques in solving complex rocket design problems.
 
 The comparative analysis shows that different algorithms exhibit varying strengths:
 \begin{itemize}
-    \item PSO excels in handling the nonlinear nature of the problem \autocite{pso_ascent_2013}
-    \item DE shows robust performance in maintaining constraint feasibility \autocite{de_ascent_2021}
-    \item Evolutionary approaches provide good exploration of the design space \autocite{evolutionary_rocket_2022}
+    \item PSO excels in handling the nonlinear nature of the problem \cite{pso_ascent_2013}
+    \item DE shows robust performance in maintaining constraint feasibility \cite{de_ascent_2021}
+    \item Evolutionary approaches provide good exploration of the design space \cite{evolutionary_rocket_2022}
 \end{itemize}
 
 These results provide valuable insights for future rocket design optimization studies and highlight the importance of choosing appropriate optimization methods for specific design challenges.
 
-\bibliographystyle{plainnat}
 \bibliography{references}
 
 \end{document}
 """
 
-        # Replace Unicode characters with LaTeX commands
-        latex_content = latex_content.replace('Δ', '$\\Delta$')
-        latex_content = latex_content.replace('ε', '$\\epsilon$')
-        latex_content = latex_content.replace('λ', '$\\lambda$')
+        tex_path = os.path.join(output_dir, 'optimization_report.tex')
+        bib_path = os.path.join(output_dir, 'references.bib')
         
-        try:
-            with open(tex_path, 'w', encoding='utf-8') as f:
-                f.write(latex_content)
-        except Exception as e:
-            logger.error(f"Error writing LaTeX file with UTF-8 encoding: {e}")
-            # Fallback to writing with ASCII-safe content
-            latex_content = latex_content.encode('ascii', 'replace').decode('ascii')
-            with open(tex_path, 'w') as f:
-                f.write(latex_content)
+        # Write references.bib file first
+        bib_content = r"""@article{pso_ascent_2013,
+    author = {Kumar, H. and Garg, P. and Deb, K.},
+    title = {Particle Swarm Optimization of Ascent Trajectories of Multistage Launch Vehicles},
+    journal = {Journal of Spacecraft and Rockets},
+    volume = {50},
+    number = {6},
+    pages = {1244--1251},
+    year = {2013}
+}
+
+@article{evolutionary_rocket_2022,
+    author = {Silva, J. and Costa, R. and Pinto, A.},
+    title = {Coupled Preliminary Design and Trajectory Optimization of Rockets Using Evolutionary Algorithms},
+    journal = {Aerospace Science and Technology},
+    volume = {120},
+    pages = {107275},
+    year = {2022}
+}
+
+@article{pso_micro_launch_2012,
+    author = {Andrews, J. and Hall, J.},
+    title = {Performance Optimization of Multi-Stage Launch Vehicle Using Particle Swarm Algorithm},
+    journal = {Journal of Guidance, Control, and Dynamics},
+    volume = {35},
+    number = {3},
+    pages = {764--775},
+    year = {2012}
+}
+
+@article{de_ascent_2021,
+    author = {Wang, T. and Liu, C. and Zhang, Y.},
+    title = {Multiconstrained Ascent Trajectory Optimization Using an Improved Differential Evolution Algorithm},
+    journal = {Journal of Aerospace Engineering},
+    volume = {34},
+    number = {2},
+    pages = {04020107},
+    year = {2021}
+}"""
+
+        # Write references.bib file
+        with open(bib_path, 'w', encoding='utf-8') as f:
+            f.write(bib_content)
+
+        # Write LaTeX file
+        with open(tex_path, 'w', encoding='utf-8') as f:
+            f.write(latex_content)
 
         # Compile the LaTeX file to PDF
         pdf_path = compile_latex_to_pdf(tex_path)
