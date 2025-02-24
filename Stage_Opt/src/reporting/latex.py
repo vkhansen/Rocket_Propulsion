@@ -246,7 +246,6 @@ The comparative analysis shows that different algorithms exhibit varying strengt
 These results provide valuable insights for future rocket design optimization studies and highlight the importance of choosing appropriate optimization methods for specific design challenges.
 
 \bibliography{references}
-
 \end{document}
 """
 

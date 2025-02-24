@@ -24,6 +24,18 @@ wheels/
 .installed.cfg
 *.egg
 
+# program Specific
+*.log
+*.log.*
+*.aux
+*.out
+*.run.xml
+*.bbl
+*.blg
+
+
+
+
 # Virtual environments
 venv/
 .venv/
@@ -137,6 +149,3 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
-
-#Code Output
-output/
