@@ -155,8 +155,18 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         logger.debug(f"Basin-Hopping Config: iterations={n_iterations}, "
                     f"temperature={temperature}, stepsize={stepsize}")
         
-        # Define the objective function with penalty for constraint violation
+        # Initialize cache
+        cache = OptimizationCache()
+        
+        # Define the objective function with caching and penalty
         def objective(x):
+            # Check cache first
+            x_tuple = tuple(x)
+            cached_value = cache.get_cached_fitness(x)
+            if cached_value is not None:
+                logger.debug(f"Cache hit for solution: {x}")
+                return -cached_value  # Negative because we minimize
+            
             # Calculate payload fraction
             stage_ratios = [np.exp(-dv / (G0 * isp)) - eps 
                           for dv, isp, eps in zip(x, ISP, EPSILON)]
@@ -167,8 +177,16 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
             delta_v_violation = abs(np.sum(x) - TOTAL_DELTA_V)
             penalty = penalty_weight * delta_v_violation
             
-            logger.debug(f"Objective evaluation - Input: {x}, Objective value: {obj_value + penalty}")
-            return obj_value + penalty
+            final_value = obj_value + penalty
+            
+            # Store in cache (without penalty)
+            cache.fitness_cache[x_tuple] = -obj_value  # Store positive value
+            if final_value < 1e-3:  # If solution is good
+                cache.best_solutions.append(np.array(x))
+                cache.save_cache()
+            
+            logger.debug(f"Objective evaluation - Input: {x}, Objective value: {final_value}")
+            return final_value
         
         # Define bounds as a list of tuples
         bounds_list = [(b[0], b[1]) for b in bounds]
@@ -192,6 +210,12 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
             solution = result.x
             scale = TOTAL_DELTA_V / np.sum(solution)
             solution = solution * scale
+            
+            # Cache final solution
+            cache.fitness_cache[tuple(solution)] = -result.fun  # Store positive value
+            cache.best_solutions.append(solution)
+            cache.save_cache()
+            
             logger.info(f"Final solution: {solution}")
             return solution
         else:

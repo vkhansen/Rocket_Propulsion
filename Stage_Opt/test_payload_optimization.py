@@ -475,7 +475,36 @@ class TestOptimizationCache(unittest.TestCase):
         
         self.assertTrue(np.allclose(result, good_solution, rtol=0.1))
 
-
+    def test_basin_hopping_caching(self):
+        """Test that basin hopping properly uses caching."""
+        # Add a known good solution to cache
+        good_solution = np.array([0.33, 0.33, 0.34])
+        self.cache.fitness_cache[tuple(good_solution)] = -0.95
+        self.cache.best_solutions.append(good_solution)
+        self.cache.save_cache()
+        
+        # Run basin hopping with same parameters
+        result = solve_with_basin_hopping(
+            initial_guess=good_solution,
+            bounds=[(0.1, 0.5)] * 3,
+            G0=9.81,
+            ISP=[300, 300, 300],
+            EPSILON=0.1,
+            TOTAL_DELTA_V=1.0,
+            config={'basin_hopping': {
+                'n_iterations': 50,
+                'temperature': 1.0,
+                'stepsize': 0.1
+            }}
+        )
+        
+        # Verify result is close to the good solution
+        self.assertTrue(np.allclose(result, good_solution, rtol=0.1))
+        
+        # Verify solution was cached
+        new_cache = OptimizationCache(cache_file=self.cache_file)
+        self.assertIn(tuple(result), new_cache.fitness_cache)
+        self.assertTrue(any(np.allclose(s, result, rtol=0.1) for s in new_cache.best_solutions))
 
 
 if __name__ == "__main__":
