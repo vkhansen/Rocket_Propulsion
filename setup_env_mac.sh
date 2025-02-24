@@ -38,6 +38,10 @@ pip install deap>=1.3.1
 pip install notebook>=6.4.0
 pip install ipywidgets>=7.6.0
 pip install tqdm>=4.62.0
+pip install pytest
+
+
+
 
 # Create necessary directories
 mkdir -p Stage_Opt/output
