@@ -22,6 +22,7 @@ from src.optimization.solvers import (
     solve_with_pso
 )
 from src.utils.config import setup_logging, CONFIG
+from src.optimization.cache import OptimizationCache, OUTPUT_DIR
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -412,6 +413,70 @@ class TestCSVOutputs(unittest.TestCase):
                     places=1,  
                     msg=f"Payload fraction mismatch for method {method}"
                 )
+
+
+class TestOptimizationCache(unittest.TestCase):
+    """Test cases for optimization caching functionality."""
+    
+    def setUp(self):
+        self.cache_file = "test_cache.pkl"
+        self.cache = OptimizationCache(cache_file=self.cache_file)
+        self.test_solution = np.array([0.3, 0.3, 0.4])
+        self.test_fitness = -0.85
+        
+    def tearDown(self):
+        cache_path = os.path.join(OUTPUT_DIR, self.cache_file)
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+            
+    def test_cache_operations(self):
+        """Test basic cache operations."""
+        # Test initial cache is empty
+        self.assertNotIn(tuple(self.test_solution), self.cache.fitness_cache)
+        
+        # Test adding to cache
+        self.cache.fitness_cache[tuple(self.test_solution)] = self.test_fitness
+        self.assertEqual(self.cache.get_cached_fitness(self.test_solution), self.test_fitness)
+        
+        # Test persistence
+        self.cache.save_cache()
+        new_cache = OptimizationCache(cache_file=self.cache_file)
+        self.assertEqual(new_cache.get_cached_fitness(self.test_solution), self.test_fitness)
+        
+    def test_cache_size(self):
+        """Test cache size management."""
+        # Add multiple solutions
+        for i in range(10):
+            solution = np.array([i/10, i/10, 1-2*(i/10)])
+            self.cache.fitness_cache[tuple(solution)] = -0.8 - i/10
+            self.cache.best_solutions.append(solution)
+            
+        # Test cache limits
+        self.cache.save_cache()
+        new_cache = OptimizationCache(cache_file=self.cache_file)
+        self.assertEqual(len(new_cache.best_solutions), 10)
+        
+    def test_ga_integration(self):
+        """Test integration with genetic algorithm."""
+        good_solution = np.array([0.33, 0.33, 0.34])
+        self.cache.fitness_cache[tuple(good_solution)] = -0.95
+        self.cache.best_solutions.append(good_solution)
+        self.cache.save_cache()
+        
+        result = solve_with_ga(
+            initial_guess=good_solution,
+            bounds=[(0.1, 0.5)] * 3,
+            G0=9.81,
+            ISP=[300, 300, 300],
+            EPSILON=0.1,
+            TOTAL_DELTA_V=1.0,
+            config={'ga': {'population_size': 50, 'n_generations': 100}}
+        )
+        
+        self.assertTrue(np.allclose(result, good_solution, rtol=0.1))
+
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
