@@ -16,6 +16,7 @@ from src.optimization.solvers import (
 )
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_report
+from src.reporting.csv_reports import write_results_to_csv
 
 
 def main():
@@ -82,9 +83,17 @@ def main():
         if results:
             plot_results(results)
             try:
-                generate_report(results, stages, output_dir=OUTPUT_DIR)  # Pass stages here
+                # Generate CSV reports first
+                summary_path, detailed_path = write_results_to_csv(results, stages, output_dir=OUTPUT_DIR)
+                if summary_path and detailed_path:
+                    logger.info(f"CSV reports generated: {summary_path}, {detailed_path}")
+                else:
+                    logger.warning("Failed to generate CSV reports")
+                
+                # Generate LaTeX report
+                generate_report(results, stages, output_dir=OUTPUT_DIR)
             except Exception as e:
-                logger.error(f"Error generating report: {str(e)}")
+                logger.error(f"Error generating reports: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error in main routine: {str(e)}")
