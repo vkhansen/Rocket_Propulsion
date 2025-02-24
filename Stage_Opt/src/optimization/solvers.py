@@ -368,11 +368,22 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             # Evaluate fitness for current population
             fitness_values = np.array([payload_fraction_objective(x, G0, ISP, EPSILON) for x in population])
             
+            # Handle NaN or infinite fitness values
+            nan_mask = np.isnan(fitness_values) | np.isinf(fitness_values)
+            if np.any(nan_mask):
+                logger.warning(f"Found {np.sum(nan_mask)} NaN/Inf fitness values, replacing with worst valid fitness")
+                valid_fitness = fitness_values[~nan_mask]
+                if len(valid_fitness) > 0:
+                    worst_valid = np.max(valid_fitness)  # Use max since we're minimizing
+                else:
+                    worst_valid = 1.0  # Default worst case if no valid fitness exists
+                fitness_values[nan_mask] = worst_valid
+            
             # Update best solution
             min_idx = np.argmin(fitness_values)
             current_best_fitness = fitness_values[min_idx]
             
-            if current_best_fitness < best_fitness:
+            if current_best_fitness < best_fitness and not np.isnan(current_best_fitness):
                 best_fitness = current_best_fitness
                 best_solution = population[min_idx].copy()
                 stagnation_counter = 0
@@ -388,20 +399,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             else:
                 shifted_fitness = fitness_values + 1e-10
             
+            # Ensure selection probabilities are valid
             selection_probs = shifted_fitness / np.sum(shifted_fitness)
-            
-            # Adaptive parameters
-            if stagnation_counter >= stagnation_threshold:
-                initial_pop_size = min(max_pop_size, initial_pop_size + 10)
-                initial_mutation_rate = min(max_mutation_rate, initial_mutation_rate * 1.2)
-                initial_crossover_rate = min(max_crossover_rate, initial_crossover_rate * 1.1)
-                stagnation_counter = 0
-                logger.debug(f"Increasing population size to {initial_pop_size} and mutation rate to {initial_mutation_rate}")
-            else:
-                initial_pop_size = max(min_pop_size, initial_pop_size - 5)
-                initial_mutation_rate = max(min_mutation_rate, initial_mutation_rate * 0.9)
-                initial_crossover_rate = max(min_crossover_rate, initial_crossover_rate * 0.95)
-                logger.debug(f"Decreasing population size to {initial_pop_size} and mutation rate to {initial_mutation_rate}")
+            if np.any(np.isnan(selection_probs)) or np.any(np.isinf(selection_probs)):
+                logger.warning("Invalid selection probabilities, using uniform distribution")
+                selection_probs = np.ones(len(selection_probs)) / len(selection_probs)
             
             # Selection - ensure we get enough parents
             n_parents_needed = initial_pop_size - elite_size
@@ -453,15 +455,42 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 if np.random.random() < initial_mutation_rate:
                     # Add random noise to the solution
                     mutation = np.random.normal(0, 0.1, size=len(initial_guess))
-                    offspring[i] += mutation
+                    mutated = offspring[i] + mutation
                     
                     # Ensure bounds are respected
                     for j in range(len(bounds)):
-                        offspring[i, j] = np.clip(offspring[i, j], bounds[j][0], bounds[j][1])
+                        mutated[j] = np.clip(mutated[j], bounds[j][0], bounds[j][1])
+                    
+                    # Ensure no negative or zero values
+                    mutated = np.maximum(mutated, 1e-10)
                     
                     # Normalize to maintain total delta-v
-                    scale = TOTAL_DELTA_V / np.sum(offspring[i])
-                    offspring[i] *= scale
+                    total = np.sum(mutated)
+                    if total > 0:  # Only normalize if sum is positive
+                        scale = TOTAL_DELTA_V / total
+                        offspring[i] = mutated * scale
+                    else:
+                        # If sum is zero or negative, generate a new random solution
+                        logger.warning("Generated invalid solution during mutation, creating new random solution")
+                        random_solution = np.random.uniform(
+                            low=[b[0] for b in bounds],
+                            high=[b[1] for b in bounds],
+                            size=len(initial_guess)
+                        )
+                        scale = TOTAL_DELTA_V / np.sum(random_solution)
+                        offspring[i] = random_solution * scale
+
+            # Ensure no NaN values in population
+            for i in range(initial_pop_size):
+                if np.any(np.isnan(offspring[i])) or np.any(np.isinf(offspring[i])):
+                    logger.warning(f"Found NaN/Inf in offspring {i}, replacing with random solution")
+                    random_solution = np.random.uniform(
+                        low=[b[0] for b in bounds],
+                        high=[b[1] for b in bounds],
+                        size=len(initial_guess)
+                    )
+                    scale = TOTAL_DELTA_V / np.sum(random_solution)
+                    offspring[i] = random_solution * scale
             
             # Update population
             population = offspring.copy()
