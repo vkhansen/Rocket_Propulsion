@@ -334,7 +334,8 @@ class TestCSVOutputs(unittest.TestCase):
             })
 
         for row in rows:
-            stage_num = int(row['Stage'])
+            # Extract stage number from 'Stage X' format
+            stage_num = int(row['Stage'].split()[1])  # Split 'Stage 1' and take the number
             test_case = test_cases[stage_num - 1]  # Convert to 0-based index
             
             dv = float(row['Delta-V (m/s)'])
