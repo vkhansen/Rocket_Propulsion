@@ -50,34 +50,26 @@ class RocketOptimizationProblem(Problem):
             x: Solution or population of solutions
             out: Output dictionary for fitness and constraints
         """
-        # Handle both single solutions and populations
-        x = np.atleast_2d(x)
-        
-        # Initialize outputs
-        n_solutions = x.shape[0]
-        f = np.zeros(n_solutions)
-        g = np.zeros(n_solutions)
+        # Get config from kwargs if available
+        config = kwargs.get('config', getattr(self, 'config', {}))
         
         # Evaluate each solution
-        for i in range(n_solutions):
-            # Check cache first
-            cached_fitness = self.cache.get_cached_fitness(x[i])
-            if cached_fitness is not None:
-                f[i] = -cached_fitness  # Negate since we're minimizing
-                g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V, kwargs.get('config', {}))
-                continue
-            
-            # Calculate stage ratios and mass ratios
-            stage_ratios, _ = calculate_stage_ratios(
-                x[i], self.G0, self.ISP, self.EPSILON
-            )
-            
-            # Calculate payload fraction and cache it
+        f = np.zeros((x.shape[0], 1))
+        g = np.zeros((x.shape[0], 1))
+        
+        for i in range(x.shape[0]):
+            # Calculate stage ratios and payload fraction
+            stage_ratios, _ = calculate_stage_ratios(x[i], self.G0, self.ISP, self.EPSILON)
             payload_fraction = np.prod(stage_ratios)
+            
+            # Check cache
             self.cache.add(x[i], payload_fraction)
             
-            f[i] = -payload_fraction  # Negate since we're minimizing
-            g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V, kwargs.get('config', {}))
+            # Store objective (negative since we're minimizing)
+            f[i, 0] = -payload_fraction
+            
+            # Calculate constraint violations
+            g[i, 0] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V, config)
         
         out["F"] = f
         out["G"] = g
@@ -757,21 +749,36 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         ISP = np.asarray(ISP, dtype=float)
         EPSILON = np.asarray(EPSILON, dtype=float)
         
+        # Get constraint parameters from config
+        constraint_config = config['optimization']['constraints']
+        stage_constraints = constraint_config['stage_fractions']
+        first_stage_min = stage_constraints['first_stage']['min_fraction']
+        first_stage_max = stage_constraints['first_stage']['max_fraction']
+        other_stages_min = stage_constraints['other_stages']['min_fraction']
+        total_dv_tolerance = constraint_config['total_dv']['tolerance']
+        
+        def check_constraints(dv):
+            """Check if all constraints are satisfied."""
+            # Total delta-v constraint
+            if abs(np.sum(dv) - TOTAL_DELTA_V) > total_dv_tolerance:
+                return False
+                
+            # First stage constraints
+            if dv[0] < first_stage_min * TOTAL_DELTA_V or dv[0] > first_stage_max * TOTAL_DELTA_V:
+                return False
+                
+            # Other stages constraints
+            if any(dv[1:] < other_stages_min * TOTAL_DELTA_V):
+                return False
+                
+            return True
+        
         def objective(dv):
-            # Enforce constraints through penalty
-            total_dv = np.sum(dv)
-            penalty = 1e6 * abs(total_dv - TOTAL_DELTA_V)
-            
-            # Add penalties for stage constraints
-            for i, dv_i in enumerate(dv):
-                if i == 0:  # First stage
-                    if dv_i < 0.15 * TOTAL_DELTA_V or dv_i > 0.8 * TOTAL_DELTA_V:
-                        penalty += 1e6
-                else:  # Other stages
-                    if dv_i < 0.01 * TOTAL_DELTA_V:
-                        penalty += 1e6
-            
-            return -payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
+            # Check constraints
+            if not check_constraints(dv):
+                return float('-inf')  # Return very low fitness for invalid solutions
+                
+            return payload_fraction_objective(dv, G0, ISP, EPSILON)
         
         # Get PSO parameters from config
         pso_config = config.get('pso', {})
@@ -797,69 +804,57 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
         # Initialize best positions and values
         pbest = particles.copy()
         pbest_values = np.array([objective(p) for p in particles])
-        gbest = pbest[np.argmin(pbest_values)]
-        gbest_value = np.min(pbest_values)
+        gbest = pbest[np.argmax(pbest_values)]  # Using argmax since we're maximizing
+        gbest_value = np.max(pbest_values)
         
-        # Optimization loop
-        n_evals = n_particles
+        # Main PSO loop
         for _ in range(n_iterations):
             # Update velocities
             r1, r2 = np.random.rand(2)
             velocities = (w * velocities +
                         c1 * r1 * (pbest - particles) +
                         c2 * r2 * (gbest - particles))
-            
-            # Clip velocities
             velocities = np.clip(velocities, -v_max, v_max)
             
             # Update positions
             particles += velocities
-            
-            # Enforce bounds
-            for i, bounds_i in enumerate(bounds):
-                particles[:, i] = np.clip(particles[:, i], bounds_i[0], bounds_i[1])
+            particles = np.clip(particles, [b[0] for b in bounds], [b[1] for b in bounds])
             
             # Evaluate particles
             values = np.array([objective(p) for p in particles])
-            n_evals += n_particles
             
             # Update personal bests
-            improved = values < pbest_values
+            improved = values > pbest_values
             pbest[improved] = particles[improved]
             pbest_values[improved] = values[improved]
             
             # Update global best
-            min_idx = np.argmin(values)
-            if values[min_idx] < gbest_value:
-                gbest = particles[min_idx].copy()
-                gbest_value = values[min_idx]
+            max_idx = np.argmax(values)
+            if values[max_idx] > gbest_value:
+                gbest = particles[max_idx].copy()
+                gbest_value = values[max_idx]
         
         # Calculate final stage ratios and payload fraction
-        optimal_dv = gbest
-        stage_ratios = []
-        stages = []
+        stage_ratios, mass_ratios = calculate_stage_ratios(gbest, G0, ISP, EPSILON)
+        payload_fraction = np.prod(stage_ratios)
         
-        for i, (dv, isp, eps) in enumerate(zip(optimal_dv, ISP, EPSILON)):
-            mass_ratio = np.exp(-dv / (G0 * isp))
-            lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
-            stage_ratios.append(lambda_val)
-            
+        # Build result dictionary
+        stages = []
+        for i, (dv, mr, sr) in enumerate(zip(gbest, mass_ratios, stage_ratios)):
             stages.append({
                 'stage': i + 1,
                 'delta_v': float(dv),
-                'Lambda': float(lambda_val),
-                'mass_ratio': float(mass_ratio)
+                'Lambda': float(sr),
+                'mass_ratio': float(mr)
             })
-            
-        payload_fraction = float(np.prod(stage_ratios))
         
         return {
-            'success': True,  # PSO always completes
+            'success': check_constraints(gbest),
             'message': "PSO optimization completed",
-            'payload_fraction': payload_fraction,
+            'payload_fraction': float(payload_fraction),
             'stages': stages,
             'n_iterations': n_iterations,
-            'n_function_evals': n_evals
+            'n_function_evals': n_iterations * n_particles
         }
         
     except Exception as e:
