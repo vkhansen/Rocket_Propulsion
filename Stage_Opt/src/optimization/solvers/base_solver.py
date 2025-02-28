@@ -1,9 +1,9 @@
 """Base solver class for optimization."""
 from abc import ABC, abstractmethod
 import numpy as np
+from ...utils.config import logger
 from ..objective import calculate_stage_ratios, calculate_payload_fraction
 from ..cache import OptimizationCache
-from utils.config import logger
 
 class BaseSolver(ABC):
     """Base class for all optimization solvers."""

@@ -1,7 +1,7 @@
 """Particle Swarm Optimization solver implementation."""
 import numpy as np
 from .base_solver import BaseSolver
-from utils.config import logger
+from ...utils.config import logger
 
 class PSOSolver(BaseSolver):
     """Particle Swarm Optimization solver implementation."""

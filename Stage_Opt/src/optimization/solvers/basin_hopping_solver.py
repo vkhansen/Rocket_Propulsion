@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.optimize import basinhopping
 from .base_solver import BaseSolver
-from utils.config import logger
+from ...utils.config import logger
 
 class BasinHoppingSolver(BaseSolver):
     """Basin Hopping solver implementation."""

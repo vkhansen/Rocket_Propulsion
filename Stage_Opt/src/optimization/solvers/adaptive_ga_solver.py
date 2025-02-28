@@ -5,7 +5,7 @@ from pymoo.core.callback import Callback
 from pymoo.optimize import minimize
 from .ga_solver import RocketStageProblem
 from .base_solver import BaseSolver
-from utils.config import logger
+from ...utils.config import logger
 
 class AdaptiveCallback(Callback):
     """Callback for adaptive parameter tuning."""

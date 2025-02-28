@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.optimize import minimize
 from .base_solver import BaseSolver
-from utils.config import logger
+from ...utils.config import logger
 
 class SLSQPSolver(BaseSolver):
     """SLSQP solver implementation."""

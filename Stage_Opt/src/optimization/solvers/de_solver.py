@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.optimize import differential_evolution
 from .base_solver import BaseSolver
-from utils.config import logger
+from ...utils.config import logger
 
 class DESolver(BaseSolver):
     """Differential Evolution solver implementation."""
