@@ -1,5 +1,0 @@
-Stage,Delta-V (m/s),Stage Ratio (lambda),Delta-V Contribution (%),Method
-1,4650.00,0.1460,50.0,SLSQP
-2,4650.00,0.2161,50.0,SLSQP
-1,4650.00,0.1460,50.0,PSO
-2,4650.00,0.2161,50.0,PSO
