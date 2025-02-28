@@ -257,6 +257,7 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         # Get best solutions from cache
         cached_solutions = problem.cache.get_best_solutions(population_size - 1)
         n_cached = len(cached_solutions)
+        n_random = population_size - n_cached - 1
         
         # Add cached solutions to population
         for i, solution in enumerate(cached_solutions):
@@ -489,10 +490,13 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         
         # Create stage information
         stages = []
+        stage_ratios = []  # Store stage ratios for CSV report
         for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
+            lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+            stage_ratios.append(lambda_val)
             stage_info = {
                 'delta_v': float(dv),
-                'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+                'Lambda': lambda_val
             }
             stages.append(stage_info)
         
@@ -504,8 +508,14 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         problem.cache.save_cache()
         
         return {
-            'payload_fraction': float(payload_fraction),
-            'stages': stages
+            'success': True,
+            'message': "Adaptive GA optimization completed",
+            'payload_fraction': payload_fraction,
+            'stages': stages,
+            'dv': [float(x) for x in solution],  # Add dv field for CSV report
+            'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
+            'n_iterations': n_generations,
+            'n_function_evals': n_generations * population_size
         }
         
     except Exception as e:
@@ -628,16 +638,25 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             
             # Create stage information
             stages = []
+            stage_ratios = []  # Store stage ratios for CSV report
             for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
+                lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+                stage_ratios.append(lambda_val)
                 stage_info = {
                     'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+                    'Lambda': lambda_val
                 }
                 stages.append(stage_info)
             
             return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
+                'success': True,
+                'message': "DE optimization completed",
+                'payload_fraction': payload_fraction,
+                'stages': stages,
+                'dv': [float(x) for x in solution],  # Add dv field for CSV report
+                'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
+                'n_iterations': result.nit,
+                'n_function_evals': result.nfev
             }
         else:
             logger.warning(f"DE optimization did not converge: {result.message}")
@@ -653,16 +672,23 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             
             # Create stage information
             stages = []
+            stage_ratios = []  # Store stage ratios for CSV report
             for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
+                lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+                stage_ratios.append(lambda_val)
                 stage_info = {
                     'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+                    'Lambda': lambda_val
                 }
                 stages.append(stage_info)
             
             return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
+                'payload_fraction': payload_fraction,
+                'stages': stages,
+                'dv': [float(x) for x in solution],  # Add dv field for CSV report
+                'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
+                'n_iterations': result.nit,
+                'n_function_evals': result.nfev
             }
             
     except Exception as e:
@@ -678,16 +704,23 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         
         # Create stage information
         stages = []
+        stage_ratios = []  # Store stage ratios for CSV report
         for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
+            lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+            stage_ratios.append(lambda_val)
             stage_info = {
                 'delta_v': float(dv),
-                'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+                'Lambda': lambda_val
             }
             stages.append(stage_info)
         
         return {
-            'payload_fraction': float(payload_fraction),
-            'stages': stages
+            'payload_fraction': payload_fraction,
+            'stages': stages,
+            'dv': [float(x) for x in solution],  # Add dv field for CSV report
+            'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
+            'n_iterations': result.nit,
+            'n_function_evals': result.nfev
         }
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
