@@ -1,0 +1,4 @@
+Method,Payload Fraction,Error,Time (s)
+BASIN-HOPPING,0.0476,0.0000e+00,0.09
+GA,0.0315,0.0000e+00,82.09
+PSO,0.0476,0.0000e+00,0.04

@@ -251,7 +251,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
                 'Lambda': float(sr),
                 'mass_ratio': float(mr)
             })
-        
+            
         return {
             'success': result.lowest_optimization_result.success,
             'message': str(result.message),
@@ -567,11 +567,17 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 crossover_rate = min(crossover_rate * 1.05, max_crossover_rate)
                 population_size = max(int(population_size * 0.95), min_pop_size)
             
-            # Selection
+            # Selection - Fixed to ensure array sizes match
+            selection_probs = fitness_values - np.min(fitness_values)  # Shift to positive
+            if np.sum(selection_probs) <= 0:  # Handle case where all fitness values are equal
+                selection_probs = np.ones_like(fitness_values)
+            selection_probs = selection_probs / np.sum(selection_probs)  # Normalize
+            
             parent_indices = np.random.choice(
-                population_size,
+                len(population),  # Use actual population length
                 size=population_size,
-                p=fitness_values/np.sum(fitness_values)
+                p=selection_probs,
+                replace=True  # Allow replacement to maintain population size
             )
             parents = population[parent_indices]
             
