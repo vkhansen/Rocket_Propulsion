@@ -6,14 +6,12 @@ import numpy as np
 
 from src.utils.config import CONFIG, logger, OUTPUT_DIR
 from src.utils.data import load_input_data
-from src.optimization.solvers import (
-    SLSQPSolver,
-    GASolver,
-    AdaptiveGASolver,
-    PSOSolver,
-    DESolver,
-    BasinHoppingSolver
-)
+from src.optimization.solvers.slsqp_solver import SLSQPSolver
+from src.optimization.solvers.ga_solver import GeneticAlgorithmSolver
+from src.optimization.solvers.adaptive_ga_solver import AdaptiveGeneticAlgorithmSolver
+from src.optimization.solvers.pso_solver import ParticleSwarmOptimizer
+from src.optimization.solvers.de_solver import DifferentialEvolutionSolver
+from src.optimization.solvers.basin_hopping_solver import BasinHoppingOptimizer
 from src.optimization.parallel_solver import ParallelSolver
 from src.visualization.plots import plot_results
 from src.reporting.latex import generate_report
@@ -39,11 +37,11 @@ def main():
         
         solvers = [
             SLSQPSolver(CONFIG, parameters, stages),
-            GASolver(CONFIG, parameters, stages),
-            AdaptiveGASolver(CONFIG, parameters, stages),
-            PSOSolver(CONFIG, parameters, stages),
-            DESolver(CONFIG, parameters, stages),
-            BasinHoppingSolver(CONFIG, parameters, stages)
+            GeneticAlgorithmSolver(CONFIG, parameters, stages),
+            AdaptiveGeneticAlgorithmSolver(CONFIG, parameters, stages),
+            ParticleSwarmOptimizer(CONFIG, parameters, stages),
+            DifferentialEvolutionSolver(CONFIG, parameters, stages),
+            BasinHoppingOptimizer(CONFIG, parameters, stages)
         ]
         
         for solver in solvers:
