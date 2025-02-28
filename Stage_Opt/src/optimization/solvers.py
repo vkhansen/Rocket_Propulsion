@@ -525,9 +525,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             size=(initial_pop_size, len(initial_guess))
         )
         population[0] = initial_guess  # Include initial guess
+        population_size = initial_pop_size
         
         # Current parameters
-        population_size = initial_pop_size
         mutation_rate = initial_mutation_rate
         crossover_rate = initial_crossover_rate
         
@@ -556,6 +556,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             diversity = calculate_diversity(population)
             
             # Adapt parameters based on diversity and stagnation
+            old_pop_size = population_size
             if diversity < diversity_threshold:
                 mutation_rate = min(mutation_rate * 1.1, max_mutation_rate)
                 population_size = min(int(population_size * 1.1), max_pop_size)
@@ -573,24 +574,26 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 selection_probs = np.ones_like(fitness_values)
             selection_probs = selection_probs / np.sum(selection_probs)  # Normalize
             
+            # Select parents using current population size
             parent_indices = np.random.choice(
-                len(population),  # Use actual population length
-                size=population_size,
+                len(population),
+                size=population_size,  # Use new population size
                 p=selection_probs,
-                replace=True  # Allow replacement to maintain population size
+                replace=True
             )
             parents = population[parent_indices]
             
-            # Create new population
-            new_population = np.zeros_like(population)
+            # Create new population with new size
+            new_population = np.zeros((population_size, len(initial_guess)))
             
-            # Elitism
+            # Elitism - ensure we don't exceed population size
+            elite_size = min(elite_size, population_size)
             elite_indices = np.argsort(fitness_values)[-elite_size:]
             new_population[:elite_size] = population[elite_indices]
             
             # Crossover and mutation
-            for i in range(elite_size, population_size, 2):
-                if np.random.random() < crossover_rate and i + 1 < population_size:
+            for i in range(elite_size, population_size - 1, 2):
+                if np.random.random() < crossover_rate:
                     # Crossover
                     alpha = np.random.random()
                     child1 = alpha * parents[i] + (1 - alpha) * parents[i + 1]
@@ -599,8 +602,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                     new_population[i + 1] = child2
                 else:
                     new_population[i] = parents[i]
-                    if i + 1 < population_size:
-                        new_population[i + 1] = parents[i + 1]
+                    new_population[i + 1] = parents[i + 1]
+            
+            # Handle last individual if population_size is odd
+            if population_size % 2 == 1 and population_size > elite_size:
+                new_population[-1] = parents[-1]
             
             # Mutation
             for i in range(elite_size, population_size):
@@ -613,22 +619,12 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             new_population = np.clip(new_population, [b[0] for b in bounds], [b[1] for b in bounds])
             
             # Update population
-            population = new_population
+            population = new_population.copy()
             
-            # Resize population if needed
-            if len(population) != population_size:
-                if len(population) < population_size:
-                    # Add random solutions
-                    n_add = population_size - len(population)
-                    additional = np.random.uniform(
-                        low=[b[0] for b in bounds],
-                        high=[b[1] for b in bounds],
-                        size=(n_add, len(initial_guess))
-                    )
-                    population = np.vstack([population, additional])
-                else:
-                    # Keep best solutions
-                    population = population[:population_size]
+            # Log progress periodically
+            if generation % 10 == 0:
+                logger.debug(f"Generation {generation}: Best fitness = {best_fitness}")
+                logger.debug(f"Population size: {population_size}, Mutation rate: {mutation_rate:.3f}")
         
         # Get final solution
         if best_solution is None:
