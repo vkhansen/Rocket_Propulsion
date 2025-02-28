@@ -64,7 +64,7 @@ class RocketOptimizationProblem(Problem):
             cached_fitness = self.cache.get_cached_fitness(x[i])
             if cached_fitness is not None:
                 f[i] = -cached_fitness  # Negate since we're minimizing
-                g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V)
+                g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V, kwargs.get('config', {}))
                 continue
             
             # Calculate stage ratios and mass ratios
@@ -77,7 +77,7 @@ class RocketOptimizationProblem(Problem):
             self.cache.add(x[i], payload_fraction)
             
             f[i] = -payload_fraction  # Negate since we're minimizing
-            g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V)
+            g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V, kwargs.get('config', {}))
         
         out["F"] = f
         out["G"] = g
@@ -197,7 +197,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
             # Check cache first
             cached_fitness = problem.cache.get_cached_fitness(dv)
             if cached_fitness is not None:
-                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
+                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
             
             # Calculate stage ratios and payload fraction
             stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
@@ -205,7 +205,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
             problem.cache.add(dv, payload_fraction)
             
             # Return negative payload fraction (minimizing) plus constraint penalty
-            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
+            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
         
         # Get basin hopping parameters from config
         bh_config = config.get('basin_hopping', {})
@@ -292,23 +292,51 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         
         # Create initial population with cached solutions
         initial_population = np.zeros((population_size, len(initial_guess)))
-        initial_population[0] = initial_guess  # Include initial guess
+        fitness = np.zeros(initial_population.shape[0])
         
         # Get best solutions from cache
-        cached_solutions = problem.cache.get_best_solutions(population_size - 1)
-        n_cached = len(cached_solutions)
+        best_solutions = problem.cache.get_best_solutions()
+        n_cached = len(best_solutions)
         n_random = population_size - n_cached - 1
         
-        # Add cached solutions to population
-        for i, solution in enumerate(cached_solutions):
-            initial_population[i + 1] = solution
-            
-        # Fill remaining slots with random solutions
-        for i in range(n_cached + 1, population_size):
-            initial_population[i] = np.array([
-                np.random.uniform(low=b[0], high=b[1]) for b in bounds
-            ])
+        # Start with initial guess
+        initial_population[0] = initial_guess
+        fitness[0] = problem.cache.get_cached_fitness(initial_guess)
+        if fitness[0] is None:
+            out = {"F": np.zeros(1), "G": np.zeros(1)}
+            problem._evaluate(initial_guess.reshape(1, -1), out)
+            fitness[0] = float(-out["F"][0])  # Negate back since _evaluate negates for minimization
+            problem.cache.add(initial_guess, fitness[0])
         
+        # Add cached solutions
+        for i in range(min(n_cached, population_size - 1)):
+            initial_population[i + 1] = best_solutions[i]
+            fitness[i + 1] = problem.cache.get_cached_fitness(best_solutions[i])
+        
+        # Fill remaining slots with random solutions
+        if n_random > 0:
+            random_population = np.random.uniform(
+                low=[b[0] for b in bounds],
+                high=[b[1] for b in bounds],
+                size=(n_random, len(initial_guess))
+            )
+            initial_population[n_cached + 1:] = random_population
+            
+            # Evaluate and cache random solutions
+            for i in range(n_cached + 1, population_size):
+                fitness[i] = problem.cache.get_cached_fitness(initial_population[i])
+                if fitness[i] is None:
+                    out = {"F": np.zeros(1), "G": np.zeros(1)}
+                    problem._evaluate(initial_population[i].reshape(1, -1), out)
+                    fitness[i] = float(-out["F"][0])  # Negate back since _evaluate negates for minimization
+                    problem.cache.add(initial_population[i], fitness[i])
+        
+        # Sort population by fitness
+        sort_idx = np.argsort(fitness)[::-1]  # Descending order
+        initial_population = initial_population[sort_idx]
+        fitness = fitness[sort_idx]
+        
+        # Main GA loop
         algorithm = GA(
             pop_size=population_size,
             sampling=initial_population,
@@ -361,17 +389,24 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.error(f"Error in GA optimization: {str(e)}")
         raise
 
-def enforce_stage_constraints(dv, TOTAL_DELTA_V):
+def enforce_stage_constraints(dv, TOTAL_DELTA_V, config):
     """Enforce stage constraints with continuous penalties.
     
     Args:
         dv: Stage delta-v values
         TOTAL_DELTA_V: Total required delta-v
+        config: Configuration dictionary containing stage constraints
         
     Returns:
         float: Penalty value (0 if constraints satisfied)
     """
     penalty = 0.0
+    
+    # Get stage constraints from config
+    stage_constraints = config['optimization']['bounds']['stage_constraints']
+    first_stage_min = stage_constraints['first_stage']['min_fraction']
+    first_stage_max = stage_constraints['first_stage']['max_fraction']
+    other_stages_min = stage_constraints['other_stages']['min_fraction']
     
     # Total delta-v constraint
     penalty += abs(np.sum(dv) - TOTAL_DELTA_V)
@@ -379,14 +414,14 @@ def enforce_stage_constraints(dv, TOTAL_DELTA_V):
     # Stage-specific constraints
     for i, dv_i in enumerate(dv):
         if i == 0:  # First stage
-            min_dv = 0.15 * TOTAL_DELTA_V
-            max_dv = 0.85 * TOTAL_DELTA_V
+            min_dv = first_stage_min * TOTAL_DELTA_V
+            max_dv = first_stage_max * TOTAL_DELTA_V
             if dv_i < min_dv:
                 penalty += abs(dv_i - min_dv)
             elif dv_i > max_dv:
                 penalty += abs(dv_i - max_dv)
         else:  # Other stages
-            min_dv = 0.1 * TOTAL_DELTA_V
+            min_dv = other_stages_min * TOTAL_DELTA_V
             if dv_i < min_dv:
                 penalty += abs(dv_i - min_dv)
     
@@ -539,7 +574,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         stages = []
         stage_ratios = []  # Store stage ratios for CSV report
         for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-            lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
+            lambda_val = mr * (1 - EPSILON[i])  # Corrected λᵢ calculation
             stage_ratios.append(lambda_val)
             stage_info = {
                 'delta_v': float(dv),
@@ -590,7 +625,7 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             # Check cache first
             cached_fitness = problem.cache.get_cached_fitness(dv)
             if cached_fitness is not None:
-                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
+                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
             
             # Calculate stage ratios and payload fraction
             stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
@@ -598,7 +633,7 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             problem.cache.add(dv, payload_fraction)
             
             # Return negative payload fraction (minimizing) plus constraint penalty
-            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
+            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
         
         # Get DE parameters from config
         de_config = config.get('differential_evolution', {})
