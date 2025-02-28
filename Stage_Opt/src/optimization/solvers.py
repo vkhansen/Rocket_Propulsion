@@ -515,7 +515,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             'dv': [float(x) for x in solution],  # Add dv field for CSV report
             'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
             'n_iterations': n_generations,
-            'n_function_evals': n_generations * population_size
+            'n_function_evals': n_generations * initial_pop_size  # Use initial_pop_size instead of population_size
         }
         
     except Exception as e:
