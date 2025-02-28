@@ -1,7 +1,7 @@
 """CSV report generation for optimization results."""
 import os
 import csv
-from ..utils.config import OUTPUT_DIR, logger
+from .utils.config import OUTPUT_DIR, logger
 
 def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
     """Write optimization results to CSV files.

@@ -1,7 +1,7 @@
 """Parallel solver implementation."""
 import concurrent.futures
 import numpy as np
-from utils.config import logger
+from ..utils.config import logger
 
 class ParallelSolver:
     """Class for running multiple solvers in parallel."""

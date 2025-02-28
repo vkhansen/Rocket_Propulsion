@@ -1,7 +1,7 @@
 """Objective functions for optimization."""
 import numpy as np
-from ..utils.data import calculate_mass_ratios, calculate_payload_fraction
-from ..utils.config import logger
+from .utils.data import calculate_mass_ratios, calculate_payload_fraction
+from .utils.config import logger
 
 def payload_fraction_objective(dv, G0, ISP, EPSILON):
     """Calculate the payload fraction objective using the corrected physics model."""

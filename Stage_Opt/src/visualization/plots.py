@@ -1,10 +1,8 @@
 """Plotting functions for optimization results."""
 import os
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patheffects as path_effects
-from ..utils.config import OUTPUT_DIR, logger
+from .utils.config import logger
 
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     """Plot ΔV breakdown for each optimization method."""
@@ -80,7 +78,7 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         plt.tight_layout()
         
         # Save plot
-        output_path = os.path.join(OUTPUT_DIR, filename)
+        output_path = os.path.join(logger.OUTPUT_DIR, filename)
         plt.savefig(output_path, bbox_inches='tight', dpi=300)
         plt.close()
         
@@ -113,7 +111,7 @@ def plot_execution_time(results, filename="execution_time.png"):
         plt.tight_layout()
         
         # Save plot
-        output_path = os.path.join(OUTPUT_DIR, filename)
+        output_path = os.path.join(logger.OUTPUT_DIR, filename)
         plt.savefig(output_path)
         plt.close()
         
@@ -154,7 +152,7 @@ def plot_payload_fraction(results, filename="payload_fraction.png"):
         plt.tight_layout()
         
         # Save plot
-        output_path = os.path.join(OUTPUT_DIR, filename)
+        output_path = os.path.join(logger.OUTPUT_DIR, filename)
         plt.savefig(output_path)
         plt.close()
         
