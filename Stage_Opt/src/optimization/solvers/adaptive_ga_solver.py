@@ -19,52 +19,52 @@ class AdaptiveCallback(Callback):
         self.generation_counter = 0
         
     def notify(self, algorithm):
-        """Update mutation and crossover rates based on progress."""
+        """Called after each generation."""
         self.generation_counter += 1
         
         # Only adapt parameters every N generations
         if self.generation_counter % self.adaptation_interval != 0:
             return
             
-        curr_best = -algorithm.opt.get("F")[0]
-        
-        # Calculate improvement
-        improvement = curr_best - self.last_best
-        
-        # Adjust parameters based on improvement magnitude
-        if improvement > 0:
-            # Significant improvement - reduce mutation gradually
-            adjustment = min(improvement * 0.1, self.solver.adaptation_rate)
-            self.solver.curr_mutation_rate = max(
-                self.solver.min_mutation_rate,
-                self.solver.curr_mutation_rate * (1 - adjustment)
-            )
-            self.stall_count = 0
-        else:
-            # No improvement - increase mutation more aggressively
-            self.stall_count += 1
-            if self.stall_count >= 3:  # Allow some generations without improvement
-                self.solver.curr_mutation_rate = min(
-                    self.solver.max_mutation_rate,
-                    self.solver.curr_mutation_rate * (1 + self.solver.adaptation_rate * 2)
-                )
+        if algorithm.opt is None:
+            return
             
-        # Update crossover rate inversely but maintain minimum
-        self.solver.curr_crossover_rate = max(
-            self.solver.min_crossover_rate,
-            min(
-                self.solver.max_crossover_rate,
-                1 - self.solver.curr_mutation_rate * 0.5  # Less aggressive inverse relationship
+        current_best = -float(algorithm.opt.get("F")[0])
+        
+        # If improvement is small or negative
+        if current_best <= self.last_best * 1.001:  # Allow for 0.1% improvement
+            self.stall_count += 1
+            
+            # Increase exploration (mutation rate) and decrease exploitation (crossover rate)
+            if self.stall_count >= 3:  # If stalled for several generations
+                self.solver.curr_mutation_rate = min(
+                    self.solver.curr_mutation_rate * (1 + self.solver.adaptation_rate),
+                    self.solver.max_mutation_rate
+                )
+                self.solver.curr_crossover_rate = max(
+                    self.solver.curr_crossover_rate * (1 - self.solver.adaptation_rate),
+                    self.solver.min_crossover_rate
+                )
+                self.stall_count = 0  # Reset stall count
+        else:
+            # If significant improvement, favor exploitation
+            self.stall_count = 0
+            self.solver.curr_mutation_rate = max(
+                self.solver.curr_mutation_rate * (1 - self.solver.adaptation_rate),
+                self.solver.min_mutation_rate
             )
-        )
+            self.solver.curr_crossover_rate = min(
+                self.solver.curr_crossover_rate * (1 + self.solver.adaptation_rate),
+                self.solver.max_crossover_rate
+            )
+        
+        self.last_best = current_best
         
         # Update algorithm parameters
         algorithm.mutation.prob = self.solver.curr_mutation_rate
         algorithm.crossover.prob = self.solver.curr_crossover_rate
-        
-        self.last_best = curr_best
 
-class AdaptiveGASolver(BaseSolver):
+class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     """Adaptive Genetic Algorithm solver implementation."""
     
     def __init__(self, config, problem_params):
