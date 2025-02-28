@@ -60,10 +60,9 @@ class RocketOptimizationProblem(Problem):
             
             # Calculate payload fraction and cache it
             payload_fraction = np.prod(stage_ratios)
-            self.cache.cache_fitness(x[i], payload_fraction)
+            self.cache.add(x[i], payload_fraction)  # Use add method instead of cache_fitness
             
-            # Store results (negative since we're minimizing)
-            f[i] = -payload_fraction
+            f[i] = -payload_fraction  # Negate since we're minimizing
             g[i] = abs(np.sum(x[i]) - self.TOTAL_DELTA_V)
         
         out["F"] = f
@@ -384,25 +383,22 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             TOTAL_DELTA_V=TOTAL_DELTA_V
         )
         
-        # Initialize population with cached solutions
-        best_solutions = problem.cache.get_best_solutions()
-        n_cached = len(best_solutions)
-        n_var = len(initial_guess)
-        
-        # Calculate population composition
-        n_random = initial_pop_size - n_cached - 1  # -1 for initial guess
-        
-        # Create population array
-        population = np.zeros((initial_pop_size, n_var))
+        # Initialize population and fitness
+        population = np.zeros((initial_pop_size, len(initial_guess)))
         fitness = np.zeros(initial_pop_size)
         
-        # Add initial guess
+        # Get cached solutions
+        best_solutions = problem.cache.get_best_solutions()
+        n_cached = len(best_solutions)
+        n_random = initial_pop_size - n_cached - 1
+        
+        # Start with initial guess
         population[0] = initial_guess
         fitness[0] = problem.cache.get_cached_fitness(initial_guess)
         if fitness[0] is None:
             x = problem._evaluate(initial_guess, {"F": np.zeros(1), "G": np.zeros(1)})
             fitness[0] = float(x["F"][0])
-            problem.cache.cache_fitness(initial_guess, fitness[0])
+            problem.cache.add(initial_guess, fitness[0])
         
         # Add cached solutions
         for i in range(min(n_cached, initial_pop_size - 1)):
@@ -414,7 +410,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             random_population = np.random.uniform(
                 low=[b[0] for b in bounds],
                 high=[b[1] for b in bounds],
-                size=(n_random, n_var)
+                size=(n_random, len(initial_guess))
             )
             population[n_cached + 1:] = random_population
             
@@ -424,7 +420,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 if fitness[i] is None:
                     x = problem._evaluate(population[i], {"F": np.zeros(1), "G": np.zeros(1)})
                     fitness[i] = float(x["F"][0])
-                    problem.cache.cache_fitness(population[i], fitness[i])
+                    problem.cache.add(population[i], fitness[i])
         
         # Sort population by fitness
         sort_idx = np.argsort(fitness)[::-1]  # Descending order
@@ -452,7 +448,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             
             # Cache best solution from this generation
             if generation % 10 == 0:  # Cache periodically
-                problem.cache.add_best_solution(population[0])
+                x = problem._evaluate(population[0], {"F": np.zeros(1), "G": np.zeros(1)})
+                fitness_value = float(x["F"][0])
+                problem.cache.add(population[0], fitness_value)
                 problem.cache.save_cache()
         
         # Return best solution
@@ -474,7 +472,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             stages.append(stage_info)
         
         # Final cache update
-        problem.cache.add_best_solution(solution)
+        x = problem._evaluate(solution, {"F": np.zeros(1), "G": np.zeros(1)})
+        fitness_value = float(x["F"][0])
+        problem.cache.add(solution, fitness_value)
         problem.cache.save_cache()
         
         return {
@@ -493,6 +493,27 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         logger.debug("Starting Differential Evolution optimization")
         logger.debug(f"Initial guess: {initial_guess}")
         logger.debug(f"Bounds: {bounds}")
+        
+        # Ensure arrays
+        initial_guess = np.asarray(initial_guess, dtype=float)
+        ISP = np.asarray(ISP, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
+        
+        def objective(dv):
+            # Enforce constraints through penalty
+            total_dv = np.sum(dv)
+            penalty = 1e6 * abs(total_dv - TOTAL_DELTA_V)
+            
+            # Add penalties for stage constraints
+            for i, dv_i in enumerate(dv):
+                if i == 0:  # First stage
+                    if dv_i < 0.15 * TOTAL_DELTA_V or dv_i > 0.8 * TOTAL_DELTA_V:
+                        penalty += 1e6
+                else:  # Other stages
+                    if dv_i < 0.01 * TOTAL_DELTA_V:
+                        penalty += 1e6
+            
+            return -payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
         
         # Get DE parameters from config
         de_config = config.get('differential_evolution', {})

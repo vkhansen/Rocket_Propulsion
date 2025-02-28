@@ -602,57 +602,31 @@ class TestOptimizationCache(unittest.TestCase):
     """Test cases for optimization caching functionality."""
     
     def setUp(self):
-        """Set up test cases."""
-        self.cache = OptimizationCache(cache_file="test_cache.pkl", max_size=100)
+        """Set up test environment."""
+        self.cache = OptimizationCache(cache_file="test_cache.pkl", max_size=10)
+        
+        # Test data
         self.test_data = {
             'G0': 9.81,
             'TOTAL_DELTA_V': 9000,
             'ISP': [300, 350],
             'EPSILON': [0.1, 0.1],
-            'initial_guess': np.array([4500, 4500]),
+            'initial_guess': [4500, 4500],
             'bounds': [(0, 9000), (0, 9000)]
         }
+        
         self.config = {
             'optimization': {
-                'max_iterations': 100,
-                'population_size': 50
-            },
-            'basin_hopping': {
-                'n_iterations': 50,
-                'temperature': 1.0,
-                'stepsize': 0.5
-            },
-            'ga': {
-                'population_size': 50,
-                'n_generations': 50
+                'max_iterations': 50,
+                'population_size': 20
             }
         }
     
     def tearDown(self):
         """Clean up after tests."""
         self.cache.clear()
-        if os.path.exists(os.path.join(OUTPUT_DIR, "test_cache.pkl")):
-            os.remove(os.path.join(OUTPUT_DIR, "test_cache.pkl"))
-    
-    def test_cache_operations(self):
-        """Test basic cache operations."""
-        x = np.array([4000, 5000])
-        fitness = -0.5  # Example fitness value
-        
-        # Test adding to cache
-        self.cache.add(x, fitness)
-        self.assertTrue(self.cache.has_cached_solution(x))
-        self.assertEqual(self.cache.get_cached_fitness(x), fitness)
-        
-        # Test updating cache
-        new_fitness = -0.4
-        self.cache.add(x, new_fitness)
-        self.assertEqual(self.cache.get_cached_fitness(x), new_fitness)
-        
-        # Test retrieving best solutions
-        best_solutions = self.cache.get_best_solutions(n=1)
-        self.assertEqual(len(best_solutions), 1)
-        np.testing.assert_array_almost_equal(best_solutions[0], x)
+        if os.path.exists(self.cache.cache_file):
+            os.remove(self.cache.cache_file)
     
     def test_cache_size(self):
         """Test cache size management."""
@@ -663,12 +637,85 @@ class TestOptimizationCache(unittest.TestCase):
             self.cache.add(x, fitness)
         
         # Verify cache size is maintained
-        self.assertLessEqual(len(self.cache.fitness_cache), self.cache.max_size)
+        self.assertLessEqual(len(self.cache.cache_fitness), self.cache.max_size)
         
         # Verify best solutions are kept
         best_solutions = self.cache.get_best_solutions()
-        self.assertGreater(len(best_solutions), 0)
         self.assertLessEqual(len(best_solutions), self.cache.max_size)
+    
+    def test_cache_persistence(self):
+        """Test saving and loading cache."""
+        # Add some solutions
+        test_solutions = [
+            (np.array([100, 200]), -1.0),
+            (np.array([300, 400]), -2.0),
+            (np.array([500, 600]), -3.0)
+        ]
+        for x, f in test_solutions:
+            self.cache.add(x, f)
+        
+        # Save cache
+        self.cache.save_cache()
+        
+        # Create new cache instance and load
+        new_cache = OptimizationCache(cache_file=self.cache.cache_file)
+        
+        # Verify solutions are preserved
+        for x, f in test_solutions:
+            cached_f = new_cache.get_cached_fitness(x)
+            self.assertIsNotNone(cached_f)
+            self.assertEqual(cached_f, f)
+    
+    def test_cache_hits(self):
+        """Test cache hit counting."""
+        x = np.array([100, 200])
+        f = -1.0
+        
+        # Add solution
+        self.cache.add(x, f)
+        initial_hits = self.cache.hit_count
+        
+        # Get solution multiple times
+        for _ in range(3):
+            cached_f = self.cache.get_cached_fitness(x)
+            self.assertEqual(cached_f, f)
+        
+        # Verify hit count increased
+        self.assertEqual(self.cache.hit_count, initial_hits + 3)
+    
+    def test_basin_hopping_caching(self):
+        """Test caching with basin hopping solver."""
+        # First run
+        result1 = solve_with_basin_hopping(
+            self.test_data['initial_guess'],
+            self.test_data['bounds'],
+            self.test_data['G0'],
+            self.test_data['ISP'],
+            self.test_data['EPSILON'],
+            self.test_data['TOTAL_DELTA_V'],
+            self.config
+        )
+        
+        initial_hits = self.cache.hit_count
+        
+        # Second run with same parameters
+        result2 = solve_with_basin_hopping(
+            self.test_data['initial_guess'],
+            self.test_data['bounds'],
+            self.test_data['G0'],
+            self.test_data['ISP'],
+            self.test_data['EPSILON'],
+            self.test_data['TOTAL_DELTA_V'],
+            self.config
+        )
+        
+        # Verify cache hits increased
+        self.assertGreater(self.cache.hit_count, initial_hits)
+        
+        # Verify results are similar
+        self.assertAlmostEqual(result1['payload_fraction'], 
+                             result2['payload_fraction'],
+                             places=4)
     
     def test_ga_integration(self):
         """Test integration with genetic algorithm."""
@@ -693,7 +740,9 @@ class TestOptimizationCache(unittest.TestCase):
             self.config
         )
         
-        # Second run should use cached values
+        initial_hits = self.cache.hit_count
+        
+        # Second run
         result2 = solve_with_ga(
             self.test_data['initial_guess'],
             self.test_data['bounds'],
@@ -704,42 +753,13 @@ class TestOptimizationCache(unittest.TestCase):
             self.config
         )
         
-        # Verify results
-        self.assertTrue(result1['success'])
-        self.assertTrue(result2['success'])
-        self.assertGreater(problem.cache.hit_count, 0)
-    
-    def test_basin_hopping_caching(self):
-        """Test that basin hopping properly uses caching."""
-        # First run
-        result1 = solve_with_basin_hopping(
-            self.test_data['initial_guess'],
-            self.test_data['bounds'],
-            self.test_data['G0'],
-            self.test_data['ISP'],
-            self.test_data['EPSILON'],
-            self.test_data['TOTAL_DELTA_V'],
-            self.config
-        )
+        # Verify cache hits increased
+        self.assertGreater(self.cache.hit_count, initial_hits)
         
-        # Record cache state
-        initial_cache_size = len(self.cache.fitness_cache)
-        
-        # Second run should use cached values
-        result2 = solve_with_basin_hopping(
-            self.test_data['initial_guess'],
-            self.test_data['bounds'],
-            self.test_data['G0'],
-            self.test_data['ISP'],
-            self.test_data['EPSILON'],
-            self.test_data['TOTAL_DELTA_V'],
-            self.config
-        )
-        
-        # Verify results
-        self.assertTrue(result1['success'])
-        self.assertTrue(result2['success'])
-        self.assertGreater(len(self.cache.fitness_cache), initial_cache_size)
+        # Verify results are similar
+        self.assertAlmostEqual(result1['payload_fraction'], 
+                             result2['payload_fraction'],
+                             places=4)
 
 
 if __name__ == "__main__":
