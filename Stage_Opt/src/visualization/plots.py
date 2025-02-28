@@ -38,11 +38,11 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
                    bottom=bottom, color=colors[stage % len(colors)],
                    label=f'Stage {stage+1}')
             
-            # Add text labels with ΔV and λ values
-            for i, (dv, ratio) in enumerate(zip(stage_dvs, stage_ratios)):
+            # Add text labels with ΔV and Λ values
+            for i, (dv, lambda_ratio) in enumerate(zip(stage_dvs, stage_ratios)):
                 # Add black text with white background for better visibility
                 plt.text(i, float(bottom[i]) + float(dv)/2,
-                        f"{float(dv):.0f} m/s\nλ={float(ratio):.3f}",
+                        f"{float(dv):.0f} m/s\nΛ={float(lambda_ratio):.3f}",
                         ha='center', va='center',
                         color='black', fontweight='bold',
                         fontsize=10, bbox=dict(

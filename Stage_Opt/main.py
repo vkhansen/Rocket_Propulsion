@@ -53,28 +53,31 @@ def main():
                 logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
                 
                 start_time = time.time()
-                optimal_solution = solver(
+                solution = solver(
                     initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, CONFIG
                 )
                 
-                if optimal_solution is not None:
+                if solution is not None:
                     execution_time = time.time() - start_time
-                    optimal_solution = np.asarray(optimal_solution).flatten()  # Ensure 1D array
-                    mass_ratios = calculate_mass_ratios(optimal_solution, ISP, EPSILON, G0)
-                    payload_fraction = calculate_payload_fraction(mass_ratios)
+                    
+                    # Extract values from the new solution format
+                    payload_fraction = solution['payload_fraction']
+                    stages = solution['stages']
+                    stage_dvs = [stage['delta_v'] for stage in stages]
+                    stage_lambdas = [stage['Lambda'] for stage in stages]
                     
                     results[method_name] = {
                         'method': method_name,
-                        'execution_time': execution_time,  # Consistent key name
-                        'dv': [float(x) for x in optimal_solution],
-                        'stage_ratios': [float(x) for x in mass_ratios],
+                        'execution_time': execution_time,
+                        'dv': stage_dvs,
+                        'stage_ratios': stage_lambdas,
                         'payload_fraction': float(payload_fraction),
-                        'error': float(abs(np.sum(optimal_solution) - TOTAL_DELTA_V))
+                        'error': float(abs(sum(stage_dvs) - TOTAL_DELTA_V))
                     }
                     
                     logger.info(f"{method_name} optimization succeeded:")
-                    logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in optimal_solution]} m/s")
-                    logger.info(f"  Mass ratios: {[f'{r:.3f}' for r in mass_ratios]}")
+                    logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in stage_dvs]} m/s")
+                    logger.info(f"  Stage ratios (Λ): {[f'{r:.3f}' for r in stage_lambdas]}")
                     logger.info(f"  Payload fraction: {payload_fraction:.3f}")
                     logger.info(f"Successfully completed {method_name} optimization")
             except Exception as e:

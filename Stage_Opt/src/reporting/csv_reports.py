@@ -47,17 +47,17 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
             detailed_path = os.path.join(output_dir, "stage_results.csv")
             with open(detailed_path, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)', 'Method'])
+                writer.writerow(['Stage', 'Delta-V (m/s)', 'Stage Ratio (Λ)', 'Delta-V Contribution (%)', 'Method'])
                 for method, result in results.items():
                     if not all(k in result for k in ['dv', 'stage_ratios']):
                         logger.warning(f"Skipping incomplete stage data for {method}")
                         continue
                     total_dv = sum(result['dv'])
-                    for i, (dv, ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
+                    for i, (dv, lambda_ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
                         writer.writerow([
                             f"Stage {i+1}",
                             f"{dv:.2f}",
-                            f"{ratio:.4f}",
+                            f"{lambda_ratio:.4f}",
                             f"{(dv/total_dv)*100:.1f}",
                             method
                         ])
