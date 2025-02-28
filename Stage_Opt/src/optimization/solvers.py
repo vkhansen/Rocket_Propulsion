@@ -59,18 +59,24 @@ class RocketOptimizationProblem(Problem):
         g = np.zeros((x.shape[0], 1))
         
         for i in range(x.shape[0]):
-            # Calculate stage ratios and payload fraction
-            stage_ratios, _ = calculate_stage_ratios(x[i], self.G0, self.ISP, self.EPSILON)
-            payload_fraction = calculate_payload_fraction(stage_ratios)
-            
-            # Store in cache
-            self.cache.add(x[i], payload_fraction)
+            # Check cache first
+            solution = x[i]
+            if self.cache.has_cached_solution(solution):
+                payload_fraction = self.cache.get_cached_fitness(solution)
+                logger.debug(f"Cache hit for solution {i}")
+            else:
+                # Calculate stage ratios and payload fraction
+                stage_ratios, _ = calculate_stage_ratios(solution, self.G0, self.ISP, self.EPSILON)
+                payload_fraction = calculate_payload_fraction(stage_ratios)
+                # Store in cache
+                self.cache.add(solution, payload_fraction)
+                logger.debug(f"Cache miss for solution {i}")
             
             # Store objective (negative since we're minimizing)
             f[i, 0] = -payload_fraction
             
             # Calculate constraint violations using stored config
-            g[i, 0] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V, self.config)
+            g[i, 0] = enforce_stage_constraints(solution, self.TOTAL_DELTA_V, self.config)
         
         out["F"] = f
         out["G"] = g

@@ -17,11 +17,21 @@ class OptimizationCache:
             max_size: Maximum number of solutions to cache
         """
         self.cache_file = os.path.join(OUTPUT_DIR, cache_file)
-        self.cache_fitness: Dict[Tuple, float] = {}
+        self.cache_fitness: Dict[str, float] = {}
         self.cache_best_solutions: List[np.ndarray] = []
         self.max_size = max_size
         self.hit_count = 0
         self.load_cache()
+    
+    def _get_key(self, x: np.ndarray) -> str:
+        """Generate a cache key for a solution vector.
+        
+        Uses a string representation of the rounded array for better cache hits
+        on nearly identical solutions.
+        """
+        # Round to 6 decimal places for cache key
+        rounded = np.round(x, decimals=6)
+        return np.array2string(rounded, precision=6, separator=',', suppress_small=True)
     
     def load_cache(self):
         """Load cached solutions from file."""
@@ -29,20 +39,8 @@ class OptimizationCache:
             if os.path.exists(self.cache_file):
                 with open(self.cache_file, 'rb') as f:
                     data = pickle.load(f)
-                    # Convert string keys back to tuples
-                    self.cache_fitness = {}
-                    for k, v in data.get('cache_fitness', {}).items():
-                        if isinstance(k, str):
-                            # Handle different string formats
-                            k = k.replace('np.float64(', '').replace(')', '')  # Remove numpy type info
-                            k = k.strip('()[]')  # Remove brackets
-                            try:
-                                k = tuple(float(x.strip()) for x in k.split(',') if x.strip())
-                            except ValueError:
-                                logger.warning(f"Skipping invalid cache key: {k}")
-                                continue
-                        self.cache_fitness[k] = v
-                    self.cache_best_solutions = data.get('cache_best_solutions', [])
+                    self.cache_fitness = data.get('fitness', {})
+                    self.cache_best_solutions = data.get('best_solutions', [])
                 logger.info(f"Loaded {len(self.cache_fitness)} cached fitness values "
                           f"and {len(self.cache_best_solutions)} best solutions")
         except Exception as e:
@@ -52,8 +50,8 @@ class OptimizationCache:
             
     def clear(self):
         """Clear all cached data."""
-        self.cache_fitness = {}
-        self.cache_best_solutions = []
+        self.cache_fitness.clear()
+        self.cache_best_solutions.clear()
         self.hit_count = 0
         if os.path.exists(self.cache_file):
             try:
@@ -66,15 +64,27 @@ class OptimizationCache:
         """Save cached solutions to file."""
         try:
             with open(self.cache_file, 'wb') as f:
-                data = {
-                    'cache_fitness': self.cache_fitness,
-                    'cache_best_solutions': self.cache_best_solutions
-                }
-                pickle.dump(data, f)
+                pickle.dump({
+                    'fitness': self.cache_fitness,
+                    'best_solutions': self.cache_best_solutions
+                }, f)
             logger.info(f"Saved {len(self.cache_fitness)} cached fitness values "
                       f"and {len(self.cache_best_solutions)} best solutions")
         except Exception as e:
             logger.warning(f"Failed to save cache: {e}")
+    
+    def has_cached_solution(self, x: np.ndarray) -> bool:
+        """Check if solution exists in cache."""
+        key = self._get_key(x)
+        return key in self.cache_fitness
+    
+    def get_cached_fitness(self, x: np.ndarray) -> float:
+        """Get cached fitness for a solution."""
+        key = self._get_key(x)
+        if key in self.cache_fitness:
+            self.hit_count += 1
+            return self.cache_fitness[key]
+        return None
     
     def add(self, x: np.ndarray, fitness: float):
         """Add or update a solution in the cache.
@@ -83,43 +93,24 @@ class OptimizationCache:
             x: Solution vector
             fitness: Fitness value
         """
-        x_tuple = tuple(x.flatten())
-        self.cache_fitness[x_tuple] = fitness
+        key = self._get_key(x)
+        self.cache_fitness[key] = fitness
         
         # Update best solutions list
         if len(self.cache_best_solutions) < self.max_size:
             self.cache_best_solutions.append(x.copy())
-        else:
-            # Replace worst solution if this one is better
-            worst_idx = np.argmax([self.cache_fitness.get(tuple(s.flatten()), float('inf')) 
+        elif fitness > min(self.cache_fitness.values()):
+            # Replace worst solution
+            worst_idx = np.argmin([self.cache_fitness[self._get_key(s)] 
                                  for s in self.cache_best_solutions])
-            if fitness < self.cache_fitness.get(tuple(self.cache_best_solutions[worst_idx].flatten()), float('inf')):
-                self.cache_best_solutions[worst_idx] = x.copy()
+            self.cache_best_solutions[worst_idx] = x.copy()
         
-        # Maintain cache size
+        # Trim cache if too large
         if len(self.cache_fitness) > self.max_size:
-            # Remove oldest entries that aren't in best_solutions
-            best_tuples = {tuple(s.flatten()) for s in self.cache_best_solutions}
-            to_remove = []
-            for k in self.cache_fitness:
-                if k not in best_tuples:
-                    to_remove.append(k)
-                    if len(self.cache_fitness) - len(to_remove) <= self.max_size:
-                        break
-            for k in to_remove:
-                del self.cache_fitness[k]
-    
-    def has_cached_solution(self, x: np.ndarray) -> bool:
-        """Check if solution exists in cache."""
-        return tuple(x.flatten()) in self.cache_fitness
-    
-    def get_cached_fitness(self, x: np.ndarray) -> float:
-        """Get cached fitness for a solution."""
-        x_tuple = tuple(x.flatten())
-        fitness = self.cache_fitness.get(x_tuple)
-        if fitness is not None:
-            self.hit_count += 1
-        return fitness
+            # Remove oldest entries
+            keys = list(self.cache_fitness.keys())
+            for old_key in keys[:-self.max_size]:
+                del self.cache_fitness[old_key]
     
     def get_best_solutions(self, n: int = None) -> List[np.ndarray]:
         """Get n best solutions from cache.
@@ -139,6 +130,6 @@ class OptimizationCache:
         # Sort by fitness
         sorted_solutions = sorted(
             self.cache_best_solutions,
-            key=lambda x: self.cache_fitness.get(tuple(x.flatten()), float('inf'))
+            key=lambda x: self.cache_fitness.get(self._get_key(x), float('inf'))
         )
         return sorted_solutions[:n]
