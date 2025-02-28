@@ -3,7 +3,7 @@ import numpy as np
 from .base_solver import BaseSolver
 from ...utils.config import logger
 
-class PSOSolver(BaseSolver):
+class ParticleSwarmOptimizer(BaseSolver):
     """Particle Swarm Optimization solver implementation."""
     
     def __init__(self, config, problem_params):

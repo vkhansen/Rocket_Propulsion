@@ -4,7 +4,7 @@ from scipy.optimize import differential_evolution
 from .base_solver import BaseSolver
 from ...utils.config import logger
 
-class DESolver(BaseSolver):
+class DifferentialEvolutionSolver(BaseSolver):
     """Differential Evolution solver implementation."""
     
     def __init__(self, config, problem_params):

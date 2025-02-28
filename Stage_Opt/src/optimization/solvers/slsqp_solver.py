@@ -14,68 +14,55 @@ class SLSQPSolver(BaseSolver):
         
     def objective(self, x):
         """Objective function for optimization."""
-        # Calculate constraint violation penalty
-        penalty = self.enforce_constraints(x)
+        return self.objective_with_penalty(x)
         
-        # Calculate payload fraction (negative for minimization)
-        payload_fraction = -self.calculate_fitness(x)
-        
-        # Apply penalty
-        penalty_coeff = self.solver_config.get('penalty_coefficient', 1e3)
-        return payload_fraction + penalty_coeff * penalty
-        
-    def solve(self, initial_guess, bounds):
-        """Solve using SLSQP algorithm."""
+    def solve(self):
+        """Solve using SLSQP."""
         try:
+            logger.info("Starting SLSQP optimization...")
+            
             # Get solver parameters
-            max_iter = self.solver_specific.get('max_iterations', 1000)
+            maxiter = self.solver_specific.get('max_iterations', 100)
             ftol = self.solver_specific.get('ftol', 1e-6)
-            eps = self.solver_specific.get('eps', 1e-8)
             
             # Run optimization
             result = minimize(
                 self.objective,
-                initial_guess,
+                x0=self.initial_guess,
                 method='SLSQP',
-                bounds=bounds,
+                bounds=self.bounds,
                 options={
-                    'maxiter': max_iter,
+                    'maxiter': maxiter,
                     'ftol': ftol,
-                    'eps': eps
+                    'disp': False
                 }
             )
             
             # Process results
-            success = result.success
-            message = result.message
-            x = result.x
-            n_iter = result.nit
-            n_evals = result.nfev
-            
-            # Calculate final payload fraction
-            payload_fraction = self.calculate_fitness(x)
-            
-            # Calculate stage information
-            stage_ratios, stage_info = calculate_stage_ratios(
-                x, self.G0, self.ISP, self.EPSILON
-            )
-            
-            return {
-                'success': success,
-                'message': message,
-                'payload_fraction': payload_fraction,
-                'stages': stage_info,
-                'n_iterations': n_iter,
-                'n_function_evals': n_evals
-            }
+            if result.success:
+                stage_ratios, mass_ratios = self.calculate_stage_ratios(result.x)
+                payload_fraction = self.calculate_payload_fraction(stage_ratios)
+                
+                return {
+                    'success': True,
+                    'x': result.x.tolist(),
+                    'fun': float(result.fun),
+                    'payload_fraction': payload_fraction,
+                    'stage_ratios': stage_ratios.tolist(),
+                    'mass_ratios': mass_ratios.tolist(),
+                    'stages': self.create_stage_results(result.x, stage_ratios),
+                    'n_iterations': result.nit,
+                    'n_function_evals': result.nfev
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f"SLSQP optimization failed: {result.message}"
+                }
             
         except Exception as e:
             logger.error(f"Error in SLSQP solver: {str(e)}")
             return {
                 'success': False,
-                'message': f"Error: {str(e)}",
-                'payload_fraction': 0.0,
-                'stages': [],
-                'n_iterations': 0,
-                'n_function_evals': 0
+                'message': f"Error in SLSQP solver: {str(e)}"
             }

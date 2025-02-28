@@ -4,7 +4,7 @@ from scipy.optimize import basinhopping
 from .base_solver import BaseSolver
 from ...utils.config import logger
 
-class BasinHoppingSolver(BaseSolver):
+class BasinHoppingOptimizer(BaseSolver):
     """Basin Hopping solver implementation."""
     
     def __init__(self, config, problem_params):
