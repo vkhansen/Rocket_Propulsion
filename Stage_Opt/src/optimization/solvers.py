@@ -252,7 +252,7 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         
         algorithm = GA(
             pop_size=population_size,
-            sampling=initial_guess,
+            sampling=np.array([initial_guess]),  # Convert to numpy array
             crossover=SBX(prob=crossover_prob, eta=crossover_eta),
             mutation=PM(prob=mutation_prob, eta=mutation_eta),
             eliminate_duplicates=True
