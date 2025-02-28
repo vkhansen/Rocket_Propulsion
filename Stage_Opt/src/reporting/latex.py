@@ -61,20 +61,15 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
         
         # Generate LaTeX content
         latex_content = r"""\documentclass[11pt]{article}
-\usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage{lmodern}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{natbib}
 \usepackage{float}
 \usepackage{siunitx}
-\usepackage{setspace}
 
 \bibliographystyle{plainnat}
-\setlength{\parskip}{1em}
-\onehalfspacing
 
 \title{Multi-Stage Rocket Optimization Analysis}
 \author{Stage\_Opt Analysis Report}
@@ -87,7 +82,7 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
 \section{Introduction}
 This report presents a comprehensive analysis of multi-stage rocket optimization using various state-of-the-art optimization algorithms. The optimization process aims to maximize payload capacity by finding optimal stage configurations while satisfying various constraints including total delta-v requirements and structural mass ratios \cite{pso_ascent_2013}.
 
-Our approach incorporates multiple optimization techniques from recent literature \cite{evolutionary_rocket_2022,de_ascent_2021}:
+Our approach incorporates multiple optimization techniques from recent literature \cite{evolutionary_rocket_2022, de_ascent_2021}:
 
 \begin{itemize}
     \item \textbf{Particle Swarm Optimization (PSO)}: Based on the work of \cite{pso_ascent_2013}, this method simulates the collective behavior of particle swarms to explore the solution space effectively. Recent applications in micro-launch vehicles \cite{pso_micro_launch_2012} have demonstrated its effectiveness in rocket trajectory optimization.
