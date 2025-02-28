@@ -8,7 +8,7 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.optimize import minimize as pymoo_minimize
 from ..utils.config import logger
-from .objective import payload_fraction_objective, calculate_mass_ratios, calculate_payload_fraction
+from .objective import payload_fraction_objective, calculate_mass_ratios, calculate_payload_fraction, calculate_stage_ratios
 from .cache import OptimizationCache
 
 __all__ = [
@@ -24,6 +24,16 @@ class RocketOptimizationProblem(Problem):
     """Problem definition for rocket stage optimization."""
     
     def __init__(self, n_var, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V):
+        """Initialize the optimization problem.
+        
+        Args:
+            n_var: Number of variables (stages)
+            bounds: List of (min, max) bounds for each variable
+            G0: Gravitational constant
+            ISP: List of specific impulse values
+            EPSILON: List of structural fraction values
+            TOTAL_DELTA_V: Total required delta-v
+        """
         xl = np.array([b[0] for b in bounds])
         xu = np.array([b[1] for b in bounds])
         super().__init__(n_var=n_var, n_obj=1, n_constr=1, xl=xl, xu=xu)
@@ -34,6 +44,12 @@ class RocketOptimizationProblem(Problem):
         self.cache = OptimizationCache()
 
     def _evaluate(self, x, out, *args, **kwargs):
+        """Evaluate solutions.
+        
+        Args:
+            x: Solution or population of solutions
+            out: Output dictionary for fitness and constraints
+        """
         # Handle both single solutions and populations
         x = np.atleast_2d(x)
         
@@ -48,22 +64,20 @@ class RocketOptimizationProblem(Problem):
             cached_fitness = self.cache.get_cached_fitness(x[i])
             if cached_fitness is not None:
                 f[i] = -cached_fitness  # Negate since we're minimizing
-                g[i] = abs(np.sum(x[i]) - self.TOTAL_DELTA_V)
+                g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V)
                 continue
-                
-            # Calculate payload fraction using correct mass ratio formula
-            stage_ratios = []
-            for dv, isp, eps in zip(x[i], self.ISP, self.EPSILON):
-                mass_ratio = np.exp(-dv / (self.G0 * isp))
-                lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
-                stage_ratios.append(lambda_val)
+            
+            # Calculate stage ratios and mass ratios
+            stage_ratios, _ = calculate_stage_ratios(
+                x[i], self.G0, self.ISP, self.EPSILON
+            )
             
             # Calculate payload fraction and cache it
             payload_fraction = np.prod(stage_ratios)
-            self.cache.add(x[i], payload_fraction)  # Use add method instead of cache_fitness
+            self.cache.add(x[i], payload_fraction)
             
             f[i] = -payload_fraction  # Negate since we're minimizing
-            g[i] = abs(np.sum(x[i]) - self.TOTAL_DELTA_V)
+            g[i] = enforce_stage_constraints(x[i], self.TOTAL_DELTA_V)
         
         out["F"] = f
         out["G"] = g
@@ -179,33 +193,19 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
                 TOTAL_DELTA_V=TOTAL_DELTA_V
             )
         
-        # Ensure arrays
-        initial_guess = np.asarray(initial_guess, dtype=float)
-        ISP = np.asarray(ISP, dtype=float)
-        EPSILON = np.asarray(EPSILON, dtype=float)
-        
         def objective(dv):
             # Check cache first
             cached_fitness = problem.cache.get_cached_fitness(dv)
             if cached_fitness is not None:
-                return -cached_fitness  # Negative since we're minimizing
+                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
             
-            fitness = payload_fraction_objective(dv, G0, ISP, EPSILON)
-            problem.cache.add(dv, fitness)
-            return -fitness  # Negative since we're minimizing
-        
-        def total_dv_constraint(dv):
-            # Ensure exact total delta-V
-            return np.sum(dv) - TOTAL_DELTA_V
+            # Calculate stage ratios and payload fraction
+            stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+            payload_fraction = np.prod(stage_ratios)
+            problem.cache.add(dv, payload_fraction)
             
-        minimizer_kwargs = {
-            'method': 'SLSQP',
-            'bounds': bounds,
-            'constraints': {
-                'type': 'eq',
-                'fun': total_dv_constraint
-            }
-        }
+            # Return negative payload fraction (minimizing) plus constraint penalty
+            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
         
         # Get basin hopping parameters from config
         bh_config = config.get('basin_hopping', {})
@@ -216,7 +216,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         result = basinhopping(
             objective,
             initial_guess,
-            minimizer_kwargs=minimizer_kwargs,
+            minimizer_kwargs={'method': 'SLSQP', 'bounds': bounds},
             niter=n_iterations,
             T=temperature,
             stepsize=stepsize
@@ -224,30 +224,27 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         
         if not result.lowest_optimization_result.success:
             logger.warning(f"Basin-Hopping optimization failed: {result.message}")
-            
+        
         # Calculate final stage ratios and payload fraction
         optimal_dv = result.x
-        stage_ratios = []
-        stages = []
+        stage_ratios, mass_ratios = calculate_stage_ratios(
+            optimal_dv, G0, ISP, EPSILON
+        )
         
-        for i, (dv, isp, eps) in enumerate(zip(optimal_dv, ISP, EPSILON)):
-            mass_ratio = np.exp(-dv / (G0 * isp))
-            lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
-            stage_ratios.append(lambda_val)
-            
+        # Build result dictionary
+        stages = []
+        for i, (dv, mr, sr) in enumerate(zip(optimal_dv, mass_ratios, stage_ratios)):
             stages.append({
                 'stage': i + 1,
                 'delta_v': float(dv),
-                'Lambda': float(lambda_val),
-                'mass_ratio': float(mass_ratio)
+                'Lambda': float(sr),
+                'mass_ratio': float(mr)
             })
-            
-        payload_fraction = float(np.prod(stage_ratios))
         
         return {
             'success': result.lowest_optimization_result.success,
             'message': str(result.message),
-            'payload_fraction': payload_fraction,
+            'payload_fraction': float(np.prod(stage_ratios)),
             'stages': stages,
             'n_iterations': result.nit,
             'n_function_evals': result.nfev
@@ -364,57 +361,59 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.error(f"Error in GA optimization: {str(e)}")
         raise
 
-def enforce_stage_constraints(x, TOTAL_DELTA_V):
-    """Enforce minimum and maximum ΔV constraints for each stage."""
-    # First stage: 15% to 80% of total ΔV
-    min_dv1 = 0.15 * TOTAL_DELTA_V
-    max_dv1 = 0.80 * TOTAL_DELTA_V
-    x[0] = np.clip(x[0], min_dv1, max_dv1)
-    
-    # Other stages: minimum 1% of total ΔV
-    min_dv_other = 0.01 * TOTAL_DELTA_V
-    x[1:] = np.clip(x[1:], min_dv_other, TOTAL_DELTA_V)
-    
-    # Scale to meet total ΔV
-    scale = TOTAL_DELTA_V / np.sum(x)
-    x = x * scale
-    
-    # Re-enforce first stage constraints after scaling
-    x[0] = np.clip(x[0], min_dv1, max_dv1)
-    remaining_dv = TOTAL_DELTA_V - x[0]
-    if len(x) > 1:
-        # Distribute remaining ΔV proportionally among other stages
-        other_stage_ratios = x[1:] / np.sum(x[1:])
-        x[1:] = other_stage_ratios * remaining_dv
-    
-    return x
-
-def calculate_diversity(population):
-    """Calculate diversity of the population using average pairwise Euclidean distance.
+def calculate_stage_ratios(dv, G0, ISP, EPSILON):
+    """Calculate stage ratios (λ) for each stage.
     
     Args:
-        population (np.ndarray): Population array of shape (pop_size, n_variables)
+        dv: Stage delta-v values
+        G0: Gravitational constant
+        ISP: Specific impulse values
+        EPSILON: Structural fraction values
         
     Returns:
-        float: Diversity measure between 0 and 1
+        tuple: (stage_ratios, mass_ratios)
+            - stage_ratios: List of stage ratios (λ)
+            - mass_ratios: List of mass ratios before structural fraction
     """
-    pop_size = len(population)
-    if pop_size <= 1:
-        return 0.0
-        
-    # Calculate pairwise distances
-    distances = []
-    for i in range(pop_size):
-        for j in range(i + 1, pop_size):
-            dist = np.linalg.norm(population[i] - population[j])
-            distances.append(dist)
-            
-    # Normalize by maximum possible distance (based on bounds)
-    mean_dist = np.mean(distances) if distances else 0.0
-    max_dist = np.sqrt(population.shape[1])  # Maximum possible distance in normalized space
-    diversity = mean_dist / max_dist
+    stage_ratios = []
+    mass_ratios = []
+    for dv_i, isp, eps in zip(dv, ISP, EPSILON):
+        mass_ratio = np.exp(-dv_i / (G0 * isp))
+        lambda_val = mass_ratio * (1 - eps)  # Corrected λᵢ calculation
+        stage_ratios.append(lambda_val)
+        mass_ratios.append(mass_ratio)
+    return stage_ratios, mass_ratios
+
+def enforce_stage_constraints(dv, TOTAL_DELTA_V):
+    """Enforce stage constraints with continuous penalties.
     
-    return diversity
+    Args:
+        dv: Stage delta-v values
+        TOTAL_DELTA_V: Total required delta-v
+        
+    Returns:
+        float: Penalty value (0 if constraints satisfied)
+    """
+    penalty = 0.0
+    
+    # Total delta-v constraint
+    penalty += abs(np.sum(dv) - TOTAL_DELTA_V)
+    
+    # Stage-specific constraints
+    for i, dv_i in enumerate(dv):
+        if i == 0:  # First stage
+            min_dv = 0.15 * TOTAL_DELTA_V
+            max_dv = 0.85 * TOTAL_DELTA_V
+            if dv_i < min_dv:
+                penalty += abs(dv_i - min_dv)
+            elif dv_i > max_dv:
+                penalty += abs(dv_i - max_dv)
+        else:  # Other stages
+            min_dv = 0.1 * TOTAL_DELTA_V
+            if dv_i < min_dv:
+                penalty += abs(dv_i - min_dv)
+    
+    return penalty
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
@@ -566,33 +565,35 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         logger.exception("Detailed error information:")
         return initial_guess
 
-def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
+def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config, problem=None):
     """Solve using Differential Evolution."""
     try:
         logger.debug("Starting Differential Evolution optimization")
-        logger.debug(f"Initial guess: {initial_guess}")
-        logger.debug(f"Bounds: {bounds}")
         
-        # Ensure arrays
-        initial_guess = np.asarray(initial_guess, dtype=float)
-        ISP = np.asarray(ISP, dtype=float)
-        EPSILON = np.asarray(EPSILON, dtype=float)
+        # Use provided problem instance or create new one
+        if problem is None:
+            problem = RocketOptimizationProblem(
+                n_var=len(initial_guess),
+                bounds=bounds,
+                G0=G0,
+                ISP=ISP,
+                EPSILON=EPSILON,
+                TOTAL_DELTA_V=TOTAL_DELTA_V
+            )
         
         def objective(dv):
-            # Enforce constraints through penalty
-            total_dv = np.sum(dv)
-            penalty = 1e6 * abs(total_dv - TOTAL_DELTA_V)
+            # Check cache first
+            cached_fitness = problem.cache.get_cached_fitness(dv)
+            if cached_fitness is not None:
+                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
             
-            # Add penalties for stage constraints
-            for i, dv_i in enumerate(dv):
-                if i == 0:  # First stage
-                    if dv_i < 0.15 * TOTAL_DELTA_V or dv_i > 0.8 * TOTAL_DELTA_V:
-                        penalty += 1e6
-                else:  # Other stages
-                    if dv_i < 0.01 * TOTAL_DELTA_V:
-                        penalty += 1e6
+            # Calculate stage ratios and payload fraction
+            stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+            payload_fraction = np.prod(stage_ratios)
+            problem.cache.add(dv, payload_fraction)
             
-            return -payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
+            # Return negative payload fraction (minimizing) plus constraint penalty
+            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V)
         
         # Get DE parameters from config
         de_config = config.get('differential_evolution', {})
@@ -603,168 +604,49 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         strategy = de_config.get('strategy', 'best1bin')
         tol = de_config.get('tol', 1e-6)
         
-        logger.debug(f"DE Config: population={population_size}, max_iter={max_iter}, "
-                    f"mutation={mutation}, recombination={recombination}, "
-                    f"strategy={strategy}, tol={tol}")
-        
-        # Set minimum delta-v per stage
-        MIN_DELTA_V_FIRST = TOTAL_DELTA_V * 0.15
-        MIN_DELTA_V_OTHERS = TOTAL_DELTA_V * 0.01
-        n_stages = len(initial_guess)
-        
-        logger.debug(f"Stage constraints: First stage min={MIN_DELTA_V_FIRST}, "
-                    f"Other stages min={MIN_DELTA_V_OTHERS}")
-        
-        def enforce_min_delta_v(particles):
-            """Enforce minimum delta-v for each stage while maintaining total delta-v."""
-            # Handle single particle case
-            if len(particles.shape) == 1:
-                particles = particles.reshape(1, -1)
-            
-            # First ensure minimum values for first stage
-            particles[:, 0] = np.maximum(particles[:, 0], MIN_DELTA_V_FIRST)
-            
-            # Ensure minimum values for other stages
-            particles[:, 1:] = np.maximum(particles[:, 1:], MIN_DELTA_V_OTHERS)
-            
-            # Redistribute excess while maintaining first stage minimum
-            for i in range(len(particles)):
-                # Calculate remaining delta-v after first stage
-                remaining_dv = TOTAL_DELTA_V - particles[i, 0]
-                
-                if remaining_dv < (n_stages - 1) * MIN_DELTA_V_OTHERS:
-                    # If not enough remaining for other stages, adjust first stage
-                    particles[i, 0] = TOTAL_DELTA_V - (n_stages - 1) * MIN_DELTA_V_OTHERS
-                    particles[i, 1:] = MIN_DELTA_V_OTHERS
-                else:
-                    # Distribute remaining to other stages proportionally
-                    current_sum = np.sum(particles[i, 1:])
-                    if current_sum > 0:
-                        particles[i, 1:] *= remaining_dv / current_sum
-            
-            return particles
-        
-        def objective(x):
-            x_constrained = enforce_min_delta_v(x)
-            obj_value = payload_fraction_objective(x_constrained, G0, ISP, EPSILON)
-            logger.debug(f"Objective evaluation - Input: {x}, Constrained: {x_constrained}, "
-                        f"Objective value: {obj_value}")
-            return obj_value
-        
-        # Modify bounds for first stage
-        bounds[0] = (MIN_DELTA_V_FIRST, TOTAL_DELTA_V * 0.8)  # 15% to 80% of total ΔV
-        logger.debug(f"Modified bounds: {bounds}")
-        
         result = differential_evolution(
             objective,
-            bounds=bounds,
+            bounds,
             strategy=strategy,
             maxiter=max_iter,
             popsize=population_size,
+            tol=tol,
             mutation=mutation,
             recombination=recombination,
-            tol=tol,
             init='sobol'
         )
         
-        if result.success:
-            logger.info(f"DE optimization converged after {result.nit} iterations")
-            logger.debug(f"Final message: {result.message}")
-            solution = enforce_min_delta_v(result.x)
-            if len(solution.shape) > 1:
-                solution = solution[0]  # Take first solution if multiple returned
-            logger.info(f"Final solution: {solution}")
-            
-            # Calculate mass ratios and stage ratios
-            mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            stage_ratios = []  # Store stage ratios for CSV report
-            for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-                lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                stage_ratios.append(lambda_val)
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': lambda_val
-                }
-                stages.append(stage_info)
-            
-            return {
-                'success': True,
-                'message': "DE optimization completed",
-                'payload_fraction': payload_fraction,
-                'stages': stages,
-                'dv': [float(x) for x in solution],  # Add dv field for CSV report
-                'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
-                'n_iterations': result.nit,
-                'n_function_evals': result.nfev
-            }
-        else:
-            logger.warning(f"DE optimization did not converge: {result.message}")
-            logger.debug(f"Number of iterations: {result.nit}")
-            solution = enforce_min_delta_v(initial_guess)
-            if len(solution.shape) > 1:
-                solution = solution[0]
-            logger.info(f"Returning initial guess solution: {solution}")
-            
-            # Calculate mass ratios and stage ratios for initial guess
-            mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            stage_ratios = []  # Store stage ratios for CSV report
-            for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-                lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                stage_ratios.append(lambda_val)
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': lambda_val
-                }
-                stages.append(stage_info)
-            
-            return {
-                'payload_fraction': payload_fraction,
-                'stages': stages,
-                'dv': [float(x) for x in solution],  # Add dv field for CSV report
-                'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
-                'n_iterations': result.nit,
-                'n_function_evals': result.nfev
-            }
-            
-    except Exception as e:
-        logger.error(f"Differential Evolution optimization failed: {e}")
-        logger.exception("Detailed error information:")
-        solution = enforce_min_delta_v(initial_guess)
-        if len(solution.shape) > 1:
-            solution = solution[0]
+        if not result.success:
+            logger.warning(f"Differential Evolution optimization failed: {result.message}")
         
-        # Calculate mass ratios and stage ratios for error case
-        mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
+        # Calculate final stage ratios and payload fraction
+        optimal_dv = result.x
+        stage_ratios, mass_ratios = calculate_stage_ratios(
+            optimal_dv, G0, ISP, EPSILON
+        )
         
-        # Create stage information
+        # Build result dictionary
         stages = []
-        stage_ratios = []  # Store stage ratios for CSV report
-        for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-            lambda_val = float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-            stage_ratios.append(lambda_val)
-            stage_info = {
+        for i, (dv, mr, sr) in enumerate(zip(optimal_dv, mass_ratios, stage_ratios)):
+            stages.append({
+                'stage': i + 1,
                 'delta_v': float(dv),
-                'Lambda': lambda_val
-            }
-            stages.append(stage_info)
+                'Lambda': float(sr),
+                'mass_ratio': float(mr)
+            })
         
         return {
-            'payload_fraction': payload_fraction,
+            'success': result.success,
+            'message': str(result.message),
+            'payload_fraction': float(np.prod(stage_ratios)),
             'stages': stages,
-            'dv': [float(x) for x in solution],  # Add dv field for CSV report
-            'stage_ratios': stage_ratios,  # Add stage_ratios field for CSV report
             'n_iterations': result.nit,
             'n_function_evals': result.nfev
         }
+        
+    except Exception as e:
+        logger.error(f"Error in Differential Evolution optimization: {str(e)}")
+        raise
 
 def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Particle Swarm Optimization."""
