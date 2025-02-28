@@ -105,10 +105,14 @@ class TestPayloadOptimization(unittest.TestCase):
         logger.debug(f"Calculated stage ratios: {ratios}")
         
         # Manual calculation for verification
-        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))
+        # For top stage (i=1)
         mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))
-        lambda1 = 1.0 / (mass_ratio1 + EPSILON[0])
         lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])
+        
+        # For bottom stage (i=0)
+        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))
+        upper_stage_mass = mass_ratio2 * (1 + EPSILON[1])
+        lambda1 = 1.0 / (upper_stage_mass + EPSILON[0])
         
         logger.debug(f"Manual calculations - mass_ratio1: {mass_ratio1}, mass_ratio2: {mass_ratio2}")
         logger.debug(f"Manual calculations - lambda1: {lambda1}, lambda2: {lambda2}")
