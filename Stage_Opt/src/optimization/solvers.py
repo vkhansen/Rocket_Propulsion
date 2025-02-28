@@ -152,10 +152,32 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         logger.error(f"Error in SLSQP optimization: {str(e)}")
         raise
 
-def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Basin-Hopping."""
+def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config, problem=None):
+    """Solve using Basin-Hopping.
+    
+    Args:
+        initial_guess: Initial solution vector
+        bounds: List of (min, max) bounds for each variable
+        G0: Gravitational constant
+        ISP: List of specific impulse values
+        EPSILON: List of epsilon values
+        TOTAL_DELTA_V: Total delta-v constraint
+        config: Configuration dictionary
+        problem: Optional RocketOptimizationProblem instance. If provided, will use its cache.
+    """
     try:
         logger.debug("Starting Basin-Hopping optimization")
+        
+        # Use provided problem instance or create new one
+        if problem is None:
+            problem = RocketOptimizationProblem(
+                n_var=len(initial_guess),
+                bounds=bounds,
+                G0=G0,
+                ISP=ISP,
+                EPSILON=EPSILON,
+                TOTAL_DELTA_V=TOTAL_DELTA_V
+            )
         
         # Ensure arrays
         initial_guess = np.asarray(initial_guess, dtype=float)
@@ -163,10 +185,18 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         EPSILON = np.asarray(EPSILON, dtype=float)
         
         def objective(dv):
-            return -payload_fraction_objective(dv, G0, ISP, EPSILON)  # Negative since we're minimizing
+            # Check cache first
+            cached_fitness = problem.cache.get_cached_fitness(dv)
+            if cached_fitness is not None:
+                return -cached_fitness  # Negative since we're minimizing
             
+            fitness = payload_fraction_objective(dv, G0, ISP, EPSILON)
+            problem.cache.add(dv, fitness)
+            return -fitness  # Negative since we're minimizing
+        
         def total_dv_constraint(dv):
-            return abs(np.sum(dv) - TOTAL_DELTA_V)
+            # Ensure exact total delta-V
+            return np.sum(dv) - TOTAL_DELTA_V
             
         minimizer_kwargs = {
             'method': 'SLSQP',

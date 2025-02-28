@@ -685,6 +685,16 @@ class TestOptimizationCache(unittest.TestCase):
     
     def test_basin_hopping_caching(self):
         """Test caching with basin hopping solver."""
+        # Create problem instance
+        problem = RocketOptimizationProblem(
+            n_var=len(self.test_data['initial_guess']),
+            bounds=self.test_data['bounds'],
+            G0=self.test_data['G0'],
+            ISP=self.test_data['ISP'],
+            EPSILON=self.test_data['EPSILON'],
+            TOTAL_DELTA_V=self.test_data['TOTAL_DELTA_V']
+        )
+        
         # First run
         result1 = solve_with_basin_hopping(
             self.test_data['initial_guess'],
@@ -693,10 +703,12 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['ISP'],
             self.test_data['EPSILON'],
             self.test_data['TOTAL_DELTA_V'],
-            self.config
+            self.config,
+            problem=problem
         )
         
-        initial_hits = self.cache.hit_count
+        initial_hits = problem.cache.hit_count
+        problem.cache.save_cache()  # Save cache after first run
         
         # Second run with same parameters
         result2 = solve_with_basin_hopping(
@@ -706,11 +718,12 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['ISP'],
             self.test_data['EPSILON'],
             self.test_data['TOTAL_DELTA_V'],
-            self.config
+            self.config,
+            problem=problem
         )
         
         # Verify cache hits increased
-        self.assertGreater(self.cache.hit_count, initial_hits)
+        self.assertGreater(problem.cache.hit_count, initial_hits)
         
         # Verify results are similar
         self.assertAlmostEqual(result1['payload_fraction'], 
