@@ -20,18 +20,9 @@ class RocketStageProblem(Problem):
         self.solver = solver
         
     def _evaluate(self, x, out, *args, **kwargs):
-        """Evaluate the objective function."""
-        # Convert to list of solutions if only one solution
-        if len(x.shape) == 1:
-            x = [x]
-            
-        # Evaluate each solution
-        f = []
-        for solution in x:
-            fitness = self.solver.objective_with_penalty(solution)
-            f.append(fitness)
-            
-        out["F"] = np.array(f)
+        """Evaluate solutions."""
+        f = np.array([self.solver.objective_with_penalty(xi) for xi in x])
+        out["F"] = f
 
 class GeneticAlgorithmSolver(BaseSolver):
     """Genetic Algorithm solver implementation."""
@@ -41,55 +32,63 @@ class GeneticAlgorithmSolver(BaseSolver):
         super().__init__(config, problem_params)
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
-    def solve(self):
-        """Solve using Genetic Algorithm."""
+    def solve(self, initial_guess, bounds):
+        """Solve using Genetic Algorithm.
+        
+        Args:
+            initial_guess: Initial solution guess
+            bounds: List of (min, max) bounds for each variable
+            
+        Returns:
+            dict: Optimization results
+        """
         try:
-            logger.info("Starting Genetic Algorithm optimization...")
+            logger.info("Starting GA optimization...")
             
-            # Create problem instance
-            problem = RocketStageProblem(
-                solver=self,
-                n_var=len(self.initial_guess),
-                bounds=self.bounds
-            )
+            # Get solver parameters
+            pop_size = self.solver_specific.get('population_size', 100)
+            n_gen = self.solver_specific.get('n_generations', 100)
             
-            # Configure GA parameters
+            # Initialize problem
+            problem = RocketStageProblem(self, len(initial_guess), bounds)
+            
+            # Initialize algorithm
             algorithm = GA(
-                pop_size=self.solver_specific.get('population_size', 50),
+                pop_size=pop_size,
                 eliminate_duplicates=True
             )
             
             # Run optimization
-            res = minimize(
+            result = minimize(
                 problem,
                 algorithm,
-                ('n_gen', self.solver_specific.get('n_generations', 100)),
+                ('n_gen', n_gen),
                 seed=42,
                 verbose=False
             )
             
             # Process results
-            if res.X is not None:
-                stage_ratios, mass_ratios = self.calculate_stage_ratios(res.X)
-                payload_fraction = self.calculate_payload_fraction(stage_ratios)
+            if result.success:
+                x = result.X
+                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
+                payload_fraction = self.calculate_fitness(x)
                 
-                result = {
+                return {
                     'success': True,
-                    'x': res.X.tolist(),
-                    'fun': float(res.F[0]),
-                    'payload_fraction': payload_fraction,
+                    'x': x.tolist(),
+                    'fun': float(result.F[0]),
+                    'payload_fraction': float(payload_fraction),
                     'stage_ratios': stage_ratios.tolist(),
                     'mass_ratios': mass_ratios.tolist(),
-                    'stages': self.create_stage_results(res.X, stage_ratios),
-                    'execution_time': res.exec_time
+                    'stages': self.create_stage_results(x, stage_ratios),
+                    'n_iterations': result.algorithm.n_iter,
+                    'n_function_evals': result.algorithm.evaluator.n_eval
                 }
             else:
-                result = {
+                return {
                     'success': False,
-                    'message': "GA optimization failed to find a solution"
+                    'message': "GA optimization failed to converge"
                 }
-            
-            return result
             
         except Exception as e:
             logger.error(f"Error in GA solver: {str(e)}")
