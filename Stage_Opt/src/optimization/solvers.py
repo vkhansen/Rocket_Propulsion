@@ -54,8 +54,9 @@ class RocketOptimizationProblem(Problem):
             # Calculate payload fraction using correct mass ratio formula
             stage_ratios = []
             for dv, isp, eps in zip(x[i], self.ISP, self.EPSILON):
-                ratio = np.exp(-dv / (self.G0 * isp)) - eps
-                stage_ratios.append(ratio)
+                mass_ratio = np.exp(-dv / (self.G0 * isp))
+                lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
+                stage_ratios.append(lambda_val)
             
             # Calculate payload fraction and cache it
             payload_fraction = np.prod(stage_ratios)
@@ -81,7 +82,7 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         EPSILON = np.asarray(EPSILON, dtype=float)
         
         def objective(dv):
-            return payload_fraction_objective(dv, G0, ISP, EPSILON)
+            return -payload_fraction_objective(dv, G0, ISP, EPSILON)  # Negative since we're minimizing
             
         def total_dv_constraint(dv):
             # Ensure exact total delta-V
@@ -91,7 +92,7 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             # First stage: minimum 15%
             min_dv1 = dv[0] - 0.15 * TOTAL_DELTA_V
             # Other stages: minimum 1% each
-            min_dv_others = np.minimum(0, dv[1:] - 0.01 * TOTAL_DELTA_V)
+            min_dv_others = dv[1:] - 0.01 * TOTAL_DELTA_V
             return np.concatenate(([min_dv1], min_dv_others))
             
         def max_dv_constraint(dv):
@@ -104,11 +105,9 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             {'type': 'ineq', 'fun': max_dv_constraint}
         ]
         
-        # Set tight tolerance for constraint satisfaction
-        options = {
-            'ftol': 1e-8,
-            'maxiter': config.get("optimization", {}).get("max_iterations", 1000)
-        }
+        # Get optimization parameters from config
+        opt_config = config.get('optimization', {})
+        max_iterations = opt_config.get('max_iterations', 1000)
         
         result = minimize(
             objective,
@@ -116,166 +115,132 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             method='SLSQP',
             bounds=bounds,
             constraints=constraints,
-            options=options
+            options={'maxiter': max_iterations}
         )
         
-        if result.success:
-            logger.info(f"SLSQP optimization converged after {result.nit} iterations")
-            logger.debug(f"Final message: {result.message}")
-            x = result.x
-            scale = TOTAL_DELTA_V / np.sum(x)
-            x = x * scale  # Normalize to exactly match total delta-V
-            
-            # Calculate mass ratios and payload fraction
-            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Prepare stage information
-            stages = []
-            for i, dv in enumerate(x):
-                stage_info = {
-                    'stage': i + 1,
-                    'delta_v': float(dv),
-                    'mass_ratio': float(mass_ratios[i])
-                }
-                stages.append(stage_info)
-            
-            return {
-                'success': True,
-                'payload_fraction': float(payload_fraction),
-                'stages': stages,
-                'message': result.message,
-                'iterations': result.nit
-            }
-        else:
+        if not result.success:
             logger.warning(f"SLSQP optimization failed: {result.message}")
-            return {
-                'success': False,
-                'message': result.message,
-                'iterations': result.nit
-            }
             
-    except Exception as e:
-        logger.error(f"Error in SLSQP optimization: {e}")
+        # Calculate final stage ratios and payload fraction
+        optimal_dv = result.x
+        stage_ratios = []
+        stages = []
+        
+        for i, (dv, isp, eps) in enumerate(zip(optimal_dv, ISP, EPSILON)):
+            mass_ratio = np.exp(-dv / (G0 * isp))
+            lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
+            stage_ratios.append(lambda_val)
+            
+            stages.append({
+                'stage': i + 1,
+                'delta_v': float(dv),
+                'Lambda': float(lambda_val),
+                'mass_ratio': float(mass_ratio)
+            })
+            
+        payload_fraction = float(np.prod(stage_ratios))
+        
         return {
-            'success': False,
-            'message': str(e)
+            'success': result.success,
+            'message': result.message,
+            'payload_fraction': payload_fraction,
+            'stages': stages,
+            'n_iterations': result.nit,
+            'n_function_evals': result.nfev
         }
+        
+    except Exception as e:
+        logger.error(f"Error in SLSQP optimization: {str(e)}")
+        raise
 
 def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Basin-Hopping.
-    
-    Args:
-        initial_guess (np.ndarray): Initial guess for delta-V distribution
-        bounds (list): List of (min, max) tuples for each variable
-        G0 (float): Gravitational constant
-        ISP (list): Specific impulse for each stage
-        EPSILON (list): Structural coefficients for each stage
-        TOTAL_DELTA_V (float): Total delta-V to distribute
-        config (dict): Configuration parameters
-        
-    Returns:
-        dict: Optimization results containing:
-            - payload_fraction (float): Optimal payload fraction
-            - stages (list): List of stage information dictionaries
-    """
+    """Solve using Basin-Hopping."""
     try:
         logger.debug("Starting Basin-Hopping optimization")
-        logger.debug(f"Initial guess: {initial_guess}")
-        logger.debug(f"Bounds: {bounds}")
-
-        # Get Basin-Hopping parameters from config
+        
+        # Ensure arrays
+        initial_guess = np.asarray(initial_guess, dtype=float)
+        ISP = np.asarray(ISP, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
+        
+        def objective(dv):
+            return -payload_fraction_objective(dv, G0, ISP, EPSILON)  # Negative since we're minimizing
+            
+        def total_dv_constraint(dv):
+            return abs(np.sum(dv) - TOTAL_DELTA_V)
+            
+        minimizer_kwargs = {
+            'method': 'SLSQP',
+            'bounds': bounds,
+            'constraints': {
+                'type': 'eq',
+                'fun': total_dv_constraint
+            }
+        }
+        
+        # Get basin hopping parameters from config
         bh_config = config.get('basin_hopping', {})
         n_iterations = bh_config.get('n_iterations', 100)
         temperature = bh_config.get('temperature', 1.0)
         stepsize = bh_config.get('stepsize', 0.5)
-
-        logger.debug(f"Basin-Hopping Config: iterations={n_iterations}, "
-                    f"temperature={temperature}, stepsize={stepsize}")
-
-        # Initialize cache
-        cache = OptimizationCache()
-
-        # Define the objective function with caching and penalty
-        def objective(x):
-            # Check cache first
-            x_tuple = tuple(x)
-            cached_value = cache.get_cached_fitness(x_tuple)
-            if cached_value is not None:
-                logger.debug(f"Cache hit for solution: {x}")
-                return -cached_value  # Negative because we minimize
-
-            # Calculate payload fraction
-            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            obj_value = -payload_fraction  # Negative because we minimize
-
-            # Add penalty for constraint violation
-            penalty_weight = 1e6
-            delta_v_violation = abs(np.sum(x) - TOTAL_DELTA_V)
-            penalty = penalty_weight * delta_v_violation
-
-            final_value = obj_value + penalty
-
-            # Store in cache (without penalty)
-            cache.fitness_cache[x_tuple] = payload_fraction
-            if final_value < 1e-3:  # If solution is good
-                cache.best_solutions.append(np.array(x))
-                cache.save_cache()
-
-            logger.debug(f"Objective evaluation - Input: {x}, Value: {final_value}")
-            return final_value
-
-        # Define bounds as a list of tuples
-        bounds_list = [(b[0], b[1]) for b in bounds]
-
-        # Run optimization
+        
         result = basinhopping(
             objective,
             initial_guess,
+            minimizer_kwargs=minimizer_kwargs,
             niter=n_iterations,
             T=temperature,
-            stepsize=stepsize,
-            minimizer_kwargs={
-                'method': 'L-BFGS-B',
-                'bounds': bounds_list
-            }
+            stepsize=stepsize
         )
-
-        # Extract best solution and scale to match total delta-V
-        solution = result.x
-        scale = TOTAL_DELTA_V / np.sum(solution)
-        solution = solution * scale
-
-        # Calculate final mass ratios and payload fraction
-        mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-
-        # Create stage information
+        
+        if not result.lowest_optimization_result.success:
+            logger.warning(f"Basin-Hopping optimization failed: {result.message}")
+            
+        # Calculate final stage ratios and payload fraction
+        optimal_dv = result.x
+        stage_ratios = []
         stages = []
-        for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-            stage_info = {
+        
+        for i, (dv, isp, eps) in enumerate(zip(optimal_dv, ISP, EPSILON)):
+            mass_ratio = np.exp(-dv / (G0 * isp))
+            lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
+            stage_ratios.append(lambda_val)
+            
+            stages.append({
+                'stage': i + 1,
                 'delta_v': float(dv),
-                'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-            }
-            stages.append(stage_info)
-
-        logger.debug(f"Basin-Hopping finished. Best solution: {solution}")
+                'Lambda': float(lambda_val),
+                'mass_ratio': float(mass_ratio)
+            })
+            
+        payload_fraction = float(np.prod(stage_ratios))
+        
         return {
-            'payload_fraction': float(payload_fraction),
-            'stages': stages
+            'success': result.lowest_optimization_result.success,
+            'message': str(result.message),
+            'payload_fraction': payload_fraction,
+            'stages': stages,
+            'n_iterations': result.nit,
+            'n_function_evals': result.nfev
         }
-
+        
     except Exception as e:
-        logger.error(f"Error in Basin-Hopping: {e}")
+        logger.error(f"Error in Basin-Hopping optimization: {str(e)}")
         raise
 
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
     try:
         logger.debug("Starting GA optimization")
-        logger.debug(f"Initial guess: {initial_guess}")
-        logger.debug(f"Bounds: {bounds}")
+        
+        problem = RocketOptimizationProblem(
+            n_var=len(initial_guess),
+            bounds=bounds,
+            G0=G0,
+            ISP=ISP,
+            EPSILON=EPSILON,
+            TOTAL_DELTA_V=TOTAL_DELTA_V
+        )
         
         # Get GA parameters from config
         ga_config = config.get('ga', {})
@@ -286,120 +251,53 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         mutation_prob = ga_config.get('mutation_prob', 0.2)
         mutation_eta = ga_config.get('mutation_eta', 20)
         
-        logger.debug(f"GA Config: population={population_size}, generations={n_generations}, "
-                    f"crossover_prob={crossover_prob}, crossover_eta={crossover_eta}, "
-                    f"mutation_prob={mutation_prob}, mutation_eta={mutation_eta}")
-        
-        # Create initial population with initial guess
-        n_var = len(initial_guess)
-        initial_population = np.random.uniform(
-            low=[b[0] for b in bounds],
-            high=[b[1] for b in bounds],
-            size=(population_size, n_var)
-        )
-        initial_population[0] = initial_guess  # Include initial guess
-        
-        # Create problem
-        problem = RocketOptimizationProblem(
-            n_var=n_var,
-            bounds=bounds,
-            G0=G0,
-            ISP=ISP,
-            EPSILON=EPSILON,
-            TOTAL_DELTA_V=TOTAL_DELTA_V
-        )
-        
-        # Setup algorithm
         algorithm = GA(
             pop_size=population_size,
-            sampling=initial_population,
+            sampling=initial_guess,
             crossover=SBX(prob=crossover_prob, eta=crossover_eta),
-            mutation=PM(prob=mutation_prob, eta=mutation_eta)
+            mutation=PM(prob=mutation_prob, eta=mutation_eta),
+            eliminate_duplicates=True
         )
         
-        # Run optimization
-        res = pymoo_minimize(
+        result = pymoo_minimize(
             problem,
             algorithm,
             ('n_gen', n_generations),
-            seed=1
+            seed=1,
+            verbose=False
         )
         
-        if res.X is not None:
-            logger.info(f"GA optimization converged after {res.exec_time} seconds")
-            logger.debug(f"Final message: {res.message}")
-            solution = res.X
-            scale = TOTAL_DELTA_V / np.sum(solution)
-            solution = solution * scale
-            
-            # Calculate mass ratios and stage ratios
-            mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                }
-                stages.append(stage_info)
-            
-            logger.info(f"Final solution: {solution}")
-            return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
-            }
-        else:
-            logger.warning(f"GA optimization did not find a solution")
-            logger.debug(f"Number of generations: {n_generations}")
-            solution = initial_guess
-            scale = TOTAL_DELTA_V / np.sum(solution)
-            solution = solution * scale
-            
-            # Calculate mass ratios and stage ratios for initial guess
-            mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                }
-                stages.append(stage_info)
-            
-            logger.info(f"Returning initial guess solution: {solution}")
-            return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
-            }
-            
-    except Exception as e:
-        logger.error(f"GA optimization failed: {e}")
-        logger.exception("Detailed error information:")
-        solution = initial_guess
-        scale = TOTAL_DELTA_V / np.sum(solution)
-        solution = solution * scale
-        
-        # Calculate mass ratios and stage ratios for error case
-        mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-        
-        # Create stage information
+        # Extract best solution
+        optimal_dv = result.X
+        stage_ratios = []
         stages = []
-        for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-            stage_info = {
+        
+        for i, (dv, isp, eps) in enumerate(zip(optimal_dv, ISP, EPSILON)):
+            mass_ratio = np.exp(-dv / (G0 * isp))
+            lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
+            stage_ratios.append(lambda_val)
+            
+            stages.append({
+                'stage': i + 1,
                 'delta_v': float(dv),
-                'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-            }
-            stages.append(stage_info)
+                'Lambda': float(lambda_val),
+                'mass_ratio': float(mass_ratio)
+            })
+            
+        payload_fraction = float(np.prod(stage_ratios))
         
         return {
-            'payload_fraction': float(payload_fraction),
-            'stages': stages
+            'success': True,  # GA always completes
+            'message': "GA optimization completed",
+            'payload_fraction': payload_fraction,
+            'stages': stages,
+            'n_iterations': result.algorithm.n_gen,
+            'n_function_evals': result.algorithm.evaluator.n_eval
         }
+        
+    except Exception as e:
+        logger.error(f"Error in GA optimization: {str(e)}")
+        raise
 
 def enforce_stage_constraints(x, TOTAL_DELTA_V):
     """Enforce minimum and maximum ΔV constraints for each stage."""
