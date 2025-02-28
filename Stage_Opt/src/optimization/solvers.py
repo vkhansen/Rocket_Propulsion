@@ -8,7 +8,8 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.optimize import minimize as pymoo_minimize
 from ..utils.config import logger
-from .objective import payload_fraction_objective, calculate_mass_ratios, calculate_payload_fraction, calculate_stage_ratios
+from ..utils.data import calculate_payload_fraction
+from .objective import payload_fraction_objective, calculate_mass_ratios, calculate_stage_ratios
 from .cache import OptimizationCache
 
 __all__ = [
@@ -60,7 +61,7 @@ class RocketOptimizationProblem(Problem):
         for i in range(x.shape[0]):
             # Calculate stage ratios and payload fraction
             stage_ratios, _ = calculate_stage_ratios(x[i], self.G0, self.ISP, self.EPSILON)
-            payload_fraction = np.prod(stage_ratios)
+            payload_fraction = calculate_payload_fraction(stage_ratios)
             
             # Store in cache
             self.cache.add(x[i], payload_fraction)
@@ -188,8 +189,11 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         EPSILON = np.asarray(EPSILON, dtype=float)
         
         def objective(dv):
-            return -payload_fraction_objective(dv, G0, ISP, EPSILON)  # Negative since we're minimizing
-            
+            # Calculate payload fraction using common function
+            stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+            payload_fraction = calculate_payload_fraction(stage_ratios)
+            return -payload_fraction  # Negative since we're minimizing
+        
         # Get constraint parameters
         stage_constraints = constraint_config['stage_fractions']
         first_stage_min = stage_constraints['first_stage']['min_fraction']
@@ -261,7 +265,7 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         # Calculate final stage ratios and payload fraction
         optimal_dv = result.x
         stage_ratios, mass_ratios = calculate_stage_ratios(optimal_dv, G0, ISP, EPSILON)
-        payload_fraction = np.prod(stage_ratios)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
         # Build stages info
         stages = []
@@ -322,7 +326,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
             
             # Calculate stage ratios and payload fraction
             stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
-            payload_fraction = np.prod(stage_ratios)
+            payload_fraction = calculate_payload_fraction(stage_ratios)
             problem.cache.add(dv, payload_fraction)
             
             # Return negative payload fraction (minimizing) plus constraint penalty
@@ -348,9 +352,8 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         
         # Calculate final stage ratios and payload fraction
         optimal_dv = result.x
-        stage_ratios, mass_ratios = calculate_stage_ratios(
-            optimal_dv, G0, ISP, EPSILON
-        )
+        stage_ratios, mass_ratios = calculate_stage_ratios(optimal_dv, G0, ISP, EPSILON)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
         # Build result dictionary
         stages = []
@@ -365,7 +368,7 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         return {
             'success': result.lowest_optimization_result.success,
             'message': str(result.message),
-            'payload_fraction': float(np.prod(stage_ratios)),
+            'payload_fraction': float(payload_fraction),
             'stages': stages,
             'n_iterations': result.nit,
             'n_function_evals': result.nfev
@@ -426,10 +429,8 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         solution = np.asarray(res.X, dtype=float)
         
         # Calculate stage ratios and payload fraction
-        stage_ratios, mass_ratios = calculate_stage_ratios(
-            solution, G0, ISP, EPSILON
-        )
-        payload_fraction = np.prod(stage_ratios)
+        stage_ratios, mass_ratios = calculate_stage_ratios(solution, G0, ISP, EPSILON)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
         # Build stages info
         stages = []
@@ -540,7 +541,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         
         # Calculate stage ratios and payload fraction
         stage_ratios, mass_ratios = calculate_stage_ratios(solution, G0, ISP, EPSILON)
-        payload_fraction = np.prod(stage_ratios)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
         # Build stages info
         stages = []
@@ -567,18 +568,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         raise
 
 def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config, problem=None):
-    """Solve using Differential Evolution.
-    
-    Args:
-        initial_guess: Initial solution vector
-        bounds: List of (min, max) bounds for each variable
-        G0: Gravitational constant
-        ISP: List of specific impulse values
-        EPSILON: List of epsilon values
-        TOTAL_DELTA_V: Total delta-v constraint
-        config: Configuration dictionary
-        problem: Optional RocketOptimizationProblem instance. If provided, will use its cache.
-    """
+    """Solve using Differential Evolution."""
     try:
         logger.debug("Starting DE optimization")
         logger.debug(f"Initial guess: {initial_guess}")
@@ -587,22 +577,18 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         # Get solver configuration
         solver_config = get_solver_config(config, 'de')
         de_params = solver_config['solver_specific']
-        constraint_config = solver_config['constraints']
-        
-        # Get constraint parameters
-        stage_constraints = constraint_config['stage_fractions']
-        first_stage_min = stage_constraints['first_stage']['min_fraction']
-        first_stage_max = stage_constraints['first_stage']['max_fraction']
-        other_stages_min = stage_constraints['other_stages']['min_fraction']
-        other_stages_max = stage_constraints['other_stages']['max_fraction']
-        total_dv_tolerance = constraint_config['total_dv']['tolerance']
         
         def objective(dv):
-            # Calculate fitness with penalty for constraint violations
+            # Calculate payload fraction using common function
+            stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+            payload_fraction = calculate_payload_fraction(stage_ratios)
+            
+            # Add penalty for constraint violations
             penalty = enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
             if penalty > 0:
                 return float('inf')  # Invalid solution
-            return -payload_fraction_objective(dv, G0, ISP, EPSILON)  # Negative since we're minimizing
+                
+            return -payload_fraction  # Negative since we're minimizing
         
         # Initialize population to include initial guess
         popsize = de_params.get('population_size', 20)
@@ -625,7 +611,7 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             strategy=de_params.get('strategy', 'best1bin'),
             maxiter=de_params.get('max_iterations', 1000),
             popsize=popsize,
-            tol=total_dv_tolerance,
+            tol=1e-6,
             mutation=de_params.get('mutation', (0.5, 1.0)),
             recombination=de_params.get('recombination', 0.7),
             seed=1,
@@ -642,9 +628,9 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
         # Get best solution
         solution = result.x
         
-        # Calculate stage ratios and payload fraction
+        # Calculate stage ratios and payload fraction using common functions
         stage_ratios, mass_ratios = calculate_stage_ratios(solution, G0, ISP, EPSILON)
-        payload_fraction = np.prod(stage_ratios)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
         # Build stages info
         stages = []
@@ -724,7 +710,7 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
             # Evaluate particles
             out = {"F": np.zeros((n_particles, 1)), "G": np.zeros((n_particles, 1))}
             problem._evaluate(particles, out)
-            fitness_values = -out["F"].flatten()
+            fitness_values = -out["F"].flatten()  # Negative since problem minimizes
             constraint_violations = out["G"].flatten()
             
             # Apply constraint penalties
@@ -764,9 +750,9 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
             if iteration % 10 == 0:
                 logger.debug(f"Iteration {iteration}: Best fitness = {gbest_fitness}")
         
-        # Calculate final results
+        # Calculate final results using common functions
         stage_ratios, mass_ratios = calculate_stage_ratios(gbest, G0, ISP, EPSILON)
-        payload_fraction = np.prod(stage_ratios)
+        payload_fraction = calculate_payload_fraction(stage_ratios)
         
         # Build stages info
         stages = []
