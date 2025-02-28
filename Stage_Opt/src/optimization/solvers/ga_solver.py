@@ -4,7 +4,7 @@ from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.problem import Problem
 from pymoo.optimize import minimize
 from .base_solver import BaseSolver
-from utils.config import logger
+from ...utils.config import logger
 
 class RocketStageProblem(Problem):
     """Problem definition for pymoo GA."""
