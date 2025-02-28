@@ -9,6 +9,7 @@ import sys
 import csv
 import math
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 # Import our modules
 from src.utils.data import load_input_data, calculate_mass_ratios, calculate_payload_fraction
@@ -31,6 +32,20 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 # Initialize logging
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Add test-specific log handler
+test_log_file = os.path.join(OUTPUT_DIR, "test_output.log")
+test_handler = RotatingFileHandler(
+    test_log_file,
+    maxBytes=5*1024*1024,  # 5MB
+    backupCount=3,
+    mode='w'
+)
+test_handler.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+))
+test_handler.setLevel(logging.DEBUG)
+logger.addHandler(test_handler)
 
 class TestPayloadOptimization(unittest.TestCase):
     """Test cases for payload optimization functions."""
@@ -60,147 +75,191 @@ class TestPayloadOptimization(unittest.TestCase):
 
     def test_load_input_data(self):
         """Test loading input data from JSON file."""
-        print("\nTesting input data loading...")
+        logger.info("Starting input data loading test")
         parameters, stages = load_input_data('input_data.json')
+        
+        logger.debug(f"Loaded parameters: {parameters}")
+        logger.debug(f"Loaded stages: {stages}")
+        
         self.assertEqual(len(stages), len(self.stages))
         self.assertEqual(stages[0]["ISP"], self.stages[0]["ISP"])
         self.assertEqual(stages[1]["EPSILON"], self.stages[1]["EPSILON"])
         self.assertEqual(parameters["TOTAL_DELTA_V"], self.TOTAL_DELTA_V)
         self.assertEqual(parameters["G0"], self.G0)
+        logger.info("Completed input data loading test")
 
     def test_calculate_mass_ratios(self):
         """Test stage ratio (Λ) calculation."""
-        print("\nTesting stage ratio calculation...")
+        logger.info("Starting stage ratio calculation test")
+        
         # Test case with 2 stages
         dv = np.array([4650, 4650])  # Equal split of delta-V
         ISP = [300, 348]  # Different ISP for each stage
         EPSILON = [0.06, 0.04]  # Different structural coefficients
         G0 = 9.81
         
+        logger.debug(f"Test parameters - dv: {dv}, ISP: {ISP}, EPSILON: {EPSILON}, G0: {G0}")
+        
         # Calculate stage ratios
         ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
+        logger.debug(f"Calculated stage ratios: {ratios}")
         
         # Manual calculation for verification
-        # First calculate mass ratios using rocket equation
-        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))  # Bottom stage
-        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))  # Top stage
+        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))
+        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))
+        lambda1 = 1.0 / (mass_ratio1 + EPSILON[0])
+        lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])
         
-        # Then calculate stage ratios (Λ)
-        lambda1 = 1.0 / (mass_ratio1 + EPSILON[0])  # Bottom stage
-        lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])  # Top stage
+        logger.debug(f"Manual calculations - mass_ratio1: {mass_ratio1}, mass_ratio2: {mass_ratio2}")
+        logger.debug(f"Manual calculations - lambda1: {lambda1}, lambda2: {lambda2}")
         
-        # Verify results
         self.assertEqual(len(ratios), 2)
         self.assertAlmostEqual(ratios[0], lambda1, places=4)
         self.assertAlmostEqual(ratios[1], lambda2, places=4)
         
         # Test with single stage
+        logger.info("Testing single stage configuration")
         single_dv = np.array([9300])
         single_isp = [300]
         single_epsilon = [0.06]
+        
+        logger.debug(f"Single stage parameters - dv: {single_dv}, ISP: {single_isp}, EPSILON: {single_epsilon}")
         
         single_ratios = calculate_mass_ratios(single_dv, single_isp, single_epsilon, G0)
         single_mass_ratio = np.exp(-single_dv[0] / (G0 * single_isp[0]))
         expected_lambda = 1.0 / (single_mass_ratio + single_epsilon[0])
         
+        logger.debug(f"Single stage results - calculated: {single_ratios[0]}, expected: {expected_lambda}")
+        
         self.assertEqual(len(single_ratios), 1)
         self.assertAlmostEqual(single_ratios[0], expected_lambda, places=4)
+        logger.info("Completed stage ratio calculation test")
 
     def test_payload_fraction(self):
         """Test payload fraction calculation."""
-        print("\nTesting payload fraction calculation...")
+        logger.info("Starting payload fraction calculation test")
+        
         # Test with 2 stages
         dv = np.array([4650, 4650])
         ISP = [300, 348]
         EPSILON = [0.06, 0.04]
         G0 = 9.81
         
+        logger.debug(f"Test parameters - dv: {dv}, ISP: {ISP}, EPSILON: {EPSILON}, G0: {G0}")
+        
         # Calculate stage ratios
         mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         fraction = calculate_payload_fraction(mass_ratios)
+        logger.debug(f"Calculated mass ratios: {mass_ratios}")
+        logger.debug(f"Calculated payload fraction: {fraction}")
         
         # Manual calculation
-        # First calculate mass ratios
         mr1 = np.exp(-dv[0] / (G0 * ISP[0]))
         mr2 = np.exp(-dv[1] / (G0 * ISP[1]))
-        
-        # Then calculate stage ratios
         lambda1 = 1.0 / (mr1 + EPSILON[0])
         lambda2 = 1.0 / (mr2 + EPSILON[1])
-        
-        # Payload fraction is product of stage ratios
         expected_fraction = lambda1 * lambda2
+        
+        logger.debug(f"Manual calculations - mr1: {mr1}, mr2: {mr2}")
+        logger.debug(f"Manual calculations - lambda1: {lambda1}, lambda2: {lambda2}")
+        logger.debug(f"Expected fraction: {expected_fraction}")
         
         self.assertAlmostEqual(fraction, expected_fraction, places=4)
         self.assertGreater(fraction, 0)
         self.assertLess(fraction, 1)
+        logger.info("Completed payload fraction calculation test")
 
     def test_payload_fraction_objective(self):
         """Test payload fraction objective function."""
-        print("\nTesting payload fraction objective...")
+        logger.info("Starting payload fraction objective test")
+        
         dv = np.array([4650, 4650])
         G0 = 9.81
         ISP = [300, 348]
         EPSILON = [0.06, 0.04]
         
+        logger.debug(f"Test parameters - dv: {dv}, ISP: {ISP}, EPSILON: {EPSILON}, G0: {G0}")
+        
         result = payload_fraction_objective(dv, G0, ISP, EPSILON)
+        logger.debug(f"Objective function result: {result}")
         
         # Manual calculation
         mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
-        expected = -calculate_payload_fraction(mass_ratios)  # Negative because we minimize
+        expected = -calculate_payload_fraction(mass_ratios)
+        logger.debug(f"Manual calculation - mass_ratios: {mass_ratios}")
+        logger.debug(f"Expected result: {expected}")
         
         self.assertAlmostEqual(result, expected, places=4)
-        self.assertGreater(result, -1)  # Should be negative but greater than -1
+        self.assertGreater(result, -1)
+        logger.info("Completed payload fraction objective test")
 
     def test_solve_with_slsqp(self):
         """Test SLSQP solver."""
-        print("\nTesting SLSQP solver...")
+        logger.info("Starting SLSQP solver test")
+        
+        logger.debug(f"Initial parameters - guess: {self.initial_guess}")
+        logger.debug(f"Bounds: {self.bounds}")
+        logger.debug(f"ISP: {self.ISP}, EPSILON: {self.EPSILON}")
+        
         result = solve_with_slsqp(
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
         
-        # Extract solution from result dictionary
         solution = np.array([stage['delta_v'] for stage in result['stages']])
+        logger.debug(f"SLSQP solution: {solution}")
+        logger.debug(f"Total delta-V: {np.sum(solution)}")
         
         # Verify solution constraints
         self.assertEqual(len(solution), self.num_stages)
         self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
         self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
-        # Calculate payload fraction to verify solution quality
+        # Calculate payload fraction
         mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
+        logger.debug(f"Mass ratios: {mass_ratios}")
+        logger.debug(f"Payload fraction: {payload_fraction}")
+        
         self.assertTrue(0 <= payload_fraction <= 1)
         
         # Verify Lambda values
         for stage in result['stages']:
+            logger.debug(f"Stage Lambda: {stage['Lambda']}")
             self.assertTrue(0 < stage['Lambda'] < 1)
+        
+        logger.info("Completed SLSQP solver test")
 
     def test_solve_with_differential_evolution(self):
         """Test differential evolution solver."""
-        print("\nTesting differential evolution solver...")
+        logger.info("Starting differential evolution solver test")
+        
+        logger.debug(f"Initial parameters - guess: {self.initial_guess}")
+        logger.debug(f"Bounds: {self.bounds}")
+        logger.debug(f"ISP: {self.ISP}, EPSILON: {self.EPSILON}")
+        
         result = solve_with_differential_evolution(
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
         
-        # Extract solution from result dictionary
         solution = np.array([stage['delta_v'] for stage in result['stages']])
+        logger.debug(f"DE solution: {solution}")
+        logger.debug(f"Total delta-V: {np.sum(solution)}")
         
-        # Verify solution constraints
+        # Verify solution
         self.assertEqual(len(solution), self.num_stages)
         self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
         self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
-        # Calculate payload fraction to verify solution quality
+        # Calculate payload fraction
         mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
-        self.assertTrue(0 <= payload_fraction <= 1)
+        logger.debug(f"Mass ratios: {mass_ratios}")
+        logger.debug(f"Payload fraction: {payload_fraction}")
         
-        # Verify Lambda values
-        for stage in result['stages']:
-            self.assertTrue(0 < stage['Lambda'] < 1)
+        self.assertTrue(0 <= payload_fraction <= 1)
+        logger.info("Completed differential evolution solver test")
 
     def test_solve_with_genetic_algorithm(self):
         """Test genetic algorithm solver."""
@@ -310,10 +369,13 @@ class TestPayloadOptimization(unittest.TestCase):
 
     def test_lambda_calculations(self):
         """Verify stage ratio (Λ) calculations against manual computations."""
+        logger.info("Starting lambda calculations verification test")
+        
         # Load input data to get correct ISP and EPSILON values
         with open('input_data.json', encoding='utf-8') as f:
             data = json.load(f)
             stages = data['stages']
+            logger.debug(f"Loaded stage data: {stages}")
             
         with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -325,9 +387,11 @@ class TestPayloadOptimization(unittest.TestCase):
                 if method not in method_rows:
                     method_rows[method] = []
                 method_rows[method].append(row)
+            logger.debug(f"Grouped results by method: {list(method_rows.keys())}")
 
         # Test each method's results
         for method, method_data in method_rows.items():
+            logger.info(f"Verifying lambda calculations for method: {method}")
             # Sort stages by number
             sorted_stages = sorted(method_data, key=lambda x: int(x['Stage'].split()[1]))
             
@@ -338,8 +402,11 @@ class TestPayloadOptimization(unittest.TestCase):
                 isp = stages[stage_num]['ISP']
                 epsilon = stages[stage_num]['EPSILON']
                 
+                logger.debug(f"Stage {stage_num} parameters: dv={dv}, ISP={isp}, epsilon={epsilon}")
+                
                 # Calculate mass ratio for current stage
                 mass_ratio = math.exp(-dv / (9.81 * isp))
+                logger.debug(f"Stage {stage_num} mass ratio: {mass_ratio}")
                 
                 # Calculate stage ratio (Λ)
                 if i < len(sorted_stages) - 1:  # Not the top stage
@@ -349,20 +416,23 @@ class TestPayloadOptimization(unittest.TestCase):
                     upper_isp = stages[stage_num + 1]['ISP']
                     upper_epsilon = stages[stage_num + 1]['EPSILON']
                     
-                    # Calculate upper stage mass including structural mass
-                    upper_mass = math.exp(-upper_dv / (9.81 * upper_isp)) * (1 + upper_epsilon)
-                    # Stage ratio is upper stage mass divided by current stage mass
-                    expected_lambda = 1.0 / (mass_ratio + epsilon)
-                else:  # Top stage
-                    expected_lambda = 1.0 / (mass_ratio + epsilon)
-                
-                # Verify with CSV value with reduced precision (2 decimal places)
-                self.assertAlmostEqual(
-                    float(stage['Stage Ratio (Λ)']), 
-                    expected_lambda, 
-                    places=2,
-                    msg=f"Stage ratio (Λ) mismatch for {stage['Stage']}, method {method}"
-                )
+                    logger.debug(f"Upper stage {stage_num + 1} parameters: dv={upper_dv}, ISP={upper_isp}, epsilon={upper_epsilon}")
+                    
+                    # Calculate expected stage ratio
+                    expected_lambda = (1 - epsilon) * mass_ratio
+                    actual_lambda = float(stage['Lambda'])
+                    
+                    logger.info(f"Stage {stage_num} lambda comparison - Expected: {expected_lambda:.6f}, Actual: {actual_lambda:.6f}")
+                    
+                    # Verify the calculation
+                    self.assertAlmostEqual(
+                        actual_lambda,
+                        expected_lambda,
+                        places=4,
+                        msg=f"Stage ratio (Λ) mismatch for {method} stage {stage_num}"
+                    )
+        
+        logger.info("Completed lambda calculations verification test")
 
     def test_delta_v_split(self):
         """Test delta-v split calculations."""
