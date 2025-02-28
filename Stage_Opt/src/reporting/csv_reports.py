@@ -55,7 +55,7 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
                     total_dv = sum(result['dv'])
                     for i, (dv, lambda_ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
                         writer.writerow([
-                            f"Stage {i+1}",
+                            i + 1,
                             f"{dv:.2f}",
                             f"{lambda_ratio:.4f}",
                             f"{(dv/total_dv)*100:.1f}",
