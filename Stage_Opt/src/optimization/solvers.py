@@ -340,6 +340,33 @@ def enforce_stage_constraints(x, TOTAL_DELTA_V):
     
     return x
 
+def calculate_diversity(population):
+    """Calculate diversity of the population using average pairwise Euclidean distance.
+    
+    Args:
+        population (np.ndarray): Population array of shape (pop_size, n_variables)
+        
+    Returns:
+        float: Diversity measure between 0 and 1
+    """
+    pop_size = len(population)
+    if pop_size <= 1:
+        return 0.0
+        
+    # Calculate pairwise distances
+    distances = []
+    for i in range(pop_size):
+        for j in range(i + 1, pop_size):
+            dist = np.linalg.norm(population[i] - population[j])
+            distances.append(dist)
+            
+    # Normalize by maximum possible distance (based on bounds)
+    mean_dist = np.mean(distances) if distances else 0.0
+    max_dist = np.sqrt(population.shape[1])  # Maximum possible distance in normalized space
+    diversity = mean_dist / max_dist
+    
+    return diversity
+
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
     try:
