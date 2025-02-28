@@ -77,7 +77,7 @@ def main():
                     
                     logger.info(f"{method_name} optimization succeeded:")
                     logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in stage_dvs]} m/s")
-                    logger.info(f"  Stage ratios (Λ): {[f'{r:.3f}' for r in stage_lambdas]}")
+                    logger.info(f"  Stage ratios (lambda): {[f'{r:.3f}' for r in stage_lambdas]}")
                     logger.info(f"  Payload fraction: {payload_fraction:.3f}")
                     logger.info(f"Successfully completed {method_name} optimization")
             except Exception as e:

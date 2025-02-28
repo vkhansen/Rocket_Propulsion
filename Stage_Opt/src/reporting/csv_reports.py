@@ -24,7 +24,7 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
         # Write summary results
         try:
             summary_path = os.path.join(output_dir, "optimization_summary.csv")
-            with open(summary_path, 'w', newline='') as f:
+            with open(summary_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['Method', 'Payload Fraction', 'Error', 'Time (s)'])
                 for method, result in results.items():
@@ -45,9 +45,9 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
         # Write detailed stage results
         try:
             detailed_path = os.path.join(output_dir, "stage_results.csv")
-            with open(detailed_path, 'w', newline='') as f:
+            with open(detailed_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Stage', 'Delta-V (m/s)', 'Stage Ratio (Λ)', 'Delta-V Contribution (%)', 'Method'])
+                writer.writerow(['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method'])
                 for method, result in results.items():
                     if not all(k in result for k in ['dv', 'stage_ratios']):
                         logger.warning(f"Skipping incomplete stage data for {method}")

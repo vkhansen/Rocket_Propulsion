@@ -69,14 +69,31 @@ class TestPayloadOptimization(unittest.TestCase):
         self.assertEqual(parameters["G0"], self.G0)
 
     def test_calculate_mass_ratios(self):
-        """Test mass ratio calculation."""
-        print("\nTesting mass ratio calculation...")
+        """Test stage ratio (Λ) calculation."""
+        print("\nTesting stage ratio calculation...")
         dv = np.array([4650, 4650])
         ISP = [300, 348]
         EPSILON = [0.06, 0.04]
         G0 = 9.81
+        
+        # Calculate stage ratios
         ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
+        
+        # Manual calculation for verification
+        # Bottom stage
+        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))
+        lambda1 = 1.0 / (mass_ratio1 + EPSILON[0])
+        
+        # Top stage
+        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))
+        lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])
+        
+        # Verify results
         self.assertEqual(len(ratios), 2)
+        self.assertAlmostEqual(ratios[0], lambda1, places=4)
+        self.assertAlmostEqual(ratios[1], lambda2, places=4)
+        
+        # Verify ratios are in correct range (0 < Λ < 1)
         for ratio in ratios:
             self.assertGreater(ratio, 0)
             self.assertLess(ratio, 1)
@@ -221,11 +238,60 @@ class TestPayloadOptimization(unittest.TestCase):
             self.assertTrue(0 <= payload_fraction <= 1)
 
     def test_lambda_calculations(self):
-        """Test lambda calculations."""
-        print("\nTesting lambda calculations...")
-        lambda_values = calculate_mass_ratios(self.initial_guess, self.ISP, self.EPSILON, self.G0)
-        self.assertEqual(len(lambda_values), self.num_stages)
-        self.assertTrue(all(lv > 0 for lv in lambda_values))
+        """Verify stage ratio (Λ) calculations against manual computations."""
+        # Load input data to get correct ISP and EPSILON values
+        with open('input_data.json') as f:
+            data = json.load(f)
+            stages = data['stages']
+            
+        with open(self.stage_results_path) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            # Group rows by method
+            method_rows = {}
+            for row in rows:
+                method = row['Method']
+                if method not in method_rows:
+                    method_rows[method] = []
+                method_rows[method].append(row)
+
+        # Test each method's results
+        for method, method_data in method_rows.items():
+            # Sort stages by number
+            sorted_stages = sorted(method_data, key=lambda x: int(x['Stage'].split()[1]))
+            
+            for i in range(len(sorted_stages)):
+                stage = sorted_stages[i]
+                stage_num = int(stage['Stage'].split()[1]) - 1  # Convert to 0-based index
+                dv = float(stage['Delta-V (m/s)'])
+                isp = stages[stage_num]['ISP']
+                epsilon = stages[stage_num]['EPSILON']
+                
+                # Calculate mass ratio for current stage
+                mass_ratio = math.exp(-dv / (9.81 * isp))
+                
+                # Calculate stage ratio (Λ)
+                if i < len(sorted_stages) - 1:  # Not the top stage
+                    # Get upper stage data
+                    upper_stage = sorted_stages[i + 1]
+                    upper_dv = float(upper_stage['Delta-V (m/s)'])
+                    upper_isp = stages[stage_num + 1]['ISP']
+                    upper_epsilon = stages[stage_num + 1]['EPSILON']
+                    
+                    # Calculate upper stage mass including structural mass
+                    upper_mass = math.exp(-upper_dv / (9.81 * upper_isp)) * (1 + upper_epsilon)
+                    # Stage ratio is upper stage mass divided by current stage mass
+                    expected_lambda = 1.0 / (mass_ratio + epsilon)
+                else:  # Top stage
+                    expected_lambda = 1.0 / (mass_ratio + epsilon)
+                
+                # Verify with CSV value with reduced precision (2 decimal places)
+                self.assertAlmostEqual(
+                    float(stage['Stage Ratio (Λ)']), 
+                    expected_lambda, 
+                    places=2,
+                    msg=f"Stage ratio (Λ) mismatch for {stage['Stage']}, method {method}"
+                )
 
     def test_delta_v_split(self):
         """Test delta-v split calculations."""
@@ -273,6 +339,7 @@ class TestPayloadOptimization(unittest.TestCase):
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
 
+
 class TestCSVOutputs(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -287,7 +354,7 @@ class TestCSVOutputs(unittest.TestCase):
 
     def test_stage_results_structure(self):
         """Verify structure of stage_results.csv."""
-        with open(self.stage_results_path) as f:
+        with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
             
@@ -302,7 +369,7 @@ class TestCSVOutputs(unittest.TestCase):
                         f"Expected {expected_rows} rows ({n_stages} stages × 6 methods)")
         
         # Verify columns
-        expected_columns = ['Stage', 'Delta-V (m/s)', 'Mass Ratio', 'Contribution (%)', 'Method']
+        expected_columns = ['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method']
         self.assertListEqual(reader.fieldnames, expected_columns)
         
         # Count unique methods
@@ -347,8 +414,8 @@ class TestCSVOutputs(unittest.TestCase):
             expected_lambda = math.exp(-dv / (9.81 * isp)) - epsilon
             
             # Verify with CSV value
-            self.assertAlmostEqual(float(row['Mass Ratio']), expected_lambda, places=2,
-                                 msg=f"Mass ratio mismatch for stage {stage_num}, method {row['Method']}")
+            self.assertAlmostEqual(float(row['Stage Ratio (lambda)']), expected_lambda, places=2,
+                                 msg=f"Stage ratio mismatch for stage {stage_num}, method {row['Method']}")
 
     def test_delta_v_split(self):
         """Verify delta-V split sums to total delta-V."""
@@ -400,7 +467,7 @@ class TestCSVOutputs(unittest.TestCase):
             for method, method_data in method_rows.items():
                 lambda_product = 1.0
                 for row in method_data:
-                    lambda_product *= float(row['Mass Ratio'])
+                    lambda_product *= float(row['Stage Ratio (lambda)'])
                 
                 # Skip if method not in optimization results
                 if method not in opt_results:
