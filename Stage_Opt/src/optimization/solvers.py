@@ -392,6 +392,34 @@ def enforce_stage_constraints(dv, TOTAL_DELTA_V):
     
     return penalty
 
+def calculate_diversity(population):
+    """Calculate population diversity using mean pairwise distance.
+    
+    Args:
+        population: numpy array of shape (pop_size, n_variables)
+        
+    Returns:
+        float: Diversity measure between 0 and 1
+    """
+    pop_size = population.shape[0]
+    if pop_size <= 1:
+        return 0.0
+        
+    # Calculate pairwise distances
+    distances = []
+    for i in range(pop_size):
+        for j in range(i + 1, pop_size):
+            dist = np.linalg.norm(population[i] - population[j])
+            distances.append(dist)
+            
+    # Normalize by maximum possible distance
+    max_dist = np.linalg.norm(np.ptp(population, axis=0))
+    if max_dist == 0:
+        return 0.0
+        
+    mean_dist = np.mean(distances)
+    return mean_dist / max_dist
+
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Adaptive Genetic Algorithm."""
     try:
@@ -540,7 +568,7 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
     except Exception as e:
         logger.error(f"Error in optimization: {e}")
         logger.exception("Detailed error information:")
-        return initial_guess
+        return None
 
 def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config, problem=None):
     """Solve using Differential Evolution."""
