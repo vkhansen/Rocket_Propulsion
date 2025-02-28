@@ -26,12 +26,18 @@ class OptimizationCache:
             if os.path.exists(self.cache_file):
                 with open(self.cache_file, 'rb') as f:
                     data = pickle.load(f)
-                    self.fitness_cache = data.get('fitness_cache', {})
+                    # Convert string keys back to tuples
+                    self.fitness_cache = {
+                        tuple(map(float, k.strip('()').split(','))) if isinstance(k, str) else k: v 
+                        for k, v in data.get('fitness_cache', {}).items()
+                    }
                     self.best_solutions = data.get('best_solutions', [])
                 logger.info(f"Loaded {len(self.fitness_cache)} cached fitness values "
                           f"and {len(self.best_solutions)} best solutions")
         except Exception as e:
             logger.warning(f"Failed to load cache: {e}")
+            self.fitness_cache = {}
+            self.best_solutions = []
     
     def save_cache(self):
         """Save cached solutions to file."""
@@ -67,13 +73,13 @@ class OptimizationCache:
     
     def get_cached_fitness(self, solution: np.ndarray) -> float:
         """Get cached fitness value for a solution."""
-        solution_tuple = tuple(solution.flatten())
-        return self.fitness_cache.get(solution_tuple)
+        solution_key = tuple(float(x) for x in solution)
+        return self.fitness_cache.get(solution_key)
     
     def cache_fitness(self, solution: np.ndarray, fitness: float):
         """Cache fitness value for a solution."""
-        solution_tuple = tuple(solution.flatten())
-        self.fitness_cache[solution_tuple] = fitness
+        solution_key = tuple(float(x) for x in solution)
+        self.fitness_cache[solution_key] = fitness
     
     def add_best_solution(self, solution: np.ndarray, max_solutions: int = 10):
         """Add a solution to the best solutions list."""
