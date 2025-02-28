@@ -97,26 +97,44 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         def objective(dv):
             return -payload_fraction_objective(dv, G0, ISP, EPSILON)  # Negative since we're minimizing
             
-        def total_dv_constraint(dv):
-            # Ensure exact total delta-V
+        # Get constraint parameters from config
+        constraint_config = config['optimization']['constraints']
+        stage_constraints = constraint_config['stage_fractions']
+        first_stage_min = stage_constraints['first_stage']['min_fraction']
+        first_stage_max = stage_constraints['first_stage']['max_fraction']
+        other_stages_min = stage_constraints['other_stages']['min_fraction']
+        total_dv_tolerance = constraint_config['total_dv']['tolerance']
+        
+        def constraint_total_dv(dv):
+            # Total delta-v constraint (equality)
             return np.sum(dv) - TOTAL_DELTA_V
             
-        def min_dv_constraints(dv):
-            # First stage: minimum 15%
-            min_dv1 = dv[0] - 0.15 * TOTAL_DELTA_V
-            # Other stages: minimum 1% each
-            min_dv_others = dv[1:] - 0.01 * TOTAL_DELTA_V
-            return np.concatenate(([min_dv1], min_dv_others))
+        def constraint_first_stage_min(dv):
+            # First stage minimum (inequality: dv[0] >= min_dv)
+            return dv[0] - first_stage_min * TOTAL_DELTA_V
             
-        def max_dv_constraint(dv):
-            # First stage: maximum 80%
-            return 0.8 * TOTAL_DELTA_V - dv[0]
+        def constraint_first_stage_max(dv):
+            # First stage maximum (inequality: dv[0] <= max_dv)
+            return first_stage_max * TOTAL_DELTA_V - dv[0]
             
+        def constraint_other_stages_min(dv):
+            # Other stages minimum (inequality: dv[i] >= min_dv)
+            return dv[1:] - other_stages_min * TOTAL_DELTA_V
+        
+        # Define constraints for scipy's minimize
         constraints = [
-            {'type': 'eq', 'fun': total_dv_constraint},
-            {'type': 'ineq', 'fun': min_dv_constraints},
-            {'type': 'ineq', 'fun': max_dv_constraint}
+            {'type': 'eq', 'fun': constraint_total_dv, 'tol': total_dv_tolerance},
+            {'type': 'ineq', 'fun': constraint_first_stage_min},
+            {'type': 'ineq', 'fun': constraint_first_stage_max},
         ]
+        
+        # Add minimum constraints for other stages
+        n_stages = len(initial_guess)
+        for i in range(1, n_stages):
+            constraints.append({
+                'type': 'ineq',
+                'fun': lambda x, i=i: x[i] - other_stages_min * TOTAL_DELTA_V
+            })
         
         # Get optimization parameters from config
         opt_config = config.get('optimization', {})
@@ -128,7 +146,7 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             method='SLSQP',
             bounds=bounds,
             constraints=constraints,
-            options={'maxiter': max_iterations}
+            options={'maxiter': max_iterations, 'ftol': total_dv_tolerance}
         )
         
         if not result.success:
@@ -403,7 +421,8 @@ def enforce_stage_constraints(dv, TOTAL_DELTA_V, config):
     penalty = 0.0
     
     # Get stage constraints from config
-    stage_constraints = config['optimization']['bounds']['stage_constraints']
+    constraint_config = config['optimization']['constraints']
+    stage_constraints = constraint_config['stage_fractions']
     first_stage_min = stage_constraints['first_stage']['min_fraction']
     first_stage_max = stage_constraints['first_stage']['max_fraction']
     other_stages_min = stage_constraints['other_stages']['min_fraction']
@@ -625,15 +644,54 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             # Check cache first
             cached_fitness = problem.cache.get_cached_fitness(dv)
             if cached_fitness is not None:
-                return -cached_fitness + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
+                return -cached_fitness
             
             # Calculate stage ratios and payload fraction
             stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
             payload_fraction = np.prod(stage_ratios)
             problem.cache.add(dv, payload_fraction)
             
-            # Return negative payload fraction (minimizing) plus constraint penalty
-            return -payload_fraction + 1e6 * enforce_stage_constraints(dv, TOTAL_DELTA_V, config)
+            # Return negative payload fraction (minimizing)
+            return -payload_fraction
+            
+        # Get stage constraints from config
+        constraint_config = config['optimization']['constraints']
+        stage_constraints = constraint_config['stage_fractions']
+        first_stage_min = stage_constraints['first_stage']['min_fraction']
+        first_stage_max = stage_constraints['first_stage']['max_fraction']
+        other_stages_min = stage_constraints['other_stages']['min_fraction']
+        total_dv_tolerance = constraint_config['total_dv']['tolerance']
+        
+        def constraint_total_dv(dv):
+            # Total delta-v constraint (equality)
+            return np.sum(dv) - TOTAL_DELTA_V
+            
+        def constraint_first_stage_min(dv):
+            # First stage minimum (inequality: dv[0] >= min_dv)
+            return dv[0] - first_stage_min * TOTAL_DELTA_V
+            
+        def constraint_first_stage_max(dv):
+            # First stage maximum (inequality: dv[0] <= max_dv)
+            return first_stage_max * TOTAL_DELTA_V - dv[0]
+            
+        def constraint_other_stages_min(dv):
+            # Other stages minimum (inequality: dv[i] >= min_dv)
+            return dv[1:] - other_stages_min * TOTAL_DELTA_V
+        
+        # Define constraints for scipy's differential_evolution
+        constraints = [
+            {'type': 'eq', 'fun': constraint_total_dv, 'tol': total_dv_tolerance},
+            {'type': 'ineq', 'fun': constraint_first_stage_min},
+            {'type': 'ineq', 'fun': constraint_first_stage_max},
+        ]
+        
+        # Add minimum constraints for other stages
+        n_stages = len(initial_guess)
+        for i in range(1, n_stages):
+            constraints.append({
+                'type': 'ineq',
+                'fun': lambda x, i=i: x[i] - other_stages_min * TOTAL_DELTA_V
+            })
         
         # Get DE parameters from config
         de_config = config.get('differential_evolution', {})
@@ -653,7 +711,8 @@ def solve_with_differential_evolution(initial_guess, bounds, G0, ISP, EPSILON, T
             tol=tol,
             mutation=mutation,
             recombination=recombination,
-            init='sobol'
+            init='sobol',
+            constraints=constraints
         )
         
         if not result.success:

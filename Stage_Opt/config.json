@@ -3,10 +3,12 @@
         "penalty_coefficient": 1000.0,
         "tolerance": 1e-6,
         "max_iterations": 200,
-        "bounds": {
-            "min_dv": 0.0,
-            "max_dv_factor": 1.0,
-            "stage_constraints": {
+        "constraints": {
+            "total_dv": {
+                "type": "equality",
+                "tolerance": 1e-6
+            },
+            "stage_fractions": {
                 "first_stage": {
                     "min_fraction": 0.15,
                     "max_fraction": 0.80
@@ -16,6 +18,10 @@
                     "max_fraction": 1.0
                 }
             }
+        },
+        "bounds": {
+            "min_dv": 0.0,
+            "max_dv_factor": 1.0
         },
         "ga": {
             "population_size": 100,
