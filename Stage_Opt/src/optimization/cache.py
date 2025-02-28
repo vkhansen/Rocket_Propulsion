@@ -29,10 +29,18 @@ class OptimizationCache:
         Uses a string representation of the rounded array for better cache hits
         on nearly identical solutions.
         """
-        # Round to 6 decimal places for cache key
-        rounded = np.round(x, decimals=6)
-        return np.array2string(rounded, precision=6, separator=',', suppress_small=True)
-    
+        try:
+            # Handle NaN and inf values
+            if np.any(~np.isfinite(x)):
+                return None
+                
+            # Round to 6 decimal places for cache key
+            rounded = np.round(x, decimals=6)
+            return np.array2string(rounded, precision=6, separator=',', suppress_small=True)
+        except Exception as e:
+            logger.error(f"Error generating cache key: {e}")
+            return None
+            
     def load_cache(self):
         """Load cached solutions from file."""
         try:
@@ -76,24 +84,22 @@ class OptimizationCache:
     def has_cached_solution(self, x: np.ndarray) -> bool:
         """Check if solution exists in cache."""
         key = self._get_key(x)
-        return key in self.cache_fitness
+        return key is not None and key in self.cache_fitness
     
     def get_cached_fitness(self, x: np.ndarray) -> float:
         """Get cached fitness for a solution."""
         key = self._get_key(x)
-        if key in self.cache_fitness:
+        if key is not None and key in self.cache_fitness:
             self.hit_count += 1
             return self.cache_fitness[key]
         return None
     
     def add(self, x: np.ndarray, fitness: float):
-        """Add or update a solution in the cache.
-        
-        Args:
-            x: Solution vector
-            fitness: Fitness value
-        """
+        """Add or update a solution in the cache."""
         key = self._get_key(x)
+        if key is None:
+            return
+            
         self.cache_fitness[key] = fitness
         
         # Update best solutions list
@@ -101,8 +107,10 @@ class OptimizationCache:
             self.cache_best_solutions.append(x.copy())
         elif fitness > min(self.cache_fitness.values()):
             # Replace worst solution
-            worst_idx = np.argmin([self.cache_fitness[self._get_key(s)] 
-                                 for s in self.cache_best_solutions])
+            worst_idx = np.argmin([
+                self.cache_fitness.get(self._get_key(s), float('-inf'))
+                for s in self.cache_best_solutions
+            ])
             self.cache_best_solutions[worst_idx] = x.copy()
         
         # Trim cache if too large

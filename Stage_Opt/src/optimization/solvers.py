@@ -61,8 +61,10 @@ class RocketOptimizationProblem(Problem):
         for i in range(x.shape[0]):
             # Check cache first
             solution = x[i]
-            if self.cache.has_cached_solution(solution):
-                payload_fraction = self.cache.get_cached_fitness(solution)
+            cached_fitness = self.cache.get_cached_fitness(solution)
+            
+            if cached_fitness is not None:
+                payload_fraction = cached_fitness
                 logger.debug(f"Cache hit for solution {i}")
             else:
                 # Calculate stage ratios and payload fraction
