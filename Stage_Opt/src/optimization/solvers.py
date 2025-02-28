@@ -387,7 +387,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         
         # Add initial guess
         population[0] = initial_guess
-        fitness[0] = problem.cache.get_cached_fitness(initial_guess) or evaluate_fitness(initial_guess)
+        fitness[0] = problem.cache.get_cached_fitness(initial_guess)
+        if fitness[0] is None:
+            x = problem._evaluate(initial_guess, {"F": np.zeros(1), "G": np.zeros(1)})
+            fitness[0] = float(x["F"][0])
+            problem.cache.cache_fitness(initial_guess, fitness[0])
         
         # Add cached solutions
         for i in range(min(n_cached, initial_pop_size - 1)):
@@ -405,8 +409,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             
             # Evaluate and cache random solutions
             for i in range(n_cached + 1, initial_pop_size):
-                fitness[i] = evaluate_fitness(population[i])
-                problem.cache.cache_fitness(population[i], fitness[i])
+                fitness[i] = problem.cache.get_cached_fitness(population[i])
+                if fitness[i] is None:
+                    x = problem._evaluate(population[i], {"F": np.zeros(1), "G": np.zeros(1)})
+                    fitness[i] = float(x["F"][0])
+                    problem.cache.cache_fitness(population[i], fitness[i])
         
         # Sort population by fitness
         sort_idx = np.argsort(fitness)[::-1]  # Descending order

@@ -27,10 +27,18 @@ class OptimizationCache:
                 with open(self.cache_file, 'rb') as f:
                     data = pickle.load(f)
                     # Convert string keys back to tuples
-                    self.fitness_cache = {
-                        tuple(map(float, k.strip('()').split(','))) if isinstance(k, str) else k: v 
-                        for k, v in data.get('fitness_cache', {}).items()
-                    }
+                    self.fitness_cache = {}
+                    for k, v in data.get('fitness_cache', {}).items():
+                        if isinstance(k, str):
+                            # Handle different string formats
+                            k = k.replace('np.float64(', '').replace(')', '')  # Remove numpy type info
+                            k = k.strip('()[]')  # Remove brackets
+                            try:
+                                k = tuple(float(x.strip()) for x in k.split(',') if x.strip())
+                            except ValueError:
+                                logger.warning(f"Skipping invalid cache key: {k}")
+                                continue
+                        self.fitness_cache[k] = v
                     self.best_solutions = data.get('best_solutions', [])
                 logger.info(f"Loaded {len(self.fitness_cache)} cached fitness values "
                           f"and {len(self.best_solutions)} best solutions")
