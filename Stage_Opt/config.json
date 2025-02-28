@@ -21,6 +21,10 @@
             "min_dv": 0.0,
             "max_dv_factor": 1.0
         },
+        "parallel": {
+            "max_workers": 4,
+            "timeout": 3600
+        },
         "solvers": {
             "slsqp": {
                 "solver_specific": {
@@ -45,15 +49,15 @@
             },
             "adaptive_ga": {
                 "solver_specific": {
-                    "population_size": 100,
-                    "n_generations": 200,
+                    "population_size": 50,
+                    "n_generations": 100,
                     "initial_mutation_rate": 0.1,
                     "initial_crossover_rate": 0.8,
-                    "min_mutation_rate": 0.01,
-                    "max_mutation_rate": 0.5,
-                    "min_crossover_rate": 0.5,
-                    "max_crossover_rate": 0.95,
-                    "adaptation_rate": 0.1
+                    "min_mutation_rate": 0.05,
+                    "max_mutation_rate": 0.3,
+                    "min_crossover_rate": 0.6,
+                    "max_crossover_rate": 0.9,
+                    "adaptation_rate": 0.05
                 }
             },
             "pso": {
