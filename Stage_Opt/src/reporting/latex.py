@@ -12,23 +12,45 @@ def compile_latex_to_pdf(tex_path):
         file_name = os.path.splitext(os.path.basename(tex_path))[0]
         current_dir = os.getcwd()
         
+        # Copy references.bib to output directory if it doesn't exist there
+        bib_file = os.path.join(output_dir, 'references.bib')
+        if not os.path.exists(bib_file):
+            logger.info("Copying references.bib to output directory")
+            import shutil
+            src_bib = os.path.join(os.path.dirname(output_dir), 'references.bib')
+            if os.path.exists(src_bib):
+                shutil.copy2(src_bib, bib_file)
+        
         try:
             # Change to output directory to ensure auxiliary files are created there
             os.chdir(output_dir)
             
             # First pdflatex run
-            subprocess.run(['pdflatex', '-interaction=nonstopmode', file_name + '.tex'], 
-                         check=True, capture_output=True)
+            logger.info("Running first pdflatex pass...")
+            result = subprocess.run(['pdflatex', '-interaction=nonstopmode', file_name + '.tex'], 
+                         capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"pdflatex error: {result.stderr}")
             
             # Run bibtex
-            subprocess.run(['bibtex', file_name], 
-                         check=True, capture_output=True)
+            logger.info("Running bibtex...")
+            result = subprocess.run(['bibtex', file_name], 
+                         capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"bibtex error: {result.stderr}")
             
             # Two more pdflatex runs to resolve references
-            subprocess.run(['pdflatex', '-interaction=nonstopmode', file_name + '.tex'],
-                         check=True, capture_output=True)
-            subprocess.run(['pdflatex', '-interaction=nonstopmode', file_name + '.tex'],
-                         check=True, capture_output=True)
+            logger.info("Running second pdflatex pass...")
+            result = subprocess.run(['pdflatex', '-interaction=nonstopmode', file_name + '.tex'],
+                         capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"pdflatex error: {result.stderr}")
+                
+            logger.info("Running final pdflatex pass...")
+            result = subprocess.run(['pdflatex', '-interaction=nonstopmode', file_name + '.tex'],
+                         capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"pdflatex error: {result.stderr}")
             
             pdf_path = os.path.join(output_dir, file_name + '.pdf')
             if os.path.exists(pdf_path):
@@ -41,8 +63,8 @@ def compile_latex_to_pdf(tex_path):
             
     except subprocess.CalledProcessError as e:
         logger.error(f"Error compiling LaTeX: {e}")
-        logger.error(f"stdout: {e.stdout.decode()}")
-        logger.error(f"stderr: {e.stderr.decode()}")
+        logger.error(f"stdout: {e.stdout}")
+        logger.error(f"stderr: {e.stderr}")
         return None
     except Exception as e:
         logger.error(f"Error in compile_latex_to_pdf: {e}")
