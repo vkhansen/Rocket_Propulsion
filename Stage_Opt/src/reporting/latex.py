@@ -160,7 +160,7 @@ Method & Payload Ratio"""
             for i in range(1, len(stages) + 1):
                 latex_content += f" & $\\lambda_{{{i}}}$"
         
-        latex_content += r" \\ " + "\n"
+        latex_content += r" \\" + "\n"
 
         latex_content += r"""\midrule
 """
@@ -171,8 +171,13 @@ Method & Payload Ratio"""
             
             # Add stage ratios if available
             if len(stages) > 1 and 'stages' in result:
-                for stage in result['stages']:
-                    lambda_val = stage.get('lambda', 0)
+                stage_data = result['stages']
+                total_delta_v = sum(stage.get('delta_v', 0) for stage in stage_data)
+                
+                # Calculate lambda (ratio of stage delta-v to total delta-v)
+                for stage in stage_data:
+                    delta_v = stage.get('delta_v', 0)
+                    lambda_val = delta_v / total_delta_v if total_delta_v > 0 else 0
                     latex_content += f" & {lambda_val:.4f}"
             
             latex_content += " \\\\\n"
