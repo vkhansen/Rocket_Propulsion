@@ -211,42 +211,43 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         total_dv_tolerance = constraint_config['total_dv']['tolerance']
         
         def constraint_total_dv(dv):
-            # Total delta-v constraint (equality)
+            """Total delta-v constraint (equality)"""
             return np.sum(dv) - TOTAL_DELTA_V
-            
-        def constraint_first_stage_min(dv):
-            # First stage minimum (inequality: dv[0] >= min_dv)
-            return dv[0] - first_stage_min * TOTAL_DELTA_V
-            
-        def constraint_first_stage_max(dv):
-            # First stage maximum (inequality: dv[0] <= max_dv)
-            return first_stage_max * TOTAL_DELTA_V - dv[0]
-            
-        def constraint_other_stages_min(dv):
-            # Other stages minimum (inequality: dv[i] >= min_dv)
-            return dv[1:] - other_stages_min * TOTAL_DELTA_V
-            
-        def constraint_other_stages_max(dv):
-            # Other stages maximum (inequality: dv[i] <= max_dv)
-            return other_stages_max * TOTAL_DELTA_V - dv[1:]
         
-        # Define constraints for scipy's minimize
-        constraints = [
-            {'type': 'eq', 'fun': constraint_total_dv, 'tol': total_dv_tolerance},
-            {'type': 'ineq', 'fun': constraint_first_stage_min},
-            {'type': 'ineq', 'fun': constraint_first_stage_max}
-        ]
+        # Create constraint functions for each stage
+        constraint_fns = []
         
-        # Add constraints for other stages
+        # First stage constraints
+        constraint_fns.append({
+            'type': 'eq',
+            'fun': constraint_total_dv,
+            'tol': total_dv_tolerance
+        })
+        
+        # First stage minimum fraction
+        constraint_fns.append({
+            'type': 'ineq',
+            'fun': lambda dv: dv[0] - first_stage_min * TOTAL_DELTA_V
+        })
+        
+        # First stage maximum fraction
+        constraint_fns.append({
+            'type': 'ineq',
+            'fun': lambda dv: first_stage_max * TOTAL_DELTA_V - dv[0]
+        })
+        
+        # Other stages constraints
         n_stages = len(initial_guess)
         for i in range(1, n_stages):
-            constraints.append({
+            # Minimum fraction for stage i
+            constraint_fns.append({
                 'type': 'ineq',
-                'fun': lambda x, i=i: x[i] - other_stages_min * TOTAL_DELTA_V
+                'fun': lambda dv, idx=i: dv[idx] - other_stages_min * TOTAL_DELTA_V
             })
-            constraints.append({
+            # Maximum fraction for stage i
+            constraint_fns.append({
                 'type': 'ineq',
-                'fun': lambda x, i=i: other_stages_max * TOTAL_DELTA_V - x[i]
+                'fun': lambda dv, idx=i: other_stages_max * TOTAL_DELTA_V - dv[idx]
             })
         
         # Get optimization parameters
@@ -257,9 +258,9 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             initial_guess,
             method='SLSQP',
             bounds=bounds,
-            constraints=constraints,
+            constraints=constraint_fns,
             options={
-                'maxiter': max_iterations, 
+                'maxiter': max_iterations,
                 'ftol': total_dv_tolerance,
                 'eps': 1e-8,  # Step size for finite difference
                 'disp': True  # Display convergence messages
@@ -269,9 +270,27 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         if not result.success:
             logger.warning(f"SLSQP optimization failed: {result.message}")
             return None
-            
-        # Calculate final stage ratios and payload fraction
+        
+        # Verify constraints are satisfied
         optimal_dv = result.x
+        total_dv_error = abs(np.sum(optimal_dv) - TOTAL_DELTA_V)
+        if total_dv_error > total_dv_tolerance:
+            logger.warning(f"Total ΔV constraint violated: error = {total_dv_error}")
+            return None
+            
+        # Check stage fraction constraints
+        for i, dv in enumerate(optimal_dv):
+            fraction = dv / TOTAL_DELTA_V
+            if i == 0:
+                if not (first_stage_min <= fraction <= first_stage_max):
+                    logger.warning(f"First stage fraction constraint violated: {fraction}")
+                    return None
+            else:
+                if not (other_stages_min <= fraction <= other_stages_max):
+                    logger.warning(f"Stage {i+1} fraction constraint violated: {fraction}")
+                    return None
+        
+        # Calculate final stage ratios and payload fraction
         stage_ratios, mass_ratios = calculate_stage_ratios(optimal_dv, G0, ISP, EPSILON)
         payload_fraction = calculate_payload_fraction(stage_ratios)
         
@@ -284,7 +303,7 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
                 'Lambda': float(sr),
                 'mass_ratio': float(mr)
             })
-            
+        
         return {
             'success': result.success,
             'message': result.message,
