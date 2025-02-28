@@ -2,7 +2,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from .utils.config import logger
+from ..utils.config import logger
 
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     """Plot ΔV breakdown for each optimization method."""
