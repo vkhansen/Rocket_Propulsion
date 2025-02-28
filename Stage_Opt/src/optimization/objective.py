@@ -1,87 +1,38 @@
 """Objective functions for optimization."""
 import numpy as np
-from ..utils.data import calculate_mass_ratios, calculate_payload_fraction
 from ..utils.config import logger
-from .solvers.slsqp_solver import SLSQPSolver
-from .solvers.ga_solver import GeneticAlgorithmSolver
-from .solvers.adaptive_ga_solver import AdaptiveGeneticAlgorithmSolver
-from .solvers.pso_solver import ParticleSwarmOptimizer
-from .solvers.de_solver import DifferentialEvolutionSolver
-from .solvers.basin_hopping_solver import BasinHoppingOptimizer
+from .physics import calculate_mass_ratios, calculate_payload_fraction, calculate_stage_ratios
 
 def payload_fraction_objective(dv, G0, ISP, EPSILON):
     """Calculate the payload fraction objective using the corrected physics model."""
     try:
         logger.debug(f"Evaluating payload fraction objective with dv={dv}")
         
-        # Ensure all inputs are numpy arrays
-        dv = np.asarray(dv, dtype=float)
-        ISP = np.asarray(ISP, dtype=float)
-        EPSILON = np.asarray(EPSILON, dtype=float)
-        
-        # Pass G0 to calculate_mass_ratios so that the negative exponent is used
+        # Calculate mass ratios and payload fraction
         mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
+        payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
         
-        # Add a small penalty for solutions close to constraint violations
-        penalty = 0.0
-        for ratio in mass_ratios:
-            if ratio <= 0.1:  # Penalize solutions close to physical limits
-                penalty += 100.0 * (0.1 - ratio) ** 2
-                
-        # Negative for minimization
-        result = float(-payload_fraction + penalty)
-        logger.debug(f"Payload fraction objective: {result} (payload={payload_fraction}, penalty={penalty})")
-        return result
+        return -payload_fraction  # Negative for minimization
         
     except Exception as e:
-        logger.error(f"Error in payload fraction calculation: {e}")
-        return 1e6  # Large but finite penalty
-
-def calculate_stage_ratios(dv, G0, ISP, EPSILON):
-    """Calculate stage ratios (λ) for each stage.
-    
-    Args:
-        dv: Stage delta-v values
-        G0: Gravitational constant
-        ISP: Specific impulse values
-        EPSILON: Structural fraction values
-        
-    Returns:
-        tuple: (stage_ratios, mass_ratios)
-            - stage_ratios: List of stage ratios (λ)
-            - mass_ratios: List of mass ratios before structural fraction
-    """
-    stage_ratios = []
-    mass_ratios = []
-    for dv_i, isp, eps in zip(dv, ISP, EPSILON):
-        mass_ratio = np.exp(-dv_i / (G0 * isp))
-        lambda_val = mass_ratio * (1 - eps)  # Corrected λᵢ calculation
-        stage_ratios.append(lambda_val)
-        mass_ratios.append(mass_ratio)
-    return stage_ratios, mass_ratios
+        logger.error(f"Error in payload fraction objective: {e}")
+        return 1e6  # Large penalty for failed calculations
 
 def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
     """Calculate objective with penalty for constraint violation."""
     try:
-        logger.debug(f"Evaluating objective with penalty: dv={dv}")
+        # Calculate base objective
+        objective = payload_fraction_objective(dv, G0, ISP, EPSILON)
         
-        # Ensure all inputs are numpy arrays
-        dv = np.asarray(dv, dtype=float)
-        ISP = np.asarray(ISP, dtype=float)
-        EPSILON = np.asarray(EPSILON, dtype=float)
+        # Calculate constraint violation
+        total_dv = np.sum(dv)
+        violation = abs(total_dv - TOTAL_DELTA_V)
         
-        # Base objective
-        base_obj = payload_fraction_objective(dv, G0, ISP, EPSILON)
+        # Apply penalty
+        penalty_coeff = 1e3
+        penalty = penalty_coeff * violation
         
-        # Constraint violation penalty
-        dv_sum = float(np.sum(dv))
-        constraint_violation = abs(dv_sum - TOTAL_DELTA_V)
-        penalty = 1e3 * constraint_violation  # Reduced penalty coefficient
-        
-        result = float(base_obj + penalty)
-        logger.debug(f"Objective with penalty: {result} (base={base_obj}, penalty={penalty})")
-        return result
+        return objective + penalty
         
     except Exception as e:
         logger.error(f"Error in objective calculation: {e}")
@@ -95,21 +46,39 @@ class RocketStageOptimizer:
         self.config = config
         self.parameters = parameters
         self.stages = stages
-        self.solvers = self._initialize_solvers()
+        self.solvers = []  # Initialize solvers after imports
         
     def _initialize_solvers(self):
         """Initialize all available solvers."""
+        # Import solvers here to avoid circular imports
+        from .solvers.slsqp_solver import SLSQPSolver
+        from .solvers.ga_solver import GeneticAlgorithmSolver
+        from .solvers.adaptive_ga_solver import AdaptiveGeneticAlgorithmSolver
+        from .solvers.pso_solver import ParticleSwarmOptimizer
+        from .solvers.de_solver import DifferentialEvolutionSolver
+        from .solvers.basin_hopping_solver import BasinHoppingOptimizer
+        
+        # Create problem parameters dictionary
+        problem_params = {
+            'G0': float(self.parameters.get('G0', 9.81)),
+            'TOTAL_DELTA_V': float(self.parameters.get('TOTAL_DELTA_V', 0.0)),
+            'stages': self.stages
+        }
+        
         return [
-            SLSQPSolver(self.config, self.parameters, self.stages),
-            GeneticAlgorithmSolver(self.config, self.parameters, self.stages),
-            AdaptiveGeneticAlgorithmSolver(self.config, self.parameters, self.stages),
-            ParticleSwarmOptimizer(self.config, self.parameters, self.stages),
-            DifferentialEvolutionSolver(self.config, self.parameters, self.stages),
-            BasinHoppingOptimizer(self.config, self.parameters, self.stages)
+            SLSQPSolver(self.config, problem_params),
+            GeneticAlgorithmSolver(self.config, problem_params),
+            AdaptiveGeneticAlgorithmSolver(self.config, problem_params),
+            ParticleSwarmOptimizer(self.config, problem_params),
+            DifferentialEvolutionSolver(self.config, problem_params),
+            BasinHoppingOptimizer(self.config, problem_params)
         ]
     
     def solve(self, initial_guess, bounds):
         """Run optimization with all available solvers."""
+        if not self.solvers:
+            self.solvers = self._initialize_solvers()
+            
         results = {}
         
         for solver in self.solvers:

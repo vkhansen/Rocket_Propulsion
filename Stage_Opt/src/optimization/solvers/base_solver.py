@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from ...utils.config import logger
-from ..objective import calculate_stage_ratios, calculate_payload_fraction
+from ..physics import calculate_stage_ratios, calculate_mass_ratios, calculate_payload_fraction
 from ..cache import OptimizationCache
 
 class BaseSolver(ABC):
@@ -20,96 +20,108 @@ class BaseSolver(ABC):
                 - TOTAL_DELTA_V: Total required delta-v
         """
         self.config = config
-        self.G0 = problem_params['G0']
-        self.ISP = np.asarray(problem_params['ISP'])
-        self.EPSILON = np.asarray(problem_params['EPSILON'])
-        self.TOTAL_DELTA_V = problem_params['TOTAL_DELTA_V']
+        self.solver_config = config.get('solver', {})
+        
+        # Problem parameters
+        self.G0 = float(problem_params.get('G0', 9.81))
+        self.ISP = [float(stage['ISP']) for stage in problem_params.get('stages', [])]
+        self.EPSILON = [float(stage['EPSILON']) for stage in problem_params.get('stages', [])]
+        self.TOTAL_DELTA_V = float(problem_params.get('TOTAL_DELTA_V', 0.0))
+        
+        # Initialize cache
         self.cache = OptimizationCache()
         
-        # Get solver-specific configuration
-        solver_name = self.__class__.__name__.lower().replace('solver', '')
-        self.solver_config = self._get_solver_config(solver_name)
+    @property
+    def name(self):
+        """Get solver name."""
+        return self.__class__.__name__
         
-    def _get_solver_config(self, solver_name):
-        """Get solver-specific configuration."""
-        opt_config = self.config.get('optimization', {})
-        solver_config = opt_config.get('solvers', {}).get(solver_name, {})
-        constraints = opt_config.get('constraints', {})
+    def create_stage_results(self, x, stage_ratios):
+        """Create detailed results for each stage."""
+        stages = []
+        for i, (dv_i, lambda_i) in enumerate(zip(x, stage_ratios)):
+            stage = {
+                'stage': i + 1,
+                'delta_v': float(dv_i),
+                'Lambda': float(lambda_i),
+                'ISP': float(self.ISP[i]),
+                'EPSILON': float(self.EPSILON[i])
+            }
+            stages.append(stage)
+        return stages
         
-        # Add common settings
-        solver_config['constraints'] = constraints
-        solver_config['penalty_coefficient'] = opt_config.get('penalty_coefficient', 1e3)
-        
-        return solver_config
-        
-    def calculate_fitness(self, dv):
+    def enforce_constraints(self, x):
+        """Enforce optimization constraints."""
+        try:
+            # Calculate total delta-v constraint violation
+            total_dv = float(np.sum(x))
+            violation = abs(total_dv - self.TOTAL_DELTA_V)
+            
+            # Add penalties for negative values
+            for dv in x:
+                if dv < 0:
+                    violation += abs(dv)
+            
+            return violation
+            
+        except Exception as e:
+            logger.error(f"Error enforcing constraints: {e}")
+            return float('inf')
+    
+    def calculate_stage_ratios(self, x):
+        """Calculate stage ratios for a solution."""
+        try:
+            return calculate_stage_ratios(x, self.G0, self.ISP, self.EPSILON)
+        except Exception as e:
+            logger.error(f"Error calculating stage ratios: {e}")
+            return np.ones_like(x), np.ones_like(x)
+    
+    def calculate_fitness(self, x):
         """Calculate fitness (payload fraction) for a solution."""
-        # Check cache first
-        cached_fitness = self.cache.get_cached_fitness(dv)
-        if cached_fitness is not None:
-            return cached_fitness
+        try:
+            # Check cache first
+            cached_result = self.cache.get(tuple(x))
+            if cached_result is not None:
+                return cached_result
             
-        # Calculate stage ratios and payload fraction
-        stage_ratios, _ = calculate_stage_ratios(dv, self.G0, self.ISP, self.EPSILON)
-        payload_fraction = calculate_payload_fraction(stage_ratios)
-        
-        # Cache result
-        self.cache.add(dv, payload_fraction)
-        
-        return payload_fraction
-        
-    def enforce_constraints(self, dv):
-        """Calculate constraint violation penalty."""
-        # Get constraint parameters
-        constraints = self.solver_config['constraints']
-        stage_fractions = constraints.get('stage_fractions', {})
-        first_stage = stage_fractions.get('first_stage', {})
-        other_stages = stage_fractions.get('other_stages', {})
-        
-        # Get constraint values
-        min_fraction_first = first_stage.get('min_fraction', 0.15)
-        max_fraction_first = first_stage.get('max_fraction', 0.80)
-        min_fraction_other = other_stages.get('min_fraction', 0.01)
-        max_fraction_other = other_stages.get('max_fraction', 0.90)
-        
-        # Calculate total DV violation
-        total_dv = np.sum(dv)
-        total_dv_error = abs(total_dv - self.TOTAL_DELTA_V)
-        
-        # Calculate stage fraction violations
-        stage_fractions = dv / total_dv if total_dv > 0 else np.zeros_like(dv)
-        
-        penalty = 0.0
-        # First stage constraints
-        if stage_fractions[0] < min_fraction_first:
-            penalty += abs(stage_fractions[0] - min_fraction_first)
-        if stage_fractions[0] > max_fraction_first:
-            penalty += abs(stage_fractions[0] - max_fraction_first)
+            # Calculate mass ratios and payload fraction
+            mass_ratios = calculate_mass_ratios(x, self.ISP, self.EPSILON, self.G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios, self.EPSILON)
             
-        # Other stages constraints
-        for fraction in stage_fractions[1:]:
-            if fraction < min_fraction_other:
-                penalty += abs(fraction - min_fraction_other)
-            if fraction > max_fraction_other:
-                penalty += abs(fraction - max_fraction_other)
-                
-        return penalty + total_dv_error
-        
+            # Cache result
+            self.cache.set(tuple(x), payload_fraction)
+            
+            return payload_fraction
+            
+        except Exception as e:
+            logger.error(f"Error calculating fitness: {e}")
+            return 0.0
+    
+    def objective_with_penalty(self, x):
+        """Calculate objective with penalty for constraint violation."""
+        try:
+            # Calculate payload fraction (negative for minimization)
+            payload_fraction = -self.calculate_fitness(x)
+            
+            # Calculate constraint violation penalty
+            penalty = self.enforce_constraints(x)
+            penalty_coeff = self.solver_config.get('penalty_coefficient', 1e3)
+            
+            return float(payload_fraction + penalty_coeff * penalty)
+            
+        except Exception as e:
+            logger.error(f"Error in objective calculation: {e}")
+            return 1e6
+    
     @abstractmethod
     def solve(self, initial_guess, bounds):
         """Solve the optimization problem.
         
         Args:
-            initial_guess: Initial solution vector
+            initial_guess: Initial solution guess
             bounds: List of (min, max) bounds for each variable
             
         Returns:
-            dict: Optimization results containing:
-                - success: Whether optimization succeeded
-                - message: Status message
-                - payload_fraction: Best payload fraction found
-                - stages: List of stage information
-                - n_iterations: Number of iterations
-                - n_function_evals: Number of function evaluations
+            dict: Optimization results
         """
         pass

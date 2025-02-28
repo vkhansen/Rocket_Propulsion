@@ -16,7 +16,7 @@ class SLSQPSolver(BaseSolver):
         """Objective function for optimization."""
         return self.objective_with_penalty(x)
         
-    def solve(self):
+    def solve(self, initial_guess, bounds):
         """Solve using SLSQP."""
         try:
             logger.info("Starting SLSQP optimization...")
@@ -28,9 +28,9 @@ class SLSQPSolver(BaseSolver):
             # Run optimization
             result = minimize(
                 self.objective,
-                x0=self.initial_guess,
+                x0=initial_guess,
                 method='SLSQP',
-                bounds=self.bounds,
+                bounds=bounds,
                 options={
                     'maxiter': maxiter,
                     'ftol': ftol,
@@ -41,13 +41,13 @@ class SLSQPSolver(BaseSolver):
             # Process results
             if result.success:
                 stage_ratios, mass_ratios = self.calculate_stage_ratios(result.x)
-                payload_fraction = self.calculate_payload_fraction(stage_ratios)
+                payload_fraction = self.calculate_fitness(result.x)
                 
                 return {
                     'success': True,
                     'x': result.x.tolist(),
                     'fun': float(result.fun),
-                    'payload_fraction': payload_fraction,
+                    'payload_fraction': float(payload_fraction),
                     'stage_ratios': stage_ratios.tolist(),
                     'mass_ratios': mass_ratios.tolist(),
                     'stages': self.create_stage_results(result.x, stage_ratios),
