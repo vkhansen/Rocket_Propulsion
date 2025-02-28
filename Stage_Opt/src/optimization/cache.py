@@ -4,7 +4,7 @@ import pickle
 import numpy as np
 from functools import lru_cache
 from typing import List, Tuple, Dict
-from .utils.config import OUTPUT_DIR, logger
+from ..utils.config import OUTPUT_DIR, logger
 
 class OptimizationCache:
     """Cache for optimization results and fitness evaluations."""
