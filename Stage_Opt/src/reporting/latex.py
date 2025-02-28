@@ -145,15 +145,37 @@ The following methods were evaluated, sorted by their achieved payload ratio \ci
 \begin{table}[H]
 \centering
 \caption{Optimization Methods Performance Comparison}
-\begin{tabular}{lc}
+\begin{tabular}{lc"""
+
+        # Add columns for stage ratios based on number of stages
+        if len(stages) > 1:
+            latex_content += "".join(["c" for _ in range(len(stages))])
+        
+        latex_content += """}
 \toprule
-Method & Payload Ratio \\
-\midrule
+Method & Payload Ratio"""
+
+        # Add column headers for stage ratios
+        if len(stages) > 1:
+            for i in range(1, len(stages) + 1):
+                latex_content += f" & $\\lambda_{{{i}}}$"
+        
+        latex_content += r" \\ " + "\n"
+
+        latex_content += r"""\midrule
 """
 
         # Add each method's results to the table
         for method, result in sorted_results:
-            latex_content += f"{method} & {result.get('payload_fraction', 0):.4f} \\\\\n"
+            latex_content += f"{method} & {result.get('payload_fraction', 0):.4f}"
+            
+            # Add stage ratios if available
+            if len(stages) > 1 and 'stages' in result:
+                for stage in result['stages']:
+                    lambda_val = stage.get('lambda', 0)
+                    latex_content += f" & {lambda_val:.4f}"
+            
+            latex_content += " \\\\\n"
         
         latex_content += r"""\bottomrule
 \end{tabular}
