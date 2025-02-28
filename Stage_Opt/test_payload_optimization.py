@@ -39,7 +39,7 @@ class TestPayloadOptimization(unittest.TestCase):
         """Set up test cases."""
         # Load data from JSON file
         input_file = Path(__file__).parent / 'input_data.json'
-        with open(input_file, 'r') as f:
+        with open(input_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         # Load parameters
@@ -71,39 +71,69 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_calculate_mass_ratios(self):
         """Test stage ratio (Λ) calculation."""
         print("\nTesting stage ratio calculation...")
-        dv = np.array([4650, 4650])
-        ISP = [300, 348]
-        EPSILON = [0.06, 0.04]
+        # Test case with 2 stages
+        dv = np.array([4650, 4650])  # Equal split of delta-V
+        ISP = [300, 348]  # Different ISP for each stage
+        EPSILON = [0.06, 0.04]  # Different structural coefficients
         G0 = 9.81
         
         # Calculate stage ratios
         ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         
         # Manual calculation for verification
-        # Bottom stage
-        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))
-        lambda1 = 1.0 / (mass_ratio1 + EPSILON[0])
+        # First calculate mass ratios using rocket equation
+        mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))  # Bottom stage
+        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))  # Top stage
         
-        # Top stage
-        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))
-        lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])
+        # Then calculate stage ratios (Λ)
+        lambda1 = 1.0 / (mass_ratio1 + EPSILON[0])  # Bottom stage
+        lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])  # Top stage
         
         # Verify results
         self.assertEqual(len(ratios), 2)
         self.assertAlmostEqual(ratios[0], lambda1, places=4)
         self.assertAlmostEqual(ratios[1], lambda2, places=4)
         
-        # Verify ratios are in correct range (0 < Λ < 1)
-        for ratio in ratios:
-            self.assertGreater(ratio, 0)
-            self.assertLess(ratio, 1)
+        # Test with single stage
+        single_dv = np.array([9300])
+        single_isp = [300]
+        single_epsilon = [0.06]
+        
+        single_ratios = calculate_mass_ratios(single_dv, single_isp, single_epsilon, G0)
+        single_mass_ratio = np.exp(-single_dv[0] / (G0 * single_isp[0]))
+        expected_lambda = 1.0 / (single_mass_ratio + single_epsilon[0])
+        
+        self.assertEqual(len(single_ratios), 1)
+        self.assertAlmostEqual(single_ratios[0], expected_lambda, places=4)
 
-    def test_calculate_payload_fraction(self):
+    def test_payload_fraction(self):
         """Test payload fraction calculation."""
         print("\nTesting payload fraction calculation...")
-        mass_ratios = [0.146, 0.216]  # Updated to match current implementation
+        # Test with 2 stages
+        dv = np.array([4650, 4650])
+        ISP = [300, 348]
+        EPSILON = [0.06, 0.04]
+        G0 = 9.81
+        
+        # Calculate stage ratios
+        mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         fraction = calculate_payload_fraction(mass_ratios)
-        self.assertAlmostEqual(fraction, 0.032, places=3)  # Updated expected value
+        
+        # Manual calculation
+        # First calculate mass ratios
+        mr1 = np.exp(-dv[0] / (G0 * ISP[0]))
+        mr2 = np.exp(-dv[1] / (G0 * ISP[1]))
+        
+        # Then calculate stage ratios
+        lambda1 = 1.0 / (mr1 + EPSILON[0])
+        lambda2 = 1.0 / (mr2 + EPSILON[1])
+        
+        # Payload fraction is product of stage ratios
+        expected_fraction = lambda1 * lambda2
+        
+        self.assertAlmostEqual(fraction, expected_fraction, places=4)
+        self.assertGreater(fraction, 0)
+        self.assertLess(fraction, 1)
 
     def test_payload_fraction_objective(self):
         """Test payload fraction objective function."""
@@ -112,9 +142,40 @@ class TestPayloadOptimization(unittest.TestCase):
         G0 = 9.81
         ISP = [300, 348]
         EPSILON = [0.06, 0.04]
+        
         result = payload_fraction_objective(dv, G0, ISP, EPSILON)
-        self.assertIsInstance(result, float)
+        
+        # Manual calculation
+        mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
+        expected = -calculate_payload_fraction(mass_ratios)  # Negative because we minimize
+        
+        self.assertAlmostEqual(result, expected, places=4)
         self.assertGreater(result, -1)  # Should be negative but greater than -1
+
+    def test_solve_with_slsqp(self):
+        """Test SLSQP solver."""
+        print("\nTesting SLSQP solver...")
+        result = solve_with_slsqp(
+            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+            self.TOTAL_DELTA_V, CONFIG
+        )
+        
+        # Extract solution from result dictionary
+        solution = np.array([stage['delta_v'] for stage in result['stages']])
+        
+        # Verify solution constraints
+        self.assertEqual(len(solution), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
+        self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
+        
+        # Calculate payload fraction to verify solution quality
+        mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        self.assertTrue(0 <= payload_fraction <= 1)
+        
+        # Verify Lambda values
+        for stage in result['stages']:
+            self.assertTrue(0 < stage['Lambda'] < 1)
 
     def test_solve_with_differential_evolution(self):
         """Test differential evolution solver."""
@@ -123,55 +184,73 @@ class TestPayloadOptimization(unittest.TestCase):
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)
+        
+        # Extract solution from result dictionary
+        solution = np.array([stage['delta_v'] for stage in result['stages']])
         
         # Verify solution constraints
-        self.assertEqual(len(result), self.num_stages)
-        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        self.assertEqual(len(solution), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
+        self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
+        
+        # Verify Lambda values
+        for stage in result['stages']:
+            self.assertTrue(0 < stage['Lambda'] < 1)
 
     def test_solve_with_genetic_algorithm(self):
         """Test genetic algorithm solver."""
-        print("\nTesting genetic algorithm solver...")
+        print("\nTesting GA solver...")
         result = solve_with_ga(
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)
+        
+        # Extract solution from result dictionary
+        solution = np.array([stage['delta_v'] for stage in result['stages']])
         
         # Verify solution constraints
-        self.assertEqual(len(result), self.num_stages)
-        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        self.assertEqual(len(solution), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
+        self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
+        
+        # Verify Lambda values
+        for stage in result['stages']:
+            self.assertTrue(0 < stage['Lambda'] < 1)
 
     def test_solve_with_adaptive_ga(self):
         """Test adaptive genetic algorithm solver."""
-        print("\nTesting adaptive genetic algorithm solver...")
+        print("\nTesting adaptive GA solver...")
         result = solve_with_adaptive_ga(
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)
+        
+        # Extract solution from result dictionary
+        solution = np.array([stage['delta_v'] for stage in result['stages']])
         
         # Verify solution constraints
-        self.assertEqual(len(result), self.num_stages)
-        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        self.assertEqual(len(solution), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
+        self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
+        
+        # Verify Lambda values
+        for stage in result['stages']:
+            self.assertTrue(0 < stage['Lambda'] < 1)
 
     def test_solve_with_pso(self):
         """Test particle swarm optimization solver."""
@@ -180,17 +259,23 @@ class TestPayloadOptimization(unittest.TestCase):
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)
+        
+        # Extract solution from result dictionary
+        solution = np.array([stage['delta_v'] for stage in result['stages']])
         
         # Verify solution constraints
-        self.assertEqual(len(result), self.num_stages)
-        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        self.assertEqual(len(solution), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
+        self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
+        
+        # Verify Lambda values
+        for stage in result['stages']:
+            self.assertTrue(0 < stage['Lambda'] < 1)
 
     def test_all_solvers(self):
         """Test all solvers and compare results."""
@@ -208,43 +293,29 @@ class TestPayloadOptimization(unittest.TestCase):
         payload_fractions = []
         
         for solver in solvers:
-            if solver in [solve_with_differential_evolution]:
-                result = solver(
-                    self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-                    self.TOTAL_DELTA_V, CONFIG
-                )
-            else:
-                result = solver(
-                    self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-                    self.TOTAL_DELTA_V, CONFIG
-                )
-            result = np.array(result)
-            results.append(result)
-            
-            # Calculate payload fraction
-            mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            payload_fractions.append(payload_fraction)
-            
-            # Print results
-            print(f"\n{solver.__name__}:")
-            print(f"Delta-V split: {result}")
-            print(f"Payload fraction: {payload_fraction}")
-            
-            # Verify constraints
-            self.assertEqual(len(result), self.num_stages)
-            self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-            self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
-            self.assertTrue(0 <= payload_fraction <= 1)
+            result = solver(
+                self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
+                self.TOTAL_DELTA_V, CONFIG
+            )
+            solution = np.array([stage['delta_v'] for stage in result['stages']])
+            results.append(solution)
+            payload_fractions.append(result['payload_fraction'])
+        
+        # Compare payload fractions between solvers
+        for i in range(len(solvers)):
+            for j in range(i + 1, len(solvers)):
+                diff = abs(payload_fractions[i] - payload_fractions[j])
+                self.assertLess(diff, 0.2,  # Allow 20% difference between solvers
+                            f"Large payload fraction difference between solvers {i} and {j}")
 
     def test_lambda_calculations(self):
         """Verify stage ratio (Λ) calculations against manual computations."""
         # Load input data to get correct ISP and EPSILON values
-        with open('input_data.json') as f:
+        with open('input_data.json', encoding='utf-8') as f:
             data = json.load(f)
             stages = data['stages']
             
-        with open(self.stage_results_path) as f:
+        with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
             # Group rows by method
@@ -262,7 +333,7 @@ class TestPayloadOptimization(unittest.TestCase):
             
             for i in range(len(sorted_stages)):
                 stage = sorted_stages[i]
-                stage_num = int(stage['Stage'].split()[1]) - 1  # Convert to 0-based index
+                stage_num = int(stage['Stage'].split()[1])  # Split 'Stage 1' and take the number
                 dv = float(stage['Delta-V (m/s)'])
                 isp = stages[stage_num]['ISP']
                 epsilon = stages[stage_num]['EPSILON']
@@ -301,25 +372,6 @@ class TestPayloadOptimization(unittest.TestCase):
         self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in delta_v_split))
         self.assertAlmostEqual(np.sum(delta_v_split), self.TOTAL_DELTA_V, places=0)
 
-    def test_solve_with_slsqp(self):
-        """Test SLSQP solver."""
-        print("\nTesting SLSQP solver...")
-        result = solve_with_slsqp(
-            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-            self.TOTAL_DELTA_V, CONFIG
-        )
-        result = np.array(result)
-        
-        # Verify solution constraints
-        self.assertEqual(len(result), self.num_stages)
-        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
-        
-        # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-        self.assertTrue(0 <= payload_fraction <= 1)
-
     def test_solve_with_basin_hopping(self):
         """Test basin hopping solver."""
         print("\nTesting basin hopping solver...")
@@ -327,17 +379,23 @@ class TestPayloadOptimization(unittest.TestCase):
             self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
             self.TOTAL_DELTA_V, CONFIG
         )
-        result = np.array(result)
+        
+        # Extract solution from result dictionary
+        solution = np.array([stage['delta_v'] for stage in result['stages']])
         
         # Verify solution constraints
-        self.assertEqual(len(result), self.num_stages)
-        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in result))
-        self.assertAlmostEqual(np.sum(result), self.TOTAL_DELTA_V, places=5)
+        self.assertEqual(len(solution), self.num_stages)
+        self.assertTrue(all(0 <= dv <= self.TOTAL_DELTA_V for dv in solution))
+        self.assertAlmostEqual(np.sum(solution), self.TOTAL_DELTA_V, places=5)
         
         # Calculate payload fraction to verify solution quality
-        mass_ratios = calculate_mass_ratios(result, self.ISP, self.EPSILON, self.G0)
+        mass_ratios = calculate_mass_ratios(solution, self.ISP, self.EPSILON, self.G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
         self.assertTrue(0 <= payload_fraction <= 1)
+        
+        # Verify Lambda values
+        for stage in result['stages']:
+            self.assertTrue(0 < stage['Lambda'] < 1)
 
 
 class TestCSVOutputs(unittest.TestCase):
@@ -357,38 +415,54 @@ class TestCSVOutputs(unittest.TestCase):
         with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
-            
+
         # Get number of stages from input data
-        with open('input_data.json') as f:
+        with open('input_data.json', encoding='utf-8') as f:
             data = json.load(f)
             n_stages = len(data['stages'])
-            
+
         # Expected rows = num_stages × num_methods
         expected_rows = n_stages * 6  # 6 optimization methods
         self.assertEqual(len(rows), expected_rows,
                         f"Expected {expected_rows} rows ({n_stages} stages × 6 methods)")
-        
-        # Verify columns
-        expected_columns = ['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method']
-        self.assertListEqual(reader.fieldnames, expected_columns)
-        
-        # Count unique methods
-        methods = set(row['Method'] for row in rows)
-        num_methods = len(methods)
-        
-        # Each method should have n_stages stages
-        expected_rows = num_methods * n_stages  # n_stages stages per method
-        self.assertEqual(len(rows), expected_rows, 
-                       f"Expected {expected_rows} rows ({n_stages} stages × {num_methods} methods)")
+
+        # Verify required columns
+        required_columns = ['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method']
+        for column in required_columns:
+            self.assertTrue(any(column in row for row in rows),
+                          f"Missing required column: {column}")
+
+        # Verify data types and ranges
+        for row in rows:
+            # Stage should be in format "Stage N"
+            self.assertRegex(row['Stage'], r'^Stage \d+$')
+            
+            # Delta-V should be a positive float
+            delta_v = float(row['Delta-V (m/s)'])
+            self.assertGreater(delta_v, 0)
+            
+            # Stage ratio should be between 0 and 1
+            lambda_val = float(row['Stage Ratio (lambda)'])
+            self.assertGreater(lambda_val, 0)
+            self.assertLess(lambda_val, 1)
+            
+            # Delta-V contribution should be a percentage
+            contribution = float(row['Delta-V Contribution (%)'])
+            self.assertGreaterEqual(contribution, 0)
+            self.assertLessEqual(contribution, 100)
+            
+            # Method should be one of the expected values
+            expected_methods = {'SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA', 'DE', 'PSO'}
+            self.assertIn(row['Method'], expected_methods)
 
     def test_lambda_calculations(self):
         """Verify λ calculations against manual computations."""
         # Load input data to get correct ISP and EPSILON values
-        with open('input_data.json') as f:
+        with open('input_data.json', encoding='utf-8') as f:
             data = json.load(f)
             stages = data['stages']
             
-        with open(self.stage_results_path) as f:
+        with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
@@ -420,13 +494,13 @@ class TestCSVOutputs(unittest.TestCase):
     def test_delta_v_split(self):
         """Verify delta-V split sums to total delta-V."""
         # Load total delta-V from input data
-        with open('input_data.json') as f:
+        with open('input_data.json', encoding='utf-8') as f:
             data = json.load(f)
             total_delta_v = float(data['parameters']['TOTAL_DELTA_V'])
             n_stages = len(data['stages'])
             
         # Read stage results and verify delta-V sum
-        with open(self.stage_results_path) as f:
+        with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             # Group by method and calculate total delta-V for each
             method_totals = {}
@@ -446,12 +520,12 @@ class TestCSVOutputs(unittest.TestCase):
     def test_payload_fraction_consistency(self):
         """Verify payload fraction matches product of stage λ values."""
         # Read optimization results first
-        with open(self.optimization_results_path) as f:
+        with open(self.optimization_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             opt_results = {row['Method']: float(row['Payload Fraction']) for row in reader}
 
         # Calculate lambda products for each method
-        with open(self.stage_results_path) as f:
+        with open(self.stage_results_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
             

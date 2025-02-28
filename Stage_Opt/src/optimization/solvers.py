@@ -191,57 +191,72 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         }
 
 def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Basin-Hopping."""
+    """Solve using Basin-Hopping.
+    
+    Args:
+        initial_guess (np.ndarray): Initial guess for delta-V distribution
+        bounds (list): List of (min, max) tuples for each variable
+        G0 (float): Gravitational constant
+        ISP (list): Specific impulse for each stage
+        EPSILON (list): Structural coefficients for each stage
+        TOTAL_DELTA_V (float): Total delta-V to distribute
+        config (dict): Configuration parameters
+        
+    Returns:
+        dict: Optimization results containing:
+            - payload_fraction (float): Optimal payload fraction
+            - stages (list): List of stage information dictionaries
+    """
     try:
         logger.debug("Starting Basin-Hopping optimization")
         logger.debug(f"Initial guess: {initial_guess}")
         logger.debug(f"Bounds: {bounds}")
-        
+
         # Get Basin-Hopping parameters from config
         bh_config = config.get('basin_hopping', {})
         n_iterations = bh_config.get('n_iterations', 100)
         temperature = bh_config.get('temperature', 1.0)
         stepsize = bh_config.get('stepsize', 0.5)
-        
+
         logger.debug(f"Basin-Hopping Config: iterations={n_iterations}, "
                     f"temperature={temperature}, stepsize={stepsize}")
-        
+
         # Initialize cache
         cache = OptimizationCache()
-        
+
         # Define the objective function with caching and penalty
         def objective(x):
             # Check cache first
             x_tuple = tuple(x)
-            cached_value = cache.get_cached_fitness(x)
+            cached_value = cache.get_cached_fitness(x_tuple)
             if cached_value is not None:
                 logger.debug(f"Cache hit for solution: {x}")
                 return -cached_value  # Negative because we minimize
-            
+
             # Calculate payload fraction
-            stage_ratios = [np.exp(-dv / (G0 * isp)) - eps 
-                          for dv, isp, eps in zip(x, ISP, EPSILON)]
-            obj_value = -np.prod(stage_ratios)  # Negative because we minimize
-            
+            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            obj_value = -payload_fraction  # Negative because we minimize
+
             # Add penalty for constraint violation
             penalty_weight = 1e6
             delta_v_violation = abs(np.sum(x) - TOTAL_DELTA_V)
             penalty = penalty_weight * delta_v_violation
-            
+
             final_value = obj_value + penalty
-            
+
             # Store in cache (without penalty)
-            cache.fitness_cache[x_tuple] = -obj_value  # Store positive value
+            cache.fitness_cache[x_tuple] = payload_fraction
             if final_value < 1e-3:  # If solution is good
                 cache.best_solutions.append(np.array(x))
                 cache.save_cache()
-            
-            logger.debug(f"Objective evaluation - Input: {x}, Objective value: {final_value}")
+
+            logger.debug(f"Objective evaluation - Input: {x}, Value: {final_value}")
             return final_value
-        
+
         # Define bounds as a list of tuples
         bounds_list = [(b[0], b[1]) for b in bounds]
-        
+
         # Run optimization
         result = basinhopping(
             objective,
@@ -254,69 +269,16 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
                 'bounds': bounds_list
             }
         )
-        
-        if result.lowest_optimization_result.success:
-            logger.info(f"Basin-Hopping optimization converged after {result.nit} iterations")
-            logger.debug(f"Final message: {result.message}")
-            solution = result.x
-            scale = TOTAL_DELTA_V / np.sum(solution)
-            solution = solution * scale
-            
-            # Calculate mass ratios and stage ratios
-            mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                }
-                stages.append(stage_info)
-            
-            logger.info(f"Final solution: {solution}")
-            return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
-            }
-        else:
-            logger.warning(f"Basin-Hopping optimization did not converge: {result.message}")
-            logger.debug(f"Number of iterations: {result.nit}")
-            solution = initial_guess
-            scale = TOTAL_DELTA_V / np.sum(solution)
-            solution = solution * scale
-            
-            # Calculate mass ratios and stage ratios for initial guess
-            mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                }
-                stages.append(stage_info)
-            
-            logger.info(f"Returning initial guess solution: {solution}")
-            return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
-            }
-            
-    except Exception as e:
-        logger.error(f"Basin-Hopping optimization failed: {e}")
-        logger.exception("Detailed error information:")
-        solution = initial_guess
+
+        # Extract best solution and scale to match total delta-V
+        solution = result.x
         scale = TOTAL_DELTA_V / np.sum(solution)
         solution = solution * scale
-        
-        # Calculate mass ratios and stage ratios for error case
+
+        # Calculate final mass ratios and payload fraction
         mass_ratios = calculate_mass_ratios(solution, ISP, EPSILON, G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
-        
+
         # Create stage information
         stages = []
         for i, (dv, mr) in enumerate(zip(solution, mass_ratios)):
@@ -325,11 +287,16 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
                 'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
             }
             stages.append(stage_info)
-        
+
+        logger.debug(f"Basin-Hopping finished. Best solution: {solution}")
         return {
             'payload_fraction': float(payload_fraction),
             'stages': stages
         }
+
+    except Exception as e:
+        logger.error(f"Error in Basin-Hopping: {e}")
+        raise
 
 def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
     """Solve using Genetic Algorithm."""
