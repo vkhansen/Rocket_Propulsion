@@ -62,3 +62,75 @@ def calculate_payload_fraction(stage_ratios):
     except Exception as e:
         logger.error(f"Error calculating payload fraction: {e}")
         return 0.0
+
+class OptimizationCache:
+    """Cache for optimization results."""
+    
+    def __init__(self, max_size=1000):
+        """Initialize cache with maximum size."""
+        self.max_size = max_size
+        self.fitness_cache = {}  # Maps solution tuple to fitness
+        self.best_solutions = []  # List of best solutions found
+        self.hit_count = 0
+        logger.info(f"Loaded {len(self.fitness_cache)} cached fitness values and {len(self.best_solutions)} best solutions")
+    
+    def clear(self):
+        """Clear all cached data."""
+        self.fitness_cache.clear()
+        self.best_solutions.clear()
+        self.hit_count = 0
+    
+    def add(self, x, fitness):
+        """Add or update a solution in the cache."""
+        x_tuple = tuple(x.flatten())
+        self.fitness_cache[x_tuple] = fitness
+        
+        # Update best solutions list
+        if len(self.best_solutions) < self.max_size:
+            self.best_solutions.append(x)
+        else:
+            # Replace worst solution if this one is better
+            worst_idx = np.argmax([self.fitness_cache.get(tuple(s.flatten()), float('inf')) 
+                                 for s in self.best_solutions])
+            if fitness < self.fitness_cache.get(tuple(self.best_solutions[worst_idx].flatten()), float('inf')):
+                self.best_solutions[worst_idx] = x.copy()
+        
+        # Maintain cache size
+        if len(self.fitness_cache) > self.max_size:
+            # Remove oldest entries that aren't in best_solutions
+            best_tuples = {tuple(s.flatten()) for s in self.best_solutions}
+            to_remove = []
+            for k in self.fitness_cache:
+                if k not in best_tuples:
+                    to_remove.append(k)
+                    if len(self.fitness_cache) - len(to_remove) <= self.max_size:
+                        break
+            for k in to_remove:
+                del self.fitness_cache[k]
+    
+    def has_cached_solution(self, x):
+        """Check if solution exists in cache."""
+        return tuple(x.flatten()) in self.fitness_cache
+    
+    def get_cached_fitness(self, x):
+        """Get cached fitness for a solution."""
+        x_tuple = tuple(x.flatten())
+        if x_tuple in self.fitness_cache:
+            self.hit_count += 1
+            return self.fitness_cache[x_tuple]
+        return None
+    
+    def get_best_solutions(self, n=None):
+        """Get n best solutions from cache."""
+        if not self.best_solutions:
+            return []
+        
+        if n is None:
+            n = len(self.best_solutions)
+            
+        # Sort by fitness
+        sorted_solutions = sorted(
+            self.best_solutions,
+            key=lambda x: self.fitness_cache.get(tuple(x.flatten()), float('inf'))
+        )
+        return sorted_solutions[:n]

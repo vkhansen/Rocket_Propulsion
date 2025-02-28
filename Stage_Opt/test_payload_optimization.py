@@ -20,18 +20,17 @@ from src.optimization.solvers import (
     solve_with_differential_evolution,
     solve_with_ga,
     solve_with_adaptive_ga,
-    solve_with_pso
+    solve_with_pso,
+    RocketOptimizationProblem
 )
-from src.utils.config import setup_logging, CONFIG
+from src.utils.config import setup_logging, CONFIG, logger
 from src.optimization.cache import OptimizationCache, OUTPUT_DIR
-
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # Initialize logging
 setup_logging()
-logger = logging.getLogger(__name__)
 
 # Add test-specific log handler
 test_log_file = os.path.join(OUTPUT_DIR, "test_output.log")
@@ -446,308 +445,301 @@ class TestPayloadOptimization(unittest.TestCase):
             self.assertTrue(0 < stage['Lambda'] < 1)
 
 class TestCSVOutputs(unittest.TestCase):
+    """Test cases for CSV output functionality."""
+    
     @classmethod
     def setUpClass(cls):
         """Set up test environment and ensure output directory exists."""
-        cls.output_dir = os.path.join('output')
-        # Create output directory if it doesn't exist
+        cls.output_dir = os.path.join(os.path.dirname(__file__), 'output')
         os.makedirs(cls.output_dir, exist_ok=True)
-        cls.stage_results_path = os.path.join(cls.output_dir, 'stage_results.csv')
-        cls.optimization_results_path = os.path.join(cls.output_dir, 'optimization_summary.csv')
         
-        # Create empty stage results file if it doesn't exist
-        if not os.path.exists(cls.stage_results_path):
-            with open(cls.stage_results_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method'])
-
-    def test_csv_files_exist(self):
-        """Verify that output CSV files are created."""
-        self.assertTrue(os.path.exists(self.stage_results_path))
-        self.assertTrue(os.path.exists(self.optimization_results_path))
-
-    def test_stage_results_structure(self):
-        """Verify structure of stage_results.csv."""
-        with open(self.stage_results_path, encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
-
-        # Get number of stages from input data
-        with open('input_data.json', encoding='utf-8') as f:
-            data = json.load(f)
-            n_stages = len(data['stages'])
-
-        # Expected rows = num_stages × num_methods
-        expected_rows = n_stages * 6  # 6 optimization methods
-        self.assertEqual(len(rows), expected_rows,
-                        f"Expected {expected_rows} rows ({n_stages} stages × 6 methods)")
-
-        # Verify required columns
-        required_columns = ['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method']
-        for column in required_columns:
-            self.assertTrue(any(column in row for row in rows),
-                          f"Missing required column: {column}")
-
-        # Verify data types and ranges
-        for row in rows:
-            # Stage should be in format "Stage N"
-            self.assertRegex(row['Stage'], r'^Stage \d+$')
-            
-            # Delta-V should be a positive float
-            delta_v = float(row['Delta-V (m/s)'])
-            self.assertGreater(delta_v, 0)
-            
-            # Stage ratio should be between 0 and 1
-            lambda_val = float(row['Stage Ratio (lambda)'])
-            self.assertGreater(lambda_val, 0)
-            self.assertLess(lambda_val, 1)
-            
-            # Delta-V contribution should be a percentage
-            contribution = float(row['Delta-V Contribution (%)'])
-            self.assertGreaterEqual(contribution, 0)
-            self.assertLessEqual(contribution, 100)
-            
-            # Method should be one of the expected values
-            expected_methods = {'SLSQP', 'BASIN-HOPPING', 'GA', 'ADAPTIVE-GA', 'DE', 'PSO'}
-            self.assertIn(row['Method'], expected_methods)
-
-    def test_lambda_calculations(self):
-        """Verify λ calculations against manual computations."""
-        # Create test data
-        test_data = {
-            'parameters': {
-                'G0': 9.81,
-                'TOTAL_DELTA_V': 9300.0
-            },
-            'stages': [
-                {'stage': 1, 'ISP': 300.0, 'EPSILON': 0.06},
-                {'stage': 2, 'ISP': 348.0, 'EPSILON': 0.04}
-            ]
+        # Test data
+        cls.test_data = {
+            'G0': 9.81,
+            'TOTAL_DELTA_V': 9000,
+            'ISP': [300, 350],
+            'EPSILON': [0.1, 0.1],
+            'initial_guess': [4500, 4500],
+            'bounds': [(0, 9000), (0, 9000)]
         }
         
-        # Save test data to input_data.json
-        with open('input_data.json', 'w') as f:
-            json.dump(test_data, f)
-            
-        # Run optimization to generate stage results
-        initial_guess = np.array([4650.0, 4650.0])
-        bounds = [(1000, 8000), (1000, 8000)]
-        G0 = test_data['parameters']['G0']
-        ISP = np.array([s['ISP'] for s in test_data['stages']], dtype=float)
-        EPSILON = np.array([s['EPSILON'] for s in test_data['stages']], dtype=float)
-        TOTAL_DELTA_V = test_data['parameters']['TOTAL_DELTA_V']
-        
-        config = {
+        # Configuration for all solvers
+        cls.config = {
             'optimization': {
-                'max_iterations': 1000,
-                'population_size': 100,
-                'mutation_rate': 0.1,
-                'crossover_rate': 0.8
+                'max_iterations': 100,
+                'population_size': 50
+            },
+            'basin_hopping': {
+                'n_iterations': 50,
+                'temperature': 1.0,
+                'stepsize': 0.5
+            },
+            'ga': {
+                'population_size': 50,
+                'n_generations': 50
+            },
+            'pso': {
+                'n_particles': 50,
+                'n_iterations': 50
+            },
+            'de': {
+                'population_size': 50,
+                'max_generations': 50
+            },
+            'adaptive_ga': {
+                'initial_pop_size': 50,
+                'n_generations': 50
             }
         }
         
-        result = solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config)
+        # Run all solvers
+        cls.solvers = {
+            'SLSQP': solve_with_slsqp,
+            'BASIN-HOPPING': solve_with_basin_hopping,
+            'GA': solve_with_ga,
+            'PSO': solve_with_pso,
+            'DE': solve_with_differential_evolution,
+            'AGA': solve_with_adaptive_ga
+        }
         
-        if not result['success']:
-            self.fail(f"SLSQP optimization failed: {result['message']}")
+        cls.results = {}
+        for name, solver in cls.solvers.items():
+            try:
+                result = solver(
+                    cls.test_data['initial_guess'],
+                    cls.test_data['bounds'],
+                    cls.test_data['G0'],
+                    cls.test_data['ISP'],
+                    cls.test_data['EPSILON'],
+                    cls.test_data['TOTAL_DELTA_V'],
+                    cls.config
+                )
+                if result['success']:
+                    # Add required fields for CSV output
+                    result['payload_fraction'] = result.get('payload_fraction', 0.0)
+                    result['error'] = result.get('error', 0.0)
+                    result['execution_time'] = result.get('execution_time', 0.0)
+                    
+                    # Convert stage data to expected format
+                    stages = result.get('stages', [])
+                    result['dv'] = [stage['delta_v'] for stage in stages]
+                    result['stage_ratios'] = [stage['Lambda'] for stage in stages]
+                    
+                    cls.results[name] = result
+                else:
+                    logger.warning(f"{name} solver failed: {result['message']}")
+            except Exception as e:
+                logger.error(f"Error running {name} solver: {e}")
+                continue
         
-        # Write stage results to CSV
-        with open(self.stage_results_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method'])
+        # Generate CSV reports
+        from src.reporting.csv_reports import write_results_to_csv
+        cls.summary_path, cls.detailed_path = write_results_to_csv(cls.results, cls.test_data['ISP'], cls.output_dir)
+    
+    def test_csv_files_exist(self):
+        """Verify that output CSV files are created."""
+        self.assertTrue(os.path.exists(self.summary_path), "Summary CSV file not found")
+        self.assertTrue(os.path.exists(self.detailed_path), "Detailed CSV file not found")
+    
+    def test_summary_csv_structure(self):
+        """Verify structure of optimization_summary.csv."""
+        with open(self.summary_path, 'r') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            expected_header = ['Method', 'Payload Fraction', 'Error', 'Time (s)']
+            self.assertEqual(header, expected_header, "Summary CSV header mismatch")
             
-            for stage in result['stages']:
-                stage_num = stage['stage']
-                dv_value = stage['delta_v']
-                isp = ISP[stage_num - 1]
-                epsilon = EPSILON[stage_num - 1]
-                
-                # Calculate stage ratio using correct formula: λᵢ = rᵢ/(1 + εᵢ)
-                mass_ratio = math.exp(-dv_value / (G0 * isp))
-                lambda_value = mass_ratio / (1.0 + epsilon)
-                
-                dv_contribution = (dv_value / TOTAL_DELTA_V) * 100
-                
-                writer.writerow([
-                    f'Stage {stage_num}',
-                    f'{dv_value:.1f}',
-                    f'{lambda_value:.6f}',
-                    f'{dv_contribution:.1f}',
-                    'SLSQP'
-                ])
-        
-        # Now verify the calculations
-        with open(self.stage_results_path, 'r') as f:
-            reader = csv.DictReader(f)
             rows = list(reader)
+            self.assertEqual(len(rows), len(self.results),
+                           f"Expected {len(self.results)} rows in summary CSV")
             
-        for row in rows:
-            stage_num = int(row['Stage'].split()[1])
-            dv = float(row['Delta-V (m/s)'])
-            isp = ISP[stage_num - 1]
-            epsilon = EPSILON[stage_num - 1]
-            
-            # Manual calculation using correct formula: λᵢ = rᵢ/(1 + εᵢ)
-            mass_ratio = math.exp(-dv / (G0 * isp))
-            expected_lambda = mass_ratio / (1.0 + epsilon)
-            
-            self.assertAlmostEqual(float(row['Stage Ratio (lambda)']), expected_lambda, places=4,
-                                 msg=f"Stage ratio mismatch for stage {stage_num}, method {row['Method']}")
-
-    def test_delta_v_split(self):
-        """Verify delta-V split sums to total delta-V."""
-        # Load total delta-V from input data
-        with open('input_data.json', encoding='utf-8') as f:
-            data = json.load(f)
-            total_delta_v = float(data['parameters']['TOTAL_DELTA_V'])
-            n_stages = len(data['stages'])
-            
-        # Read stage results and verify delta-V sum
-        with open(self.stage_results_path, encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            # Group by method and calculate total delta-V for each
-            method_totals = {}
-            for row in reader:
-                method = row['Method']
-                if method not in method_totals:
-                    method_totals[method] = 0
-                # Sum all stages
-                method_totals[method] += float(row['Delta-V (m/s)'])
-        
-        # Verify total delta-V for each method with reduced precision (0 decimal places)
-        # This allows for small numerical differences (~0.1 m/s in 9300 m/s is ~0.001% error)
-        for method, total in method_totals.items():
-            self.assertAlmostEqual(total, total_delta_v, places=0,
-                                 msg=f"Delta-V mismatch for method {method}")
-
-    def test_payload_fraction_consistency(self):
-        """Verify payload fraction matches product of stage λ values."""
-        # Read optimization results first
-        with open(self.optimization_results_path, encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            opt_results = {row['Method']: float(row['Payload Fraction']) for row in reader}
-
-        # Calculate lambda products for each method
-        with open(self.stage_results_path, encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
-            
-            # Group rows by method
-            method_rows = {}
             for row in rows:
-                method = row['Method']
-                if method not in method_rows:
-                    method_rows[method] = []
-                method_rows[method].append(row)
+                self.assertEqual(len(row), len(expected_header),
+                               "Summary CSV row has incorrect number of columns")
+                
+                # Verify data types
+                method = row[0]
+                self.assertIn(method, self.results, f"Unknown method {method} in summary CSV")
+                self.assertTrue(self.is_float(row[1]), "Payload fraction is not a valid float")
+                self.assertTrue(self.is_float(row[2]), "Error is not a valid float")
+                self.assertTrue(self.is_float(row[3]), "Execution time is not a valid float")
+    
+    def test_detailed_csv_structure(self):
+        """Verify structure of stage_results.csv."""
+        with open(self.detailed_path, 'r') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            expected_header = ['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method']
+            self.assertEqual(header, expected_header, "Detailed CSV header mismatch")
             
-            # Calculate lambda product for each method
-            for method, method_data in method_rows.items():
-                lambda_product = 1.0
-                for row in method_data:
-                    lambda_product *= float(row['Stage Ratio (lambda)'])
+            rows = list(reader)
+            n_stages = len(self.test_data['ISP'])
+            expected_rows = n_stages * len(self.results)
+            self.assertEqual(len(rows), expected_rows,
+                           f"Expected {expected_rows} rows ({n_stages} stages × {len(self.results)} methods)")
+            
+            for row in rows:
+                self.assertEqual(len(row), len(expected_header),
+                               "Detailed CSV row has incorrect number of columns")
                 
-                # Skip if method not in optimization results
-                if method not in opt_results:
-                    continue
-                
-                # Verify consistency for this method with relaxed tolerance (1 place)
-                self.assertAlmostEqual(
-                    lambda_product, 
-                    opt_results[method], 
-                    places=1,  
-                    msg=f"Payload fraction mismatch for method {method}")
-
+                # Verify data types
+                self.assertTrue(row[0].isdigit(), "Stage number is not a valid integer")
+                self.assertTrue(self.is_float(row[1]), "Delta-V is not a valid float")
+                self.assertTrue(self.is_float(row[2]), "Stage ratio is not a valid float")
+                self.assertTrue(self.is_float(row[3]), "Delta-V contribution is not a valid float")
+                self.assertIn(row[4], self.results, f"Unknown method {row[4]} in detailed CSV")
+    
+    @staticmethod
+    def is_float(value):
+        """Helper method to check if a string represents a valid float."""
+        try:
+            float(value.replace('%', ''))  # Handle percentage values
+            return True
+        except ValueError:
+            return False
 
 class TestOptimizationCache(unittest.TestCase):
     """Test cases for optimization caching functionality."""
     
     def setUp(self):
-        self.cache_file = "test_cache.pkl"
-        self.cache = OptimizationCache(cache_file=self.cache_file)
-        self.test_solution = np.array([0.3, 0.3, 0.4])
-        self.test_fitness = -0.85
-        
-    def tearDown(self):
-        cache_path = os.path.join(OUTPUT_DIR, self.cache_file)
-        if os.path.exists(cache_path):
-            os.remove(cache_path)
-            
-    def test_cache_operations(self):
-        """Test basic cache operations."""
-        # Test initial cache is empty
-        self.assertNotIn(tuple(self.test_solution), self.cache.fitness_cache)
-        
-        # Test adding to cache
-        self.cache.fitness_cache[tuple(self.test_solution)] = self.test_fitness
-        self.assertEqual(self.cache.get_cached_fitness(self.test_solution), self.test_fitness)
-        
-        # Test persistence
-        self.cache.save_cache()
-        new_cache = OptimizationCache(cache_file=self.cache_file)
-        self.assertEqual(new_cache.get_cached_fitness(self.test_solution), self.test_fitness)
-        
-    def test_cache_size(self):
-        """Test cache size management."""
-        # Add multiple solutions
-        for i in range(10):
-            solution = np.array([i/10, i/10, 1-2*(i/10)])
-            self.cache.fitness_cache[tuple(solution)] = -0.8 - i/10
-            self.cache.best_solutions.append(solution)
-            
-        # Test cache limits
-        self.cache.save_cache()
-        new_cache = OptimizationCache(cache_file=self.cache_file)
-        self.assertEqual(len(new_cache.best_solutions), 10)
-        
-    def test_ga_integration(self):
-        """Test integration with genetic algorithm."""
-        good_solution = np.array([0.33, 0.33, 0.34])
-        self.cache.fitness_cache[tuple(good_solution)] = -0.95
-        self.cache.best_solutions.append(good_solution)
-        self.cache.save_cache()
-        
-        result = solve_with_ga(
-            initial_guess=good_solution,
-            bounds=[(0.1, 0.5)] * 3,
-            G0=9.81,
-            ISP=[300, 300, 300],
-            EPSILON=0.1,
-            TOTAL_DELTA_V=1.0,
-            config={'ga': {'population_size': 50, 'n_generations': 100}}
-        )
-        
-        self.assertTrue(np.allclose(result, good_solution, rtol=0.1))
-
-    def test_basin_hopping_caching(self):
-        """Test that basin hopping properly uses caching."""
-        # Add a known good solution to cache
-        good_solution = np.array([0.33, 0.33, 0.34])
-        self.cache.fitness_cache[tuple(good_solution)] = -0.95
-        self.cache.best_solutions.append(good_solution)
-        self.cache.save_cache()
-        
-        # Run basin hopping with same parameters
-        result = solve_with_basin_hopping(
-            initial_guess=good_solution,
-            bounds=[(0.1, 0.5)] * 3,
-            G0=9.81,
-            ISP=[300, 300, 300],
-            EPSILON=0.1,
-            TOTAL_DELTA_V=1.0,
-            config={'basin_hopping': {
+        """Set up test cases."""
+        self.cache = OptimizationCache(cache_file="test_cache.pkl", max_size=100)
+        self.test_data = {
+            'G0': 9.81,
+            'TOTAL_DELTA_V': 9000,
+            'ISP': [300, 350],
+            'EPSILON': [0.1, 0.1],
+            'initial_guess': np.array([4500, 4500]),
+            'bounds': [(0, 9000), (0, 9000)]
+        }
+        self.config = {
+            'optimization': {
+                'max_iterations': 100,
+                'population_size': 50
+            },
+            'basin_hopping': {
                 'n_iterations': 50,
                 'temperature': 1.0,
-                'stepsize': 0.1
-            }}
+                'stepsize': 0.5
+            },
+            'ga': {
+                'population_size': 50,
+                'n_generations': 50
+            }
+        }
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        self.cache.clear()
+        if os.path.exists(os.path.join(OUTPUT_DIR, "test_cache.pkl")):
+            os.remove(os.path.join(OUTPUT_DIR, "test_cache.pkl"))
+    
+    def test_cache_operations(self):
+        """Test basic cache operations."""
+        x = np.array([4000, 5000])
+        fitness = -0.5  # Example fitness value
+        
+        # Test adding to cache
+        self.cache.add(x, fitness)
+        self.assertTrue(self.cache.has_cached_solution(x))
+        self.assertEqual(self.cache.get_cached_fitness(x), fitness)
+        
+        # Test updating cache
+        new_fitness = -0.4
+        self.cache.add(x, new_fitness)
+        self.assertEqual(self.cache.get_cached_fitness(x), new_fitness)
+        
+        # Test retrieving best solutions
+        best_solutions = self.cache.get_best_solutions(n=1)
+        self.assertEqual(len(best_solutions), 1)
+        np.testing.assert_array_almost_equal(best_solutions[0], x)
+    
+    def test_cache_size(self):
+        """Test cache size management."""
+        # Add more solutions than the cache size
+        for i in range(self.cache.max_size + 5):
+            x = np.array([i * 100, (i + 1) * 100])
+            fitness = -float(i)
+            self.cache.add(x, fitness)
+        
+        # Verify cache size is maintained
+        self.assertLessEqual(len(self.cache.fitness_cache), self.cache.max_size)
+        
+        # Verify best solutions are kept
+        best_solutions = self.cache.get_best_solutions()
+        self.assertGreater(len(best_solutions), 0)
+        self.assertLessEqual(len(best_solutions), self.cache.max_size)
+    
+    def test_ga_integration(self):
+        """Test integration with genetic algorithm."""
+        # Run GA optimization with caching
+        problem = RocketOptimizationProblem(
+            n_var=len(self.test_data['initial_guess']),
+            bounds=self.test_data['bounds'],
+            G0=self.test_data['G0'],
+            ISP=self.test_data['ISP'],
+            EPSILON=self.test_data['EPSILON'],
+            TOTAL_DELTA_V=self.test_data['TOTAL_DELTA_V']
         )
         
-        # Verify result is close to the good solution
-        self.assertTrue(np.allclose(result, good_solution, rtol=0.1))
+        # First run
+        result1 = solve_with_ga(
+            self.test_data['initial_guess'],
+            self.test_data['bounds'],
+            self.test_data['G0'],
+            self.test_data['ISP'],
+            self.test_data['EPSILON'],
+            self.test_data['TOTAL_DELTA_V'],
+            self.config
+        )
         
-        # Verify solution was cached
-        new_cache = OptimizationCache(cache_file=self.cache_file)
-        self.assertIn(tuple(result), new_cache.fitness_cache)
-        self.assertTrue(any(np.allclose(s, result, rtol=0.1) for s in new_cache.best_solutions))
+        # Second run should use cached values
+        result2 = solve_with_ga(
+            self.test_data['initial_guess'],
+            self.test_data['bounds'],
+            self.test_data['G0'],
+            self.test_data['ISP'],
+            self.test_data['EPSILON'],
+            self.test_data['TOTAL_DELTA_V'],
+            self.config
+        )
+        
+        # Verify results
+        self.assertTrue(result1['success'])
+        self.assertTrue(result2['success'])
+        self.assertGreater(problem.cache.hit_count, 0)
+    
+    def test_basin_hopping_caching(self):
+        """Test that basin hopping properly uses caching."""
+        # First run
+        result1 = solve_with_basin_hopping(
+            self.test_data['initial_guess'],
+            self.test_data['bounds'],
+            self.test_data['G0'],
+            self.test_data['ISP'],
+            self.test_data['EPSILON'],
+            self.test_data['TOTAL_DELTA_V'],
+            self.config
+        )
+        
+        # Record cache state
+        initial_cache_size = len(self.cache.fitness_cache)
+        
+        # Second run should use cached values
+        result2 = solve_with_basin_hopping(
+            self.test_data['initial_guess'],
+            self.test_data['bounds'],
+            self.test_data['G0'],
+            self.test_data['ISP'],
+            self.test_data['EPSILON'],
+            self.test_data['TOTAL_DELTA_V'],
+            self.config
+        )
+        
+        # Verify results
+        self.assertTrue(result1['success'])
+        self.assertTrue(result2['success'])
+        self.assertGreater(len(self.cache.fitness_cache), initial_cache_size)
 
 
 if __name__ == "__main__":

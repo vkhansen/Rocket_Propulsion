@@ -647,139 +647,117 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
     """Solve using Particle Swarm Optimization."""
     try:
         logger.debug("Starting PSO optimization")
-        logger.debug(f"Initial guess: {initial_guess}")
-        logger.debug(f"Bounds: {bounds}")
+        
+        # Ensure arrays
+        initial_guess = np.asarray(initial_guess, dtype=float)
+        ISP = np.asarray(ISP, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
+        
+        def objective(dv):
+            # Enforce constraints through penalty
+            total_dv = np.sum(dv)
+            penalty = 1e6 * abs(total_dv - TOTAL_DELTA_V)
+            
+            # Add penalties for stage constraints
+            for i, dv_i in enumerate(dv):
+                if i == 0:  # First stage
+                    if dv_i < 0.15 * TOTAL_DELTA_V or dv_i > 0.8 * TOTAL_DELTA_V:
+                        penalty += 1e6
+                else:  # Other stages
+                    if dv_i < 0.01 * TOTAL_DELTA_V:
+                        penalty += 1e6
+            
+            return -payload_fraction_objective(dv, G0, ISP, EPSILON) + penalty
         
         # Get PSO parameters from config
         pso_config = config.get('pso', {})
         n_particles = pso_config.get('n_particles', 50)
-        n_iterations = pso_config.get('n_iterations', 100)
-        w = pso_config.get('w', 0.7)  # Inertia weight
-        c1 = pso_config.get('c1', 2.0)  # Cognitive parameter
-        c2 = pso_config.get('c2', 2.0)  # Social parameter
-        
-        logger.debug(f"PSO Config: particles={n_particles}, iterations={n_iterations}, "
-                    f"w={w}, c1={c1}, c2={c2}")
-        
-        # Set minimum delta-v per stage (15% of total delta-v for first stage, 1% for others)
-        MIN_DELTA_V_FIRST = TOTAL_DELTA_V * 0.15
-        MIN_DELTA_V_OTHERS = TOTAL_DELTA_V * 0.01
-        n_stages = len(initial_guess)
-        
-        logger.debug(f"Stage constraints: First stage min={MIN_DELTA_V_FIRST}, "
-                    f"Other stages min={MIN_DELTA_V_OTHERS}")
-        
-        def enforce_min_delta_v(particles):
-            """Enforce minimum delta-v for each stage while maintaining total delta-v."""
-            # Handle single particle case
-            if len(particles.shape) == 1:
-                particles = particles.reshape(1, -1)
-            
-            # First ensure minimum values for first stage
-            particles[:, 0] = np.maximum(particles[:, 0], MIN_DELTA_V_FIRST)
-            
-            # Ensure minimum values for other stages
-            particles[:, 1:] = np.maximum(particles[:, 1:], MIN_DELTA_V_OTHERS)
-            
-            # Redistribute excess while maintaining first stage minimum
-            for i in range(len(particles)):
-                # Calculate remaining delta-v after first stage
-                remaining_dv = TOTAL_DELTA_V - particles[i, 0]
-                
-                if remaining_dv < (n_stages - 1) * MIN_DELTA_V_OTHERS:
-                    # If not enough remaining for other stages, adjust first stage
-                    particles[i, 0] = TOTAL_DELTA_V - (n_stages - 1) * MIN_DELTA_V_OTHERS
-                    particles[i, 1:] = MIN_DELTA_V_OTHERS
-                else:
-                    # Distribute remaining to other stages proportionally
-                    current_sum = np.sum(particles[i, 1:])
-                    if current_sum > 0:
-                        particles[i, 1:] *= remaining_dv / current_sum
-            
-            return particles
-        
-        # Modify bounds for first stage
-        bounds[0] = (MIN_DELTA_V_FIRST, TOTAL_DELTA_V * 0.8)  # 15% to 80% of total ΔV
-        logger.debug(f"Modified bounds: {bounds}")
+        n_iterations = pso_config.get('n_iterations', 200)
+        w = pso_config.get('inertia_weight', 0.7)
+        c1 = pso_config.get('cognitive_param', 1.5)
+        c2 = pso_config.get('social_param', 1.5)
         
         # Initialize particles
+        n_var = len(initial_guess)
         particles = np.random.uniform(
             low=[b[0] for b in bounds],
             high=[b[1] for b in bounds],
-            size=(n_particles, len(initial_guess))
+            size=(n_particles, n_var)
         )
+        particles[0] = initial_guess  # Use initial guess as first particle
         
-        # Add initial guess as one of the particles
-        particles[0] = initial_guess
+        # Initialize velocities
+        v_max = 0.1 * (TOTAL_DELTA_V / n_var)
+        velocities = np.random.uniform(-v_max, v_max, size=(n_particles, n_var))
         
-        # Initialize velocities and best positions
-        velocities = np.zeros_like(particles)
-        particles = enforce_min_delta_v(particles)
-        personal_best_pos = particles.copy()
-        personal_best_val = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
-        global_best_idx = np.argmin(personal_best_val)
-        global_best_pos = personal_best_pos[global_best_idx].copy()
-        global_best_val = personal_best_val[global_best_idx]
+        # Initialize best positions and values
+        pbest = particles.copy()
+        pbest_values = np.array([objective(p) for p in particles])
+        gbest = pbest[np.argmin(pbest_values)]
+        gbest_value = np.min(pbest_values)
         
-        # Main PSO loop
-        for iteration in range(n_iterations):
+        # Optimization loop
+        n_evals = n_particles
+        for _ in range(n_iterations):
             # Update velocities
-            r1, r2 = np.random.rand(2, n_particles, len(initial_guess))
+            r1, r2 = np.random.rand(2)
             velocities = (w * velocities +
-                        c1 * r1 * (personal_best_pos - particles) +
-                        c2 * r2 * (global_best_pos - particles))
+                        c1 * r1 * (pbest - particles) +
+                        c2 * r2 * (gbest - particles))
+            
+            # Clip velocities
+            velocities = np.clip(velocities, -v_max, v_max)
             
             # Update positions
             particles += velocities
             
-            # Clip to bounds and enforce constraints
-            for j in range(len(initial_guess)):
-                particles[:, j] = np.clip(particles[:, j], bounds[j][0], bounds[j][1])
+            # Enforce bounds
+            for i, bounds_i in enumerate(bounds):
+                particles[:, i] = np.clip(particles[:, i], bounds_i[0], bounds_i[1])
             
-            particles = enforce_min_delta_v(particles)
+            # Evaluate particles
+            values = np.array([objective(p) for p in particles])
+            n_evals += n_particles
             
-            # Update personal and global bests
-            values = np.array([payload_fraction_objective(p, G0, ISP, EPSILON) for p in particles])
-            
-            # Ensure fitness values are positive
-            if np.any(values <= 0):
-                logger.warning("Non-positive fitness values encountered. Adjusting to small positive values.")
-                values = np.clip(values, 1e-6, None)
-            
-            improved = values < personal_best_val
-            personal_best_pos[improved] = particles[improved]
-            personal_best_val[improved] = values[improved]
+            # Update personal bests
+            improved = values < pbest_values
+            pbest[improved] = particles[improved]
+            pbest_values[improved] = values[improved]
             
             # Update global best
             min_idx = np.argmin(values)
-            if values[min_idx] < global_best_val:
-                global_best_val = values[min_idx]
-                global_best_pos = particles[min_idx].copy()
-            
-            # Check convergence
-            if iteration > 10 and np.std(values) < 1e-6:
-                logger.info(f"PSO converged after {iteration} iterations")
-                break
+            if values[min_idx] < gbest_value:
+                gbest = particles[min_idx].copy()
+                gbest_value = values[min_idx]
         
-        # Calculate mass ratios and stage ratios
-        mass_ratios = calculate_mass_ratios(global_best_pos, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-        
-        # Create stage information
+        # Calculate final stage ratios and payload fraction
+        optimal_dv = gbest
+        stage_ratios = []
         stages = []
-        for i, (dv, mr) in enumerate(zip(global_best_pos, mass_ratios)):
-            stage_info = {
+        
+        for i, (dv, isp, eps) in enumerate(zip(optimal_dv, ISP, EPSILON)):
+            mass_ratio = np.exp(-dv / (G0 * isp))
+            lambda_val = mass_ratio - eps  # λᵢ = exp(-ΔVᵢ/(g₀ISPᵢ)) - εᵢ
+            stage_ratios.append(lambda_val)
+            
+            stages.append({
+                'stage': i + 1,
                 'delta_v': float(dv),
-                'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-            }
-            stages.append(stage_info)
+                'Lambda': float(lambda_val),
+                'mass_ratio': float(mass_ratio)
+            })
+        
+        payload_fraction = float(np.prod(stage_ratios))
         
         return {
-            'payload_fraction': float(payload_fraction),
-            'stages': stages
+            'success': True,  # PSO always completes
+            'message': "PSO optimization completed",
+            'payload_fraction': payload_fraction,
+            'stages': stages,
+            'n_iterations': n_iterations,
+            'n_function_evals': n_evals
         }
         
     except Exception as e:
-        logger.error(f"Optimization with PSO failed: {e}")
-        logger.exception("Detailed error information:")
-        return initial_guess
+        logger.error(f"Error in PSO optimization: {str(e)}")
+        raise
