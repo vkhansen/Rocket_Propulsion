@@ -5,41 +5,25 @@ import tempfile
 import unittest
 import numpy as np
 import logging
-import sys
-import csv
-import math
 from pathlib import Path
-from logging.handlers import RotatingFileHandler
 
 # Import our modules
 from src.utils.data import load_input_data, calculate_mass_ratios, calculate_payload_fraction
 from src.optimization.objective import payload_fraction_objective, objective_with_penalty
-from src.optimization.solvers import (
-    solve_with_slsqp,
-    solve_with_basin_hopping,
-    solve_with_differential_evolution,
-    solve_with_ga,
-    solve_with_adaptive_ga,
-    solve_with_pso,
-    RocketOptimizationProblem
-)
-from src.utils.config import setup_logging, CONFIG, logger
-from src.optimization.cache import OptimizationCache, OUTPUT_DIR
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=RuntimeWarning)
+from src.optimization.solvers.slsqp_solver import SLSQPSolver
+from src.optimization.solvers.basin_hopping_solver import BasinHoppingOptimizer
+from src.optimization.solvers.de_solver import DifferentialEvolutionSolver
+from src.optimization.solvers.ga_solver import GeneticAlgorithmSolver
+from src.optimization.solvers.pso_solver import ParticleSwarmOptimizer
+from src.optimization.parallel_solver import ParallelSolver
+from src.utils.config import logger
 
 # Initialize logging
-setup_logging()
+logger.setLevel(logging.DEBUG)
 
 # Add test-specific log handler
-test_log_file = os.path.join(OUTPUT_DIR, "test_output.log")
-test_handler = RotatingFileHandler(
-    test_log_file,
-    maxBytes=5*1024*1024,  # 5MB
-    backupCount=3,
-    mode='w'
-)
+test_log_file = os.path.join(os.path.dirname(__file__), "test_output.log")
+test_handler = logging.FileHandler(test_log_file)
 test_handler.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
 ))
@@ -217,10 +201,8 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_solve_with_slsqp(self):
         """Test SLSQP solver."""
         print("\nTesting SLSQP solver...")
-        result = solve_with_slsqp(
-            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-            self.TOTAL_DELTA_V, self.config
-        )
+        solver = SLSQPSolver(self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON, self.TOTAL_DELTA_V, self.config)
+        result = solver.solve()
         
         self.assertTrue(result['success'])
         self.assertGreater(result['payload_fraction'], 0)
@@ -253,10 +235,8 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_solve_with_basin_hopping(self):
         """Test Basin-Hopping solver."""
         print("\nTesting Basin-Hopping solver...")
-        result = solve_with_basin_hopping(
-            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-            self.TOTAL_DELTA_V, self.config
-        )
+        solver = BasinHoppingOptimizer(self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON, self.TOTAL_DELTA_V, self.config)
+        result = solver.solve()
         
         self.assertTrue(result['success'])
         self.assertGreater(result['payload_fraction'], 0)
@@ -289,10 +269,8 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_solve_with_genetic_algorithm(self):
         """Test Genetic Algorithm solver."""
         print("\nTesting GA solver...")
-        result = solve_with_ga(
-            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-            self.TOTAL_DELTA_V, self.config
-        )
+        solver = GeneticAlgorithmSolver(self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON, self.TOTAL_DELTA_V, self.config)
+        result = solver.solve()
         
         self.assertTrue(result['success'])
         self.assertGreater(result['payload_fraction'], 0)
@@ -326,18 +304,18 @@ class TestPayloadOptimization(unittest.TestCase):
         """Test and compare all optimization solvers."""
         print("\nTesting all solvers...")
         solvers = {
-            'SLSQP': solve_with_slsqp,
-            'BASIN-HOPPING': solve_with_basin_hopping,
-            'GA': solve_with_ga
+            'SLSQP': SLSQPSolver,
+            'BASIN-HOPPING': BasinHoppingOptimizer,
+            'GA': GeneticAlgorithmSolver,
+            'PSO': ParticleSwarmOptimizer,
+            'DE': DifferentialEvolutionSolver
         }
         
         results = {}
         for name, solver in solvers.items():
             print(f"\nTesting {name} solver...")
-            result = solver(
-                self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-                self.TOTAL_DELTA_V, self.config
-            )
+            solver_instance = solver(self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON, self.TOTAL_DELTA_V, self.config)
+            result = solver_instance.solve()
             results[name] = result
             
             # Basic validation
@@ -393,10 +371,8 @@ class TestPayloadOptimization(unittest.TestCase):
         logger.debug(f"Bounds: {self.bounds}")
         logger.debug(f"ISP: {self.ISP}, EPSILON: {self.EPSILON}")
         
-        result = solve_with_differential_evolution(
-            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-            self.TOTAL_DELTA_V, self.config
-        )
+        solver = DifferentialEvolutionSolver(self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON, self.TOTAL_DELTA_V, self.config)
+        result = solver.solve()
         
         solution = np.array([stage['delta_v'] for stage in result['stages']])
         logger.debug(f"DE solution: {solution}")
@@ -419,10 +395,8 @@ class TestPayloadOptimization(unittest.TestCase):
     def test_solve_with_pso(self):
         """Test particle swarm optimization solver."""
         print("\nTesting PSO solver...")
-        result = solve_with_pso(
-            self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON,
-            self.TOTAL_DELTA_V, self.config
-        )
+        solver = ParticleSwarmOptimizer(self.initial_guess, self.bounds, self.G0, self.ISP, self.EPSILON, self.TOTAL_DELTA_V, self.config)
+        result = solver.solve()
         
         # Extract solution from result dictionary
         solution = np.array([stage['delta_v'] for stage in result['stages']])
@@ -494,18 +468,18 @@ class TestCSVOutputs(unittest.TestCase):
         
         # Run all solvers
         cls.solvers = {
-            'SLSQP': solve_with_slsqp,
-            'BASIN-HOPPING': solve_with_basin_hopping,
-            'GA': solve_with_ga,
-            'PSO': solve_with_pso,
-            'DE': solve_with_differential_evolution,
-            'AGA': solve_with_adaptive_ga
+            'SLSQP': SLSQPSolver,
+            'BASIN-HOPPING': BasinHoppingOptimizer,
+            'GA': GeneticAlgorithmSolver,
+            'PSO': ParticleSwarmOptimizer,
+            'DE': DifferentialEvolutionSolver,
+            'AGA': GeneticAlgorithmSolver
         }
         
         cls.results = {}
         for name, solver in cls.solvers.items():
             try:
-                result = solver(
+                solver_instance = solver(
                     cls.test_data['initial_guess'],
                     cls.test_data['bounds'],
                     cls.test_data['G0'],
@@ -514,6 +488,7 @@ class TestCSVOutputs(unittest.TestCase):
                     cls.test_data['TOTAL_DELTA_V'],
                     cls.config
                 )
+                result = solver_instance.solve()
                 if result['success']:
                     # Add required fields for CSV output
                     result['payload_fraction'] = result.get('payload_fraction', 0.0)

@@ -2,8 +2,8 @@
 import os
 import subprocess
 from datetime import datetime
-from ..utils.config import OUTPUT_DIR, logger
 import numpy as np
+from ..utils.config import logger, OUTPUT_DIR
 
 def compile_latex_to_pdf(tex_path):
     """Compile LaTeX file to PDF using pdflatex and bibtex."""

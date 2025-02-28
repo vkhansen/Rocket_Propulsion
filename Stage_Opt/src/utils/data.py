@@ -1,7 +1,7 @@
 """Data loading and processing utilities."""
 import json
 import numpy as np
-from .config import logger
+from .config import logger, OUTPUT_DIR
 
 def load_input_data(filename):
     """Load input data from JSON file."""
