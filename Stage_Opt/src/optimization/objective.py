@@ -32,6 +32,20 @@ def payload_fraction_objective(dv, G0, ISP, EPSILON):
         logger.error(f"Error in payload fraction calculation: {e}")
         return 1e6  # Large but finite penalty
 
+def calculate_stage_ratios(dv, G0, ISP, EPSILON):
+    """Calculate stage ratios (λ) for each stage.
+    
+    Args:
+    """
+    stage_ratios = []
+    mass_ratios = []
+    for dv_i, isp, eps in zip(dv, ISP, EPSILON):
+        mass_ratio = np.exp(-dv_i / (G0 * isp))
+        lambda_val = mass_ratio * (1 - eps)  # Corrected λᵢ calculation
+        stage_ratios.append(lambda_val)
+        mass_ratios.append(mass_ratio)
+    return stage_ratios, mass_ratios
+
 def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
     """Calculate objective with penalty for constraint violation."""
     try:

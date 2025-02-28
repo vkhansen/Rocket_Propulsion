@@ -361,29 +361,6 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.error(f"Error in GA optimization: {str(e)}")
         raise
 
-def calculate_stage_ratios(dv, G0, ISP, EPSILON):
-    """Calculate stage ratios (λ) for each stage.
-    
-    Args:
-        dv: Stage delta-v values
-        G0: Gravitational constant
-        ISP: Specific impulse values
-        EPSILON: Structural fraction values
-        
-    Returns:
-        tuple: (stage_ratios, mass_ratios)
-            - stage_ratios: List of stage ratios (λ)
-            - mass_ratios: List of mass ratios before structural fraction
-    """
-    stage_ratios = []
-    mass_ratios = []
-    for dv_i, isp, eps in zip(dv, ISP, EPSILON):
-        mass_ratio = np.exp(-dv_i / (G0 * isp))
-        lambda_val = mass_ratio * (1 - eps)  # Corrected λᵢ calculation
-        stage_ratios.append(lambda_val)
-        mass_ratios.append(mass_ratio)
-    return stage_ratios, mass_ratios
-
 def enforce_stage_constraints(dv, TOTAL_DELTA_V):
     """Enforce stage constraints with continuous penalties.
     

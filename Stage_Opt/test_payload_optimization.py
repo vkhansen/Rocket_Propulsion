@@ -704,7 +704,7 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['EPSILON'],
             self.test_data['TOTAL_DELTA_V'],
             self.config,
-            problem=problem
+            problem=problem  # Pass problem instance
         )
         
         initial_hits = problem.cache.hit_count
@@ -719,16 +719,19 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['EPSILON'],
             self.test_data['TOTAL_DELTA_V'],
             self.config,
-            problem=problem
+            problem=problem  # Pass same problem instance
         )
         
         # Verify cache hits increased
         self.assertGreater(problem.cache.hit_count, initial_hits)
         
         # Verify results are similar
-        self.assertAlmostEqual(result1['payload_fraction'], 
-                             result2['payload_fraction'],
-                             places=4)
+        self.assertAlmostEqual(
+            result1['payload_fraction'],
+            result2['payload_fraction'],
+            places=4,
+            msg="Payload fractions should match between runs"
+        )
     
     def test_ga_integration(self):
         """Test integration with genetic algorithm."""
