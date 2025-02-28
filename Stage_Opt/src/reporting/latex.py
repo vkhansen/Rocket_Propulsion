@@ -67,12 +67,12 @@ def generate_report(results, stages, output_dir=OUTPUT_DIR):
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{hyperref}
-\usepackage[numbers]{natbib}
+\usepackage{natbib}
 \usepackage{float}
 \usepackage{siunitx}
 \usepackage{setspace}
 
-\bibliographystyle{ieeetr}
+\bibliographystyle{plainnat}
 \setlength{\parskip}{1em}
 \onehalfspacing
 

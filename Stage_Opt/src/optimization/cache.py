@@ -37,15 +37,33 @@ class OptimizationCache:
         """Save cached solutions to file."""
         try:
             os.makedirs(OUTPUT_DIR, exist_ok=True)
+            
+            # Limit cache size by keeping only the most recent solutions
+            if len(self.best_solutions) > 1000:
+                self.best_solutions = self.best_solutions[-1000:]
+            
+            # Convert keys to strings to avoid pickle issues
+            safe_cache = {
+                'fitness_cache': {str(k): v for k, v in self.fitness_cache.items()},
+                'best_solutions': self.best_solutions
+            }
+            
             with open(self.cache_file, 'wb') as f:
-                pickle.dump({
-                    'fitness_cache': self.fitness_cache,
-                    'best_solutions': self.best_solutions
-                }, f)
+                pickle.dump(safe_cache, f, protocol=4)  # Use protocol 4 for better handling of large objects
+            
             logger.info(f"Saved cache with {len(self.fitness_cache)} fitness values "
                        f"and {len(self.best_solutions)} best solutions")
         except Exception as e:
             logger.warning(f"Failed to save cache: {e}")
+            # Try to save to a temporary location if main location fails
+            try:
+                temp_cache = os.path.join(os.path.dirname(self.cache_file), 
+                                        'temp_' + os.path.basename(self.cache_file))
+                with open(temp_cache, 'wb') as f:
+                    pickle.dump(safe_cache, f, protocol=4)
+                logger.info(f"Saved cache to temporary file: {temp_cache}")
+            except Exception as e2:
+                logger.warning(f"Failed to save to temporary cache: {e2}")
     
     def get_cached_fitness(self, solution: np.ndarray) -> float:
         """Get cached fitness value for a solution."""
