@@ -396,8 +396,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
         population[0] = initial_guess
         fitness[0] = problem.cache.get_cached_fitness(initial_guess)
         if fitness[0] is None:
-            x = problem._evaluate(initial_guess, {"F": np.zeros(1), "G": np.zeros(1)})
-            fitness[0] = float(x["F"][0])
+            out = {"F": np.zeros(1), "G": np.zeros(1)}
+            problem._evaluate(initial_guess.reshape(1, -1), out)
+            fitness[0] = float(-out["F"][0])  # Negate back since _evaluate negates for minimization
             problem.cache.add(initial_guess, fitness[0])
         
         # Add cached solutions
@@ -418,8 +419,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             for i in range(n_cached + 1, initial_pop_size):
                 fitness[i] = problem.cache.get_cached_fitness(population[i])
                 if fitness[i] is None:
-                    x = problem._evaluate(population[i], {"F": np.zeros(1), "G": np.zeros(1)})
-                    fitness[i] = float(x["F"][0])
+                    out = {"F": np.zeros(1), "G": np.zeros(1)}
+                    problem._evaluate(population[i].reshape(1, -1), out)
+                    fitness[i] = float(-out["F"][0])  # Negate back since _evaluate negates for minimization
                     problem.cache.add(population[i], fitness[i])
         
         # Sort population by fitness
@@ -448,8 +450,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             
             # Cache best solution from this generation
             if generation % 10 == 0:  # Cache periodically
-                x = problem._evaluate(population[0], {"F": np.zeros(1), "G": np.zeros(1)})
-                fitness_value = float(x["F"][0])
+                out = {"F": np.zeros(1), "G": np.zeros(1)}
+                problem._evaluate(population[0].reshape(1, -1), out)
+                fitness_value = float(-out["F"][0])  # Negate back since _evaluate negates for minimization
                 problem.cache.add(population[0], fitness_value)
                 problem.cache.save_cache()
         
@@ -472,8 +475,9 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             stages.append(stage_info)
         
         # Final cache update
-        x = problem._evaluate(solution, {"F": np.zeros(1), "G": np.zeros(1)})
-        fitness_value = float(x["F"][0])
+        out = {"F": np.zeros(1), "G": np.zeros(1)}
+        problem._evaluate(solution.reshape(1, -1), out)
+        fitness_value = float(-out["F"][0])  # Negate back since _evaluate negates for minimization
         problem.cache.add(solution, fitness_value)
         problem.cache.save_cache()
         
