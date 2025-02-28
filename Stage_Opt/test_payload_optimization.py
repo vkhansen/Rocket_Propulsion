@@ -728,7 +728,8 @@ class TestOptimizationCache(unittest.TestCase):
             EPSILON=self.test_data['EPSILON'],
             TOTAL_DELTA_V=self.test_data['TOTAL_DELTA_V']
         )
-        
+        self.cache = problem.cache  # Store reference to cache
+
         # First run
         result1 = solve_with_ga(
             self.test_data['initial_guess'],
@@ -739,10 +740,11 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['TOTAL_DELTA_V'],
             self.config
         )
-        
+
         initial_hits = self.cache.hit_count
-        
-        # Second run
+        self.cache.save_cache()  # Save cache after first run
+
+        # Second run - use same problem instance to share cache
         result2 = solve_with_ga(
             self.test_data['initial_guess'],
             self.test_data['bounds'],
@@ -752,7 +754,7 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['TOTAL_DELTA_V'],
             self.config
         )
-        
+
         # Verify cache hits increased
         self.assertGreater(self.cache.hit_count, initial_hits)
         

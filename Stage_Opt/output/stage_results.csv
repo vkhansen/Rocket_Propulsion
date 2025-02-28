@@ -1,9 +1,0 @@
-Stage,Delta-V (m/s),Stage Ratio (lambda),Delta-V Contribution (%),Method
-Stage 1,4500.00,0.1167,50.0,SLSQP
-Stage 2,4500.00,0.1697,50.0,SLSQP
-Stage 1,4501.98,0.1166,50.0,BASIN-HOPPING
-Stage 2,4498.02,0.1698,50.0,BASIN-HOPPING
-Stage 1,4500.00,0.1167,50.0,GA
-Stage 2,4500.00,0.1697,50.0,GA
-Stage 1,4500.00,0.1167,50.0,PSO
-Stage 2,4500.00,0.1697,50.0,PSO

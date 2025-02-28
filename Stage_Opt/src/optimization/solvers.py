@@ -250,9 +250,27 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         mutation_prob = ga_config.get('mutation_prob', 0.2)
         mutation_eta = ga_config.get('mutation_eta', 20)
         
+        # Create initial population with cached solutions
+        initial_population = np.zeros((population_size, len(initial_guess)))
+        initial_population[0] = initial_guess  # Include initial guess
+        
+        # Get best solutions from cache
+        cached_solutions = problem.cache.get_best_solutions(population_size - 1)
+        n_cached = len(cached_solutions)
+        
+        # Add cached solutions to population
+        for i, solution in enumerate(cached_solutions):
+            initial_population[i + 1] = solution
+            
+        # Fill remaining slots with random solutions
+        for i in range(n_cached + 1, population_size):
+            initial_population[i] = np.array([
+                np.random.uniform(low=b[0], high=b[1]) for b in bounds
+            ])
+        
         algorithm = GA(
             pop_size=population_size,
-            sampling=np.array([initial_guess]),  # Convert to numpy array
+            sampling=initial_population,
             crossover=SBX(prob=crossover_prob, eta=crossover_eta),
             mutation=PM(prob=mutation_prob, eta=mutation_eta),
             eliminate_duplicates=True
@@ -284,6 +302,10 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             })
             
         payload_fraction = float(np.prod(stage_ratios))
+        
+        # Save final solution to cache
+        problem.cache.add(optimal_dv, payload_fraction)
+        problem.cache.save_cache()
         
         return {
             'success': True,  # GA always completes
@@ -771,7 +793,7 @@ def solve_with_pso(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, confi
                 'Lambda': float(lambda_val),
                 'mass_ratio': float(mass_ratio)
             })
-        
+            
         payload_fraction = float(np.prod(stage_ratios))
         
         return {
