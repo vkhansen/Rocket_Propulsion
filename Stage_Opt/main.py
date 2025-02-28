@@ -1,28 +1,22 @@
 #!/usr/bin/env python3
 """Main script for rocket stage optimization."""
-import sys
+import os
+import json
 import time
-import numpy as np
+from datetime import datetime
 
 from src.utils.config import CONFIG, logger, OUTPUT_DIR
-from src.utils.data import load_input_data
-from src.optimization.solvers.slsqp_solver import SLSQPSolver
-from src.optimization.solvers.ga_solver import GeneticAlgorithmSolver
-from src.optimization.solvers.adaptive_ga_solver import AdaptiveGeneticAlgorithmSolver
-from src.optimization.solvers.pso_solver import ParticleSwarmOptimizer
-from src.optimization.solvers.de_solver import DifferentialEvolutionSolver
-from src.optimization.solvers.basin_hopping_solver import BasinHoppingOptimizer
-from src.optimization.parallel_solver import ParallelSolver
+from src.optimization.objective import RocketStageOptimizer
+from src.reporting.report_generator import generate_report
 from src.visualization.plots import plot_results
-from src.reporting.latex import generate_report
-from src.reporting.csv_reports import write_results_to_csv
 
 
 def main():
     """Main optimization routine."""
     try:
-        input_file = sys.argv[1] if len(sys.argv) > 1 else "input_data.json"
-        parameters, stages = load_input_data(input_file)
+        input_file = "input_data.json"
+        
+        parameters, stages = json.load(open(input_file))
         
         TOTAL_DELTA_V = float(parameters['TOTAL_DELTA_V'])
         G0 = float(parameters.get('G0', 9.81))
@@ -30,66 +24,51 @@ def main():
         EPSILON = [float(stage['EPSILON']) for stage in stages]
         
         n_stages = len(stages)
-        initial_guess = np.array([TOTAL_DELTA_V / n_stages] * n_stages)
+        initial_guess = [TOTAL_DELTA_V / n_stages] * n_stages
         bounds = [(0, TOTAL_DELTA_V) for _ in range(n_stages)]
         
         results = {}
         
-        solvers = [
-            SLSQPSolver(CONFIG, parameters, stages),
-            GeneticAlgorithmSolver(CONFIG, parameters, stages),
-            AdaptiveGeneticAlgorithmSolver(CONFIG, parameters, stages),
-            ParticleSwarmOptimizer(CONFIG, parameters, stages),
-            DifferentialEvolutionSolver(CONFIG, parameters, stages),
-            BasinHoppingOptimizer(CONFIG, parameters, stages)
-        ]
+        solver = RocketStageOptimizer(CONFIG, parameters, stages)
         
-        for solver in solvers:
-            try:
-                logger.info(f"Starting {solver.name} optimization with parameters:")
-                logger.info(f"Initial guess: {initial_guess}")
-                logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
-                logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
+        try:
+            logger.info(f"Starting {solver.name} optimization with parameters:")
+            logger.info(f"Initial guess: {initial_guess}")
+            logger.info(f"G0: {G0}, ISP: {ISP}, EPSILON: {EPSILON}")
+            logger.info(f"TOTAL_DELTA_V: {TOTAL_DELTA_V}")
+            
+            start_time = time.time()
+            solution = solver.solve(initial_guess, bounds)
+            
+            if solution is not None:
+                execution_time = time.time() - start_time
                 
-                start_time = time.time()
-                solution = solver.solve(initial_guess, bounds)
+                # Extract values from the new solution format
+                payload_fraction = solution['payload_fraction']
+                stages = solution['stages']
+                stage_dvs = [stage['delta_v'] for stage in stages]
+                stage_lambdas = [stage['Lambda'] for stage in stages]
                 
-                if solution is not None:
-                    execution_time = time.time() - start_time
-                    
-                    # Extract values from the new solution format
-                    payload_fraction = solution['payload_fraction']
-                    stages = solution['stages']
-                    stage_dvs = [stage['delta_v'] for stage in stages]
-                    stage_lambdas = [stage['Lambda'] for stage in stages]
-                    
-                    results[solver.name] = {
-                        'method': solver.name,
-                        'execution_time': execution_time,
-                        'dv': stage_dvs,
-                        'stage_ratios': stage_lambdas,
-                        'payload_fraction': float(payload_fraction),
-                        'error': float(abs(sum(stage_dvs) - TOTAL_DELTA_V))
-                    }
-                    
-                    logger.info(f"{solver.name} optimization succeeded:")
-                    logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in stage_dvs]} m/s")
-                    logger.info(f"  Stage ratios (lambda): {[f'{r:.3f}' for r in stage_lambdas]}")
-                    logger.info(f"  Payload fraction: {payload_fraction:.3f}")
-                    logger.info(f"Successfully completed {solver.name} optimization")
-            except Exception as e:
-                logger.error(f"Optimization with {solver.name} failed: {e}")
+                results[solver.name] = {
+                    'method': solver.name,
+                    'execution_time': execution_time,
+                    'dv': stage_dvs,
+                    'stage_ratios': stage_lambdas,
+                    'payload_fraction': float(payload_fraction),
+                    'error': float(abs(sum(stage_dvs) - TOTAL_DELTA_V))
+                }
+                
+                logger.info(f"{solver.name} optimization succeeded:")
+                logger.info(f"  Delta-V: {[f'{dv:.2f}' for dv in stage_dvs]} m/s")
+                logger.info(f"  Stage ratios (lambda): {[f'{r:.3f}' for r in stage_lambdas]}")
+                logger.info(f"  Payload fraction: {payload_fraction:.3f}")
+                logger.info(f"Successfully completed {solver.name} optimization")
+        except Exception as e:
+            logger.error(f"Optimization with {solver.name} failed: {e}")
         
         if results:
             plot_results(results)
             try:
-                # Generate CSV reports first
-                summary_path, detailed_path = write_results_to_csv(results, stages, output_dir=OUTPUT_DIR)
-                if summary_path and detailed_path:
-                    logger.info(f"CSV reports generated: {summary_path}, {detailed_path}")
-                else:
-                    logger.warning("Failed to generate CSV reports")
-                
                 # Generate LaTeX report
                 generate_report(results, stages, output_dir=OUTPUT_DIR)
             except Exception as e:
