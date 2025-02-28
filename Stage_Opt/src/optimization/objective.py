@@ -8,6 +8,11 @@ def payload_fraction_objective(dv, G0, ISP, EPSILON):
     try:
         logger.debug(f"Evaluating payload fraction objective with dv={dv}")
         
+        # Ensure all inputs are numpy arrays
+        dv = np.asarray(dv, dtype=float)
+        ISP = np.asarray(ISP, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
+        
         # Pass G0 to calculate_mass_ratios so that the negative exponent is used
         mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         payload_fraction = calculate_payload_fraction(mass_ratios)
@@ -31,6 +36,11 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
     """Calculate objective with penalty for constraint violation."""
     try:
         logger.debug(f"Evaluating objective with penalty: dv={dv}")
+        
+        # Ensure all inputs are numpy arrays
+        dv = np.asarray(dv, dtype=float)
+        ISP = np.asarray(ISP, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
         
         # Base objective
         base_obj = payload_fraction_objective(dv, G0, ISP, EPSILON)

@@ -28,8 +28,8 @@ class RocketOptimizationProblem(Problem):
         xu = np.array([b[1] for b in bounds])
         super().__init__(n_var=n_var, n_obj=1, n_constr=1, xl=xl, xu=xu)
         self.G0 = G0
-        self.ISP = ISP
-        self.EPSILON = EPSILON
+        self.ISP = np.asarray(ISP, dtype=float)
+        self.EPSILON = np.asarray(EPSILON, dtype=float)
         self.TOTAL_DELTA_V = TOTAL_DELTA_V
         self.cache = OptimizationCache()
 
@@ -75,6 +75,11 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         logger.debug(f"Initial guess: {initial_guess}")
         logger.debug(f"Bounds: {bounds}")
         
+        # Ensure arrays
+        initial_guess = np.asarray(initial_guess, dtype=float)
+        ISP = np.asarray(ISP, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
+        
         def objective(dv):
             return payload_fraction_objective(dv, G0, ISP, EPSILON)
             
@@ -102,7 +107,7 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
         # Set tight tolerance for constraint satisfaction
         options = {
             'ftol': 1e-8,
-            'maxiter': config["optimization"]["max_iterations"]
+            'maxiter': config.get("optimization", {}).get("max_iterations", 1000)
         }
         
         result = minimize(
@@ -119,75 +124,42 @@ def solve_with_slsqp(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, con
             logger.debug(f"Final message: {result.message}")
             x = result.x
             scale = TOTAL_DELTA_V / np.sum(x)
-            x = x * scale
+            x = x * scale  # Normalize to exactly match total delta-V
             
-            # Calculate mass ratios and stage ratios
+            # Calculate mass ratios and payload fraction
             mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
             payload_fraction = calculate_payload_fraction(mass_ratios)
             
-            # Create stage information
+            # Prepare stage information
             stages = []
-            for i, (dv, mr) in enumerate(zip(x, mass_ratios)):
+            for i, dv in enumerate(x):
                 stage_info = {
+                    'stage': i + 1,
                     'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')  # Λᵢ = mᵢ/mᵢ₊₁ = 1/(mass_ratio + ε)
+                    'mass_ratio': float(mass_ratios[i])
                 }
                 stages.append(stage_info)
             
-            logger.info(f"Final solution: {x}")
             return {
+                'success': True,
                 'payload_fraction': float(payload_fraction),
-                'stages': stages
+                'stages': stages,
+                'message': result.message,
+                'iterations': result.nit
             }
         else:
-            logger.warning(f"SLSQP optimization did not converge: {result.message}")
-            logger.debug(f"Number of iterations: {result.nit}")
-            x = initial_guess
-            scale = TOTAL_DELTA_V / np.sum(x)
-            x = x * scale
-            
-            # Calculate mass ratios and stage ratios for initial guess
-            mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
-            payload_fraction = calculate_payload_fraction(mass_ratios)
-            
-            # Create stage information
-            stages = []
-            for i, (dv, mr) in enumerate(zip(x, mass_ratios)):
-                stage_info = {
-                    'delta_v': float(dv),
-                    'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-                }
-                stages.append(stage_info)
-            
-            logger.info(f"Returning initial guess solution: {x}")
+            logger.warning(f"SLSQP optimization failed: {result.message}")
             return {
-                'payload_fraction': float(payload_fraction),
-                'stages': stages
+                'success': False,
+                'message': result.message,
+                'iterations': result.nit
             }
             
     except Exception as e:
-        logger.error(f"SLSQP optimization failed: {e}")
-        logger.exception("Detailed error information:")
-        x = initial_guess
-        scale = TOTAL_DELTA_V / np.sum(x)
-        x = x * scale
-        
-        # Calculate mass ratios and stage ratios for error case
-        mass_ratios = calculate_mass_ratios(x, ISP, EPSILON, G0)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-        
-        # Create stage information
-        stages = []
-        for i, (dv, mr) in enumerate(zip(x, mass_ratios)):
-            stage_info = {
-                'delta_v': float(dv),
-                'Lambda': float(1/(mr + EPSILON[i])) if mr > 0 else float('inf')
-            }
-            stages.append(stage_info)
-        
+        logger.error(f"Error in SLSQP optimization: {e}")
         return {
-            'payload_fraction': float(payload_fraction),
-            'stages': stages
+            'success': False,
+            'message': str(e)
         }
 
 def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
