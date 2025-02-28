@@ -288,18 +288,17 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         )
         
         # Create algorithm with configured parameters
-        algorithm = get_algorithm(
-            "GA",
+        algorithm = GA(
             pop_size=ga_params['population_size'],
             eliminate_duplicates=True,
             **{k: v for k, v in ga_params.items() if k not in ['population_size', 'n_generations']}
         )
         
         # Create termination criterion
-        termination = get_termination("n_gen", ga_params['n_generations'])
+        termination = ("n_gen", ga_params['n_generations'])
         
         # Run optimization
-        res = minimize(
+        res = pymoo_minimize(
             problem,
             algorithm,
             termination,
@@ -312,8 +311,8 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
             logger.warning("GA optimization failed to find a valid solution")
             return None
             
-        # Get best solution
-        solution = res.X
+        # Get best solution and ensure it's a numpy array
+        solution = np.asarray(res.X, dtype=float)
         
         # Calculate stage ratios and payload fraction
         stage_ratios, mass_ratios = calculate_stage_ratios(
