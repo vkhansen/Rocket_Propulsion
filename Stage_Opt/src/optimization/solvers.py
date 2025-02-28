@@ -28,9 +28,8 @@ class RocketOptimizationProblem(Problem):
         xu = np.array([b[1] for b in bounds])
         super().__init__(n_var=n_var, n_obj=1, n_constr=1, xl=xl, xu=xu)
         self.G0 = G0
-        # Ensure ISP and EPSILON are numpy arrays
-        self.ISP = np.asarray(ISP)
-        self.EPSILON = np.asarray(EPSILON)
+        self.ISP = ISP
+        self.EPSILON = EPSILON
         self.TOTAL_DELTA_V = TOTAL_DELTA_V
         self.cache = OptimizationCache()
 
@@ -224,10 +223,6 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
 
         # Initialize cache
         cache = OptimizationCache()
-
-        # Ensure ISP and EPSILON are numpy arrays
-        ISP = np.asarray(ISP)
-        EPSILON = np.asarray(EPSILON)
 
         # Define the objective function with caching and penalty
         def objective(x):

@@ -28,14 +28,7 @@ def calculate_mass_ratios(dv, ISP, EPSILON, G0=9.81):
     to the mass of the current stage (i) before burnout.
     """
     try:
-        # Ensure all inputs are numpy arrays
         dv = np.asarray(dv).flatten()
-        ISP = np.asarray(ISP)
-        EPSILON = np.asarray(EPSILON)
-        
-        if len(ISP) != len(dv) or len(EPSILON) != len(dv):
-            raise ValueError(f"Length mismatch: dv={len(dv)}, ISP={len(ISP)}, EPSILON={len(EPSILON)}")
-        
         stage_ratios = []
         
         # Calculate mass ratios in reverse (from top stage down)
