@@ -24,40 +24,41 @@ def load_input_data(filename):
 def calculate_mass_ratios(dv, ISP, EPSILON, G0=9.81):
     """Calculate stage ratios (Λ) for each stage.
     
-    Stage ratio Λᵢ = mᵢ₊₁/mᵢ is the ratio of the mass of the upper stage (i+1)
-    to the mass of the current stage (i) before burnout.
+    For each stage i, the stage ratio Λᵢ is calculated as:
+    Λᵢ = rᵢ/(1 + εᵢ)
+    
+    where:
+    - rᵢ is the mass ratio from the rocket equation: exp(-ΔVᵢ/(g₀*ISPᵢ))
+    - εᵢ is the structural coefficient for stage i
     """
     try:
         dv = np.asarray(dv).flatten()
         stage_ratios = []
         
-        # Calculate mass ratios in reverse (from top stage down)
-        # since we need the mass of the upper stage to calculate the ratio
-        for i in range(len(dv)-1, -1, -1):
-            # Calculate mass ratio for current stage using rocket equation
+        # Calculate stage ratios for each stage
+        for i in range(len(dv)):
+            # Calculate mass ratio using rocket equation
             mass_ratio = np.exp(-dv[i] / (G0 * ISP[i]))
             
-            if i > 0:  # For all stages except the bottom stage
-                # Stage ratio Λᵢ = mᵢ₊₁/mᵢ
-                # Upper stage mass includes structural mass
-                upper_stage_mass = mass_ratio * (1 + EPSILON[i])
-                stage_ratio = 1.0 / (upper_stage_mass + EPSILON[i-1])
-                stage_ratios.insert(0, float(stage_ratio))
-            else:  # Bottom stage
-                stage_ratio = 1.0 / (mass_ratio + EPSILON[i])
-                stage_ratios.insert(0, float(stage_ratio))
+            # Calculate stage ratio consistently for all stages
+            stage_ratio = mass_ratio / (1.0 + EPSILON[i])
+            stage_ratios.append(float(stage_ratio))
                 
         return np.array(stage_ratios)
     except Exception as e:
         logger.error(f"Error calculating stage ratios: {e}")
         return np.array([float('inf')] * len(dv))
 
-def calculate_payload_fraction(mass_ratios):
-    """Calculate payload fraction as the product of stage ratios."""
+def calculate_payload_fraction(stage_ratios):
+    """Calculate payload fraction as the product of stage ratios.
+    
+    The payload fraction is the product of all stage ratios:
+    PF = ∏ᵢ Λᵢ = ∏ᵢ (rᵢ/(1 + εᵢ))
+    """
     try:
-        if any(r <= 0 for r in mass_ratios):
+        if any(r <= 0 for r in stage_ratios):
             return 0.0
-        return float(np.prod(mass_ratios))
+        return float(np.prod(stage_ratios))
     except Exception as e:
         logger.error(f"Error calculating payload fraction: {e}")
         return 0.0

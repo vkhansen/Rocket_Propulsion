@@ -105,14 +105,12 @@ class TestPayloadOptimization(unittest.TestCase):
         logger.debug(f"Calculated stage ratios: {ratios}")
         
         # Manual calculation for verification
-        # For top stage (i=1)
-        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))
-        lambda2 = 1.0 / (mass_ratio2 + EPSILON[1])
-        
-        # For bottom stage (i=0)
+        # For each stage i: Λᵢ = rᵢ/(1 + εᵢ)
         mass_ratio1 = np.exp(-dv[0] / (G0 * ISP[0]))
-        upper_stage_mass = mass_ratio2 * (1 + EPSILON[1])
-        lambda1 = 1.0 / (upper_stage_mass + EPSILON[0])
+        mass_ratio2 = np.exp(-dv[1] / (G0 * ISP[1]))
+        
+        lambda1 = mass_ratio1 / (1.0 + EPSILON[0])
+        lambda2 = mass_ratio2 / (1.0 + EPSILON[1])
         
         logger.debug(f"Manual calculations - mass_ratio1: {mass_ratio1}, mass_ratio2: {mass_ratio2}")
         logger.debug(f"Manual calculations - lambda1: {lambda1}, lambda2: {lambda2}")
@@ -131,7 +129,7 @@ class TestPayloadOptimization(unittest.TestCase):
         
         single_ratios = calculate_mass_ratios(single_dv, single_isp, single_epsilon, G0)
         single_mass_ratio = np.exp(-single_dv[0] / (G0 * single_isp[0]))
-        expected_lambda = 1.0 / (single_mass_ratio + single_epsilon[0])
+        expected_lambda = single_mass_ratio / (1.0 + single_epsilon[0])
         
         logger.debug(f"Single stage results - calculated: {single_ratios[0]}, expected: {expected_lambda}")
         
@@ -160,8 +158,8 @@ class TestPayloadOptimization(unittest.TestCase):
         # Manual calculation
         mr1 = np.exp(-dv[0] / (G0 * ISP[0]))
         mr2 = np.exp(-dv[1] / (G0 * ISP[1]))
-        lambda1 = 1.0 / (mr1 + EPSILON[0])
-        lambda2 = 1.0 / (mr2 + EPSILON[1])
+        lambda1 = mr1 / (1.0 + EPSILON[0])
+        lambda2 = mr2 / (1.0 + EPSILON[1])
         expected_fraction = lambda1 * lambda2
         
         logger.debug(f"Manual calculations - mr1: {mr1}, mr2: {mr2}")
