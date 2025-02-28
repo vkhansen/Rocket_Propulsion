@@ -227,19 +227,32 @@ def solve_with_basin_hopping(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELT
         logger.error(f"Error in Basin-Hopping optimization: {str(e)}")
         raise
 
-def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Genetic Algorithm."""
+def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config, problem=None):
+    """Solve using Genetic Algorithm.
+    
+    Args:
+        initial_guess: Initial solution vector
+        bounds: List of (min, max) bounds for each variable
+        G0: Gravitational constant
+        ISP: List of specific impulse values
+        EPSILON: List of epsilon values
+        TOTAL_DELTA_V: Total delta-v constraint
+        config: Configuration dictionary
+        problem: Optional RocketOptimizationProblem instance. If provided, will use its cache.
+    """
     try:
         logger.debug("Starting GA optimization")
         
-        problem = RocketOptimizationProblem(
-            n_var=len(initial_guess),
-            bounds=bounds,
-            G0=G0,
-            ISP=ISP,
-            EPSILON=EPSILON,
-            TOTAL_DELTA_V=TOTAL_DELTA_V
-        )
+        # Use provided problem instance or create new one
+        if problem is None:
+            problem = RocketOptimizationProblem(
+                n_var=len(initial_guess),
+                bounds=bounds,
+                G0=G0,
+                ISP=ISP,
+                EPSILON=EPSILON,
+                TOTAL_DELTA_V=TOTAL_DELTA_V
+            )
         
         # Get GA parameters from config
         ga_config = config.get('ga', {})

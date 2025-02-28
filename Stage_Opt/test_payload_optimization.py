@@ -738,11 +738,12 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['ISP'],
             self.test_data['EPSILON'],
             self.test_data['TOTAL_DELTA_V'],
-            self.config
+            self.config,
+            problem=problem  # Pass the problem instance
         )
 
-        initial_hits = self.cache.hit_count
-        self.cache.save_cache()  # Save cache after first run
+        initial_hits = problem.cache.hit_count  # Use problem.cache instead of self.cache
+        problem.cache.save_cache()  # Save cache after first run
 
         # Second run - use same problem instance to share cache
         result2 = solve_with_ga(
@@ -752,11 +753,12 @@ class TestOptimizationCache(unittest.TestCase):
             self.test_data['ISP'],
             self.test_data['EPSILON'],
             self.test_data['TOTAL_DELTA_V'],
-            self.config
+            self.config,
+            problem=problem  # Pass the same problem instance
         )
 
         # Verify cache hits increased
-        self.assertGreater(self.cache.hit_count, initial_hits)
+        self.assertGreater(problem.cache.hit_count, initial_hits)  # Use problem.cache
         
         # Verify results are similar
         self.assertAlmostEqual(result1['payload_fraction'], 
