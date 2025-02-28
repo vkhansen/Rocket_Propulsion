@@ -1,1 +1,1 @@
-{"parameters": {"G0": 9.81, "TOTAL_DELTA_V": 9300.0}, "stages": [{"stage": 1, "ISP": 300.0, "EPSILON": 0.06}, {"stage": 2, "ISP": 348.0, "EPSILON": 0.04}]}
+{"parameters": {"G0": 9.81, "TOTAL_DELTA_V": 9300.0}, "stages": [{"stage": 1, "ISP": 250.0, "EPSILON": 0.14}, {"stage": 2, "ISP": 450.0, "EPSILON": 0.03}]}

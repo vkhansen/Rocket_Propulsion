@@ -401,60 +401,59 @@ def solve_with_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config
         logger.error(f"Error in GA optimization: {str(e)}")
         raise
 
-def enforce_stage_constraints(dv, TOTAL_DELTA_V, config=None):
-    """Enforce stage constraints with continuous penalties.
+def enforce_stage_constraints(dv_array, total_dv_required, config=None):
+    """Enforce stage constraints and return constraint violation value.
     
     Args:
-        dv: Stage delta-v values
-        TOTAL_DELTA_V: Total required delta-v
-        config: Configuration dictionary containing stage constraints
+        dv_array: Array of stage delta-v values
+        total_dv_required: Required total delta-v
+        config: Configuration dictionary containing constraints
         
     Returns:
-        float: Penalty value (0 if constraints satisfied)
+        float: Constraint violation value (0 if all constraints satisfied)
     """
-    # Default values
-    penalty = 0.0
-    penalty_coeff = 1000.0
-    first_stage_min = 0.15
-    first_stage_max = 0.80
-    other_stages_min = 0.01
+    if config is None:
+        config = {}
     
-    # Try to get values from config if available
-    if config is not None:
-        try:
-            if isinstance(config, dict) and 'optimization' in config:
-                opt_config = config['optimization']
-                penalty_coeff = opt_config.get('penalty_coefficient', penalty_coeff)
-                
-                if 'constraints' in opt_config and 'stage_fractions' in opt_config['constraints']:
-                    stage_constraints = opt_config['constraints']['stage_fractions']
-                    first_stage = stage_constraints.get('first_stage', {})
-                    other_stages = stage_constraints.get('other_stages', {})
-                    
-                    first_stage_min = first_stage.get('min_fraction', first_stage_min)
-                    first_stage_max = first_stage.get('max_fraction', first_stage_max)
-                    other_stages_min = other_stages.get('min_fraction', other_stages_min)
-        except Exception as e:
-            logger.warning(f"Error reading constraints from config, using defaults: {e}")
+    # Get constraint parameters from config
+    constraints = config.get('constraints', {})
+    total_dv_constraint = constraints.get('total_dv', {})
+    tolerance = total_dv_constraint.get('tolerance', 1e-6)
     
-    # Total delta-v constraint
-    penalty += penalty_coeff * abs(np.sum(dv) - TOTAL_DELTA_V)
+    # Calculate total delta-v constraint violation
+    total_dv = np.sum(dv_array)
+    dv_violation = abs(total_dv - total_dv_required)
     
-    # Stage-specific constraints
-    for i, dv_i in enumerate(dv):
-        if i == 0:  # First stage
-            min_dv = first_stage_min * TOTAL_DELTA_V
-            max_dv = first_stage_max * TOTAL_DELTA_V
-            if dv_i < min_dv:
-                penalty += penalty_coeff * abs(dv_i - min_dv)
-            elif dv_i > max_dv:
-                penalty += penalty_coeff * abs(dv_i - max_dv)
-        else:  # Other stages
-            min_dv = other_stages_min * TOTAL_DELTA_V
-            if dv_i < min_dv:
-                penalty += penalty_coeff * abs(dv_i - min_dv)
+    # Get stage fraction constraints
+    stage_fractions = constraints.get('stage_fractions', {})
+    first_stage = stage_fractions.get('first_stage', {})
+    other_stages = stage_fractions.get('other_stages', {})
     
-    return penalty
+    # Default constraints if not specified
+    min_fraction_first = first_stage.get('min_fraction', 0.15)
+    max_fraction_first = first_stage.get('max_fraction', 0.80)
+    min_fraction_other = other_stages.get('min_fraction', 0.01)
+    max_fraction_other = other_stages.get('max_fraction', 1.0)
+    
+    # Calculate stage fractions
+    stage_fractions = dv_array / total_dv if total_dv > 0 else np.zeros_like(dv_array)
+    
+    # Check first stage constraints
+    if len(stage_fractions) > 0:
+        if stage_fractions[0] < min_fraction_first:
+            return abs(stage_fractions[0] - min_fraction_first) + dv_violation
+        if stage_fractions[0] > max_fraction_first:
+            return abs(stage_fractions[0] - max_fraction_first) + dv_violation
+    
+    # Check other stage constraints
+    for fraction in stage_fractions[1:]:
+        if fraction < min_fraction_other:
+            return abs(fraction - min_fraction_other) + dv_violation
+        if fraction > max_fraction_other:
+            return abs(fraction - max_fraction_other) + dv_violation
+    
+    # If we reach here, only return total DV violation
+    return dv_violation
 
 def calculate_diversity(population):
     """Calculate population diversity using mean pairwise distance.
@@ -485,7 +484,7 @@ def calculate_diversity(population):
     return mean_dist / max_dist
 
 def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_V, config):
-    """Solve using Adaptive Genetic Algorithm."""
+    """Solve using Adaptive Genetic Algorithm with strict constraint handling."""
     try:
         logger.debug("Starting Adaptive GA optimization")
         logger.debug(f"Initial guess: {initial_guess}")
@@ -499,10 +498,10 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             ISP=ISP,
             EPSILON=EPSILON,
             TOTAL_DELTA_V=TOTAL_DELTA_V,
-            config=config  # Pass config to problem instance
+            config=config
         )
         
-        # Get Adaptive GA parameters from config with defaults
+        # Get Adaptive GA parameters from config
         ada_ga_config = config.get('optimization', {}).get('adaptive_ga', {})
         initial_pop_size = ada_ga_config.get('initial_pop_size', 100)
         max_pop_size = ada_ga_config.get('max_pop_size', 200)
@@ -524,6 +523,11 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             high=[b[1] for b in bounds],
             size=(initial_pop_size, len(initial_guess))
         )
+        # Scale initial population to meet total DV constraint
+        for i in range(initial_pop_size):
+            total_dv = np.sum(population[i])
+            if total_dv > 0:
+                population[i] = population[i] * (TOTAL_DELTA_V / total_dv)
         population[0] = initial_guess  # Include initial guess
         population_size = initial_pop_size
         
@@ -541,63 +545,85 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             # Evaluate population
             out = {"F": np.zeros((population_size, 1)), "G": np.zeros((population_size, 1))}
             problem._evaluate(population, out)
-            fitness_values = -out["F"].flatten()  # Negate back since _evaluate negates for minimization
+            fitness_values = -out["F"].flatten()
+            constraint_violations = out["G"].flatten()
             
-            # Update best solution
-            max_fitness = np.max(fitness_values)
-            if max_fitness > best_fitness:
-                best_fitness = max_fitness
-                best_solution = population[np.argmax(fitness_values)].copy()
-                stagnation_counter = 0
+            # Apply constraint penalties
+            penalty_factor = 1e6
+            penalized_fitness = fitness_values - penalty_factor * np.abs(constraint_violations)
+            
+            # Update best solution only if constraints are satisfied
+            feasible_mask = constraint_violations <= 1e-6
+            if np.any(feasible_mask):
+                feasible_idx = np.where(feasible_mask)[0]
+                best_feasible_idx = feasible_idx[np.argmax(penalized_fitness[feasible_idx])]
+                if penalized_fitness[best_feasible_idx] > best_fitness:
+                    best_fitness = penalized_fitness[best_feasible_idx]
+                    best_solution = population[best_feasible_idx].copy()
+                    stagnation_counter = 0
+                else:
+                    stagnation_counter += 1
             else:
                 stagnation_counter += 1
             
-            # Calculate diversity
-            diversity = calculate_diversity(population)
-            
-            # Adapt parameters based on diversity and stagnation
-            old_pop_size = population_size
-            if diversity < diversity_threshold:
-                mutation_rate = min(mutation_rate * 1.1, max_mutation_rate)
-                population_size = min(int(population_size * 1.1), max_pop_size)
-            elif stagnation_counter >= stagnation_threshold:
+            # Adapt parameters based on progress
+            if stagnation_counter >= stagnation_threshold:
                 mutation_rate = min(mutation_rate * 1.2, max_mutation_rate)
-                crossover_rate = max(crossover_rate * 0.9, min_crossover_rate)
+                population_size = min(int(population_size * 1.1), max_pop_size)
             else:
                 mutation_rate = max(mutation_rate * 0.95, min_mutation_rate)
-                crossover_rate = min(crossover_rate * 1.05, max_crossover_rate)
                 population_size = max(int(population_size * 0.95), min_pop_size)
             
-            # Selection - Fixed to ensure array sizes match
-            selection_probs = fitness_values - np.min(fitness_values)  # Shift to positive
-            if np.sum(selection_probs) <= 0:  # Handle case where all fitness values are equal
-                selection_probs = np.ones_like(fitness_values)
-            selection_probs = selection_probs / np.sum(selection_probs)  # Normalize
+            # Selection probabilities based on penalized fitness
+            selection_probs = penalized_fitness - np.min(penalized_fitness)
+            if np.sum(selection_probs) <= 0:
+                selection_probs = np.ones_like(penalized_fitness)
+            selection_probs = selection_probs / np.sum(selection_probs)
             
-            # Select parents using current population size
+            # Select parents
             parent_indices = np.random.choice(
                 len(population),
-                size=population_size,  # Use new population size
+                size=population_size,
                 p=selection_probs,
                 replace=True
             )
             parents = population[parent_indices]
             
-            # Create new population with new size
+            # Create new population
             new_population = np.zeros((population_size, len(initial_guess)))
             
-            # Elitism - ensure we don't exceed population size
+            # Elitism - preserve best feasible solutions
             elite_size = min(elite_size, population_size)
-            elite_indices = np.argsort(fitness_values)[-elite_size:]
-            new_population[:elite_size] = population[elite_indices]
+            if np.any(feasible_mask):
+                feasible_sorted = np.argsort(penalized_fitness[feasible_mask])[-elite_size:]
+                feasible_indices = np.where(feasible_mask)[0][feasible_sorted]
+                new_population[:len(feasible_indices)] = population[feasible_indices]
+                remaining_elite = elite_size - len(feasible_indices)
+                if remaining_elite > 0:
+                    # Fill remaining elite slots with best infeasible solutions
+                    infeasible_mask = ~feasible_mask
+                    if np.any(infeasible_mask):
+                        infeasible_sorted = np.argsort(penalized_fitness[infeasible_mask])[-remaining_elite:]
+                        infeasible_indices = np.where(infeasible_mask)[0][infeasible_sorted]
+                        new_population[len(feasible_indices):elite_size] = population[infeasible_indices]
+            else:
+                # If no feasible solutions, use best overall solutions
+                elite_indices = np.argsort(penalized_fitness)[-elite_size:]
+                new_population[:elite_size] = population[elite_indices]
             
-            # Crossover and mutation
+            # Crossover
             for i in range(elite_size, population_size - 1, 2):
                 if np.random.random() < crossover_rate:
-                    # Crossover
                     alpha = np.random.random()
                     child1 = alpha * parents[i] + (1 - alpha) * parents[i + 1]
                     child2 = (1 - alpha) * parents[i] + alpha * parents[i + 1]
+                    # Scale children to meet total DV constraint
+                    total_dv1 = np.sum(child1)
+                    total_dv2 = np.sum(child2)
+                    if total_dv1 > 0:
+                        child1 = child1 * (TOTAL_DELTA_V / total_dv1)
+                    if total_dv2 > 0:
+                        child2 = child2 * (TOTAL_DELTA_V / total_dv2)
                     new_population[i] = child1
                     new_population[i + 1] = child2
                 else:
@@ -608,33 +634,34 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
             if population_size % 2 == 1 and population_size > elite_size:
                 new_population[-1] = parents[-1]
             
-            # Mutation
+            # Mutation and constraint enforcement
             for i in range(elite_size, population_size):
                 if np.random.random() < mutation_rate:
-                    mutation_strength = np.random.random() * 0.1  # 10% maximum change
-                    mutation = np.random.normal(0, mutation_strength, size=len(initial_guess))
+                    mutation = np.random.normal(0, 0.1, size=len(initial_guess))
                     new_population[i] += mutation
-            
-            # Enforce bounds
-            new_population = np.clip(new_population, [b[0] for b in bounds], [b[1] for b in bounds])
+                    # Enforce bounds
+                    new_population[i] = np.clip(new_population[i], [b[0] for b in bounds], [b[1] for b in bounds])
+                    # Scale to meet total DV constraint
+                    total_dv = np.sum(new_population[i])
+                    if total_dv > 0:
+                        new_population[i] = new_population[i] * (TOTAL_DELTA_V / total_dv)
             
             # Update population
             population = new_population.copy()
             
-            # Log progress periodically
+            # Log progress
             if generation % 10 == 0:
+                feasible_count = np.sum(feasible_mask)
                 logger.debug(f"Generation {generation}: Best fitness = {best_fitness}")
+                logger.debug(f"Feasible solutions: {feasible_count}/{population_size}")
                 logger.debug(f"Population size: {population_size}, Mutation rate: {mutation_rate:.3f}")
         
-        # Get final solution
         if best_solution is None:
-            logger.warning("No valid solution found")
+            logger.warning("No feasible solution found")
             return None
-            
-        # Calculate final stage ratios and payload fraction
-        stage_ratios, mass_ratios = calculate_stage_ratios(
-            best_solution, G0, ISP, EPSILON
-        )
+        
+        # Calculate final results
+        stage_ratios, mass_ratios = calculate_stage_ratios(best_solution, G0, ISP, EPSILON)
         payload_fraction = np.prod(stage_ratios)
         
         # Build stages info
@@ -646,10 +673,10 @@ def solve_with_adaptive_ga(initial_guess, bounds, G0, ISP, EPSILON, TOTAL_DELTA_
                 'Lambda': float(sr),
                 'mass_ratio': float(mr)
             })
-            
+        
         return {
             'success': True,
-            'message': "Adaptive GA optimization completed",
+            'message': "Adaptive GA optimization completed successfully",
             'payload_fraction': float(payload_fraction),
             'stages': stages,
             'n_iterations': n_generations,
