@@ -1,8 +1,6 @@
 {
     "optimization": {
         "penalty_coefficient": 1000.0,
-        "tolerance": 1e-6,
-        "max_iterations": 200,
         "constraints": {
             "total_dv": {
                 "type": "equality",
@@ -10,12 +8,12 @@
             },
             "stage_fractions": {
                 "first_stage": {
-                    "min_fraction": 0.05,
+                    "min_fraction": 0.15,
                     "max_fraction": 0.80
                 },
                 "other_stages": {
-                    "min_fraction": 0.05,
-                    "max_fraction": 0.9
+                    "min_fraction": 0.01,
+                    "max_fraction": 0.90
                 }
             }
         },
@@ -23,52 +21,63 @@
             "min_dv": 0.0,
             "max_dv_factor": 1.0
         },
-        "ga": {
-            "population_size": 100,
-            "n_generations": 200,
-            "crossover_prob": 0.9,
-            "crossover_eta": 15,
-            "mutation_prob": 0.2,
-            "mutation_eta": 20
-        },
-        "adaptive_ga": {
-            "initial_pop_size": 100,
-            "max_pop_size": 200,
-            "min_pop_size": 50,
-            "initial_mutation_rate": 0.1,
-            "max_mutation_rate": 0.3,
-            "min_mutation_rate": 0.01,
-            "initial_crossover_rate": 0.8,
-            "max_crossover_rate": 0.95,
-            "min_crossover_rate": 0.6,
-            "diversity_threshold": 0.1,
-            "stagnation_threshold": 10,
-            "n_generations": 200,
-            "elite_size": 2
-        },
-        "pso": {
-            "n_particles": 50,
-            "n_iterations": 200,
-            "c1": 0.5,
-            "c2": 0.3,
-            "w": 0.9
-        },
-        "basin_hopping": {
-            "n_iterations": 100,
-            "temperature": 1.0,
-            "step_size": 0.5
-        },
-        "differential_evolution": {
-            "population_size": 15,
-            "max_iterations": 1000,
-            "mutation": [0.5, 1.0],
-            "recombination": 0.7,
-            "strategy": "best1bin",
-            "tol": 1e-6
+        "solvers": {
+            "slsqp": {
+                "solver_specific": {
+                    "max_iterations": 1000,
+                    "ftol": 1e-6,
+                    "eps": 1e-8
+                }
+            },
+            "ga": {
+                "solver_specific": {
+                    "population_size": 100,
+                    "n_generations": 200,
+                    "mutation": {
+                        "eta": 20,
+                        "prob": 0.1
+                    },
+                    "crossover": {
+                        "eta": 15,
+                        "prob": 0.8
+                    }
+                }
+            },
+            "adaptive_ga": {
+                "solver_specific": {
+                    "population_size": 100,
+                    "n_generations": 200,
+                    "initial_mutation_rate": 0.1,
+                    "initial_crossover_rate": 0.8,
+                    "min_mutation_rate": 0.01,
+                    "max_mutation_rate": 0.5,
+                    "min_crossover_rate": 0.5,
+                    "max_crossover_rate": 0.95,
+                    "adaptation_rate": 0.1
+                }
+            },
+            "pso": {
+                "solver_specific": {
+                    "n_particles": 50,
+                    "n_iterations": 100,
+                    "w": 0.7,
+                    "c1": 1.5,
+                    "c2": 1.5
+                }
+            },
+            "de": {
+                "solver_specific": {
+                    "population_size": 20,
+                    "max_iterations": 1000,
+                    "strategy": "best1bin",
+                    "mutation": [0.5, 1.0],
+                    "recombination": 0.7
+                }
+            }
         }
     },
     "logging": {
-        "file": "Stage_Opt/optimization.log",
+        "file": "optimization.log",
         "level": "INFO",
         "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     }

@@ -128,16 +128,24 @@ CONFIG = {
     }
 }
 
+def load_config():
+    """Load configuration from config.json."""
+    try:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json")
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return config
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        raise
+
 # Try to load user configuration
 try:
-    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json")
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            user_config = json.load(f)
-            # Update configuration with user settings
-            for key in user_config:
-                if key in CONFIG["optimization"]:
-                    CONFIG["optimization"][key].update(user_config[key])
+    user_config = load_config()
+    # Update configuration with user settings
+    for key in user_config:
+        if key in CONFIG["optimization"]:
+            CONFIG["optimization"][key].update(user_config[key])
 except Exception as e:
     logger.warning(f"Error loading user configuration: {e}")
 

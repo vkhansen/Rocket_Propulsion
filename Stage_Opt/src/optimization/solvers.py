@@ -96,15 +96,15 @@ def get_solver_config(config, solver_name):
     # Get optimization section with defaults
     opt_config = config.get('optimization', {})
     
-    # Get solver specific config
-    solver_config = opt_config.get(solver_name, {})
+    # Get solver specific config from solvers section
+    solver_config = opt_config.get('solvers', {}).get(solver_name, {})
     
     # Get constraints from main optimization config
     constraints = opt_config.get('constraints', {})
     
     # Common defaults
     defaults = {
-        'penalty_coefficient': 1e3,
+        'penalty_coefficient': opt_config.get('penalty_coefficient', 1e3),
         'constraints': constraints,  # Include constraints from main config
         'solver_specific': {
             'population_size': 50,
@@ -120,8 +120,6 @@ def get_solver_config(config, solver_name):
             'solver_specific': {
                 'population_size': 100,
                 'n_generations': 200,
-                'mutation_rate': 0.1,
-                'crossover_rate': 0.8,
                 'mutation': {
                     'eta': 20,
                     'prob': 0.1
@@ -159,8 +157,15 @@ def get_solver_config(config, solver_name):
                 'population_size': 20,
                 'max_iterations': 1000,
                 'strategy': 'best1bin',
-                'mutation': (0.5, 1.0),
+                'mutation': [0.5, 1.0],
                 'recombination': 0.7
+            }
+        },
+        'slsqp': {
+            'solver_specific': {
+                'max_iterations': 1000,
+                'ftol': 1e-6,
+                'eps': 1e-8
             }
         }
     }
