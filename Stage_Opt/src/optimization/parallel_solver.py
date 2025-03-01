@@ -13,7 +13,7 @@ class SolverProcess(multiprocessing.Process):
     def __init__(self, solver, initial_guess, bounds):
         super().__init__()
         self.solver = solver
-        self.initial_guess = initial_guess
+        self.initial_guess = np.array(initial_guess, dtype=float)  # Ensure numpy array
         self.bounds = bounds
         self.result_queue = multiprocessing.Queue()
         self.stop_event = multiprocessing.Event()
@@ -129,6 +129,9 @@ class ParallelSolver:
         self.logger.info(f"Starting parallel optimization with {len(solvers)} solvers")
         start_time = time.time()
         
+        # Convert initial guess to numpy array
+        initial_guess = np.array(initial_guess, dtype=float)
+        
         # Create processes
         processes = []
         for solver in solvers:
@@ -185,7 +188,7 @@ class ParallelSolver:
                 'message': "No valid solutions found",
                 'solver': None,
                 'fun': float('inf'),
-                'x': initial_guess.tolist(),
+                'x': initial_guess.tolist() if isinstance(initial_guess, np.ndarray) else list(initial_guess),
                 'execution_metrics': {
                     'execution_time': time.time() - start_time,
                     'solvers_completed': len(results)
