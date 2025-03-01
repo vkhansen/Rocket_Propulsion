@@ -35,6 +35,8 @@ class GeneticAlgorithmSolver(BaseSolver):
         """Solve using Genetic Algorithm."""
         try:
             logger.info(f"Starting {self.name} optimization")
+            logger.debug(f"Initial guess: {initial_guess}")
+            logger.debug(f"Bounds: {bounds}")
             start_time = time.time()
             
             # Initialize problem
@@ -43,6 +45,7 @@ class GeneticAlgorithmSolver(BaseSolver):
                 n_var=len(initial_guess),
                 bounds=bounds
             )
+            logger.debug("Problem initialized")
             
             # Initialize algorithm with specific operators
             algorithm = GA(
@@ -62,8 +65,12 @@ class GeneticAlgorithmSolver(BaseSolver):
                 ),
                 eliminate_duplicates=True
             )
+            logger.debug(f"Algorithm initialized with parameters: "
+                        f"pop_size={self.pop_size}, tournament_size={self.tournament_size}, "
+                        f"crossover_rate={self.crossover_rate}, mutation_rate={self.mutation_rate}")
             
             # Run optimization
+            logger.info("Starting optimization process...")
             result = minimize(
                 problem,
                 algorithm,
@@ -73,16 +80,22 @@ class GeneticAlgorithmSolver(BaseSolver):
             )
             
             # Process results
-            best_x = result.X
-            best_f = float(-result.F[0])  # Convert back to maximization
+            best_x = result.X.astype(float)  # Convert to native float
+            best_f = float(result.F[0])  # Convert to native float
+            
+            # Log optimization results
+            logger.info(f"Optimization completed after {result.algorithm.n_gen} generations")
+            logger.info(f"Number of function evaluations: {result.algorithm.evaluator.n_eval}")
+            logger.info(f"Best fitness achieved: {best_f:.6f}")
             
             # Calculate final stage ratios and create results
             stage_ratios, mass_ratios = self.calculate_stage_ratios(best_x)
             stages = self.create_stage_results(best_x, stage_ratios)
+            logger.debug(f"Stage ratios: {stage_ratios}")
+            logger.debug(f"Mass ratios: {mass_ratios}")
             
             execution_time = time.time() - start_time
             logger.info(f"Optimization completed in {execution_time:.2f} seconds")
-            logger.info(f"Best fitness achieved: {best_f:.6f}")
             
             return {
                 'x': best_x.tolist(),

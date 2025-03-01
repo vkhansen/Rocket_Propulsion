@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T13:32:43.176713",
+    "timestamp": "2025-03-01T13:44:46.707098",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -60,17 +60,17 @@
     "results": {
         "SLSQPSolver": {
             "success": true,
-            "payload_fraction": -9299999.976338709,
+            "payload_fraction": -9299999.976411467,
             "stage_ratios": [
-                0.15939244310667514,
-                0.14799027687338465
+                0.15939244310638742,
+                0.14799027687241234
             ],
             "mass_ratios": [
-                44.34717148681373,
-                8.221016389688677
+                44.347171487471634,
+                8.221016389756423
             ],
             "iterations": 4,
-            "function_evaluations": 11,
+            "function_evaluations": 10,
             "execution_time": 0.0
         },
         "GeneticAlgorithmSolver": {
@@ -81,7 +81,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error in GA solver: 'numpy.float64' object has no attribute 'get'"
+            "error": "Unknown error"
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
@@ -106,7 +106,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 5050,
-            "execution_time": 1.007511854171753
+            "execution_time": 0.24320197105407715
         },
         "DifferentialEvolutionSolver": {
             "success": true,
@@ -121,22 +121,22 @@
             ],
             "iterations": 62,
             "function_evaluations": 2598,
-            "execution_time": 14.022136449813843
+            "execution_time": 3.536907196044922
         },
         "BasinHoppingOptimizer": {
             "success": true,
-            "payload_fraction": 0.09912588603689186,
+            "payload_fraction": 0.09912580679519686,
             "stage_ratios": [
-                0.26915657023155,
-                0.3682833599477652
+                0.26915996210658577,
+                0.3682784245449686
             ],
             "mass_ratios": [
-                6.658584990745766,
-                2.867418604774941
+                6.658410129373593,
+                2.8674604397392014
             ],
             "iterations": 100,
-            "function_evaluations": 17019,
-            "execution_time": 115.40231347084045
+            "function_evaluations": 16455,
+            "execution_time": 18.363892078399658
         }
     }
 }

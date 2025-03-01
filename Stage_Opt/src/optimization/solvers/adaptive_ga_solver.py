@@ -37,83 +37,121 @@ class AdaptiveCallback(Callback):
     def _get_current_best(self, algorithm):
         """Get current best fitness value."""
         if algorithm.opt is None or len(algorithm.pop) == 0:
+            logger.debug("No population available yet")
             return -float('inf')
-        pop_F = np.array([ind.F[0] for ind in algorithm.pop])
-        return -float(np.min(pop_F))  # Negative since we're minimizing
+        try:
+            pop_F = np.array([float(ind.F[0]) for ind in algorithm.pop])
+            best_val = float(np.min(pop_F))
+            logger.debug(f"Current best fitness: {best_val:.6f}")
+            return best_val
+        except Exception as e:
+            logger.error(f"Error getting current best: {str(e)}")
+            return -float('inf')
         
     def calculate_diversity(self, pop):
         """Calculate population diversity using normalized standard deviation."""
         if len(pop) == 0:
+            logger.debug("Empty population, diversity = 0")
             return 0.0
-        X = np.array([ind.X for ind in pop])
-        # Normalize by variable ranges to get consistent diversity measure
-        X_std = np.std(X, axis=0)
-        X_range = np.max(X, axis=0) - np.min(X, axis=0)
-        X_range[X_range == 0] = 1  # Avoid division by zero
-        normalized_std = X_std / X_range
-        return float(np.mean(normalized_std))
+        try:
+            X = np.array([ind.X.astype(float) for ind in pop])
+            X_std = np.std(X, axis=0)
+            X_range = np.max(X, axis=0) - np.min(X, axis=0)
+            X_range[X_range == 0] = 1  # Avoid division by zero
+            normalized_std = X_std / X_range
+            diversity = float(np.mean(normalized_std))
+            logger.debug(f"Population diversity: {diversity:.6f}")
+            return diversity
+        except Exception as e:
+            logger.error(f"Error calculating diversity: {str(e)}")
+            return 0.0
     
     def _check_improvement(self, current_best):
         """Check if there's an improvement in best fitness."""
-        if current_best > self.best_fitness + self.convergence_threshold:
-            self.best_fitness = float(current_best)
-            self.stagnation_counter = 0
-            return True
-        self.stagnation_counter += 1
-        return False
+        try:
+            current_best = float(current_best)
+            improvement = current_best > self.best_fitness + self.convergence_threshold
+            
+            if improvement:
+                logger.info(f"Improvement found: {self.best_fitness:.6f} -> {current_best:.6f}")
+                self.best_fitness = current_best
+                self.stagnation_counter = 0
+            else:
+                self.stagnation_counter += 1
+                logger.debug(f"No improvement for {self.stagnation_counter} generations")
+            
+            return improvement
+        except Exception as e:
+            logger.error(f"Error checking improvement: {str(e)}")
+            return False
     
     def _adapt_parameters(self, algorithm, diversity):
         """Adapt algorithm parameters based on search progress."""
-        old_mutation = float(algorithm.mating.mutation.prob)
-        old_crossover = float(algorithm.mating.crossover.prob)
-        old_pop_size = int(algorithm.pop_size)
-        
-        # Adapt population size based on stagnation
-        if self.stagnation_counter > self.stagnation_limit:
-            new_pop_size = min(int(old_pop_size * 1.5), 500)
-            if new_pop_size != old_pop_size:
-                algorithm.pop_size = new_pop_size
-                logger.info(f"Adapting population size: {old_pop_size} -> {new_pop_size}")
-                self.stagnation_counter = 0
-        
-        # Adapt operator rates based on diversity
-        avg_diversity = float(np.mean(self.diversity_history[-3:]) if len(self.diversity_history) > 2 else diversity)
-        
-        if diversity < avg_diversity:
-            # Low diversity - increase exploration
-            new_mutation = min(float(old_mutation * 1.2), float(self.max_mutation_rate))
-            new_crossover = max(float(old_crossover * 0.9), float(self.min_crossover_rate))
-        else:
-            # High diversity - increase exploitation
-            new_mutation = max(float(old_mutation * 0.8), float(self.min_mutation_rate))
-            new_crossover = min(float(old_crossover * 1.1), float(self.max_crossover_rate))
-        
-        if new_mutation != old_mutation or new_crossover != old_crossover:
-            algorithm.mating.mutation.prob = float(new_mutation)
-            algorithm.mating.crossover.prob = float(new_crossover)
-            logger.debug(f"Adapting operators: mutation {old_mutation:.3f}->{new_mutation:.3f}, "
-                        f"crossover {old_crossover:.3f}->{new_crossover:.3f}")
+        try:
+            old_mutation = float(algorithm.mating.mutation.prob)
+            old_crossover = float(algorithm.mating.crossover.prob)
+            old_pop_size = int(algorithm.pop_size)
+            
+            logger.debug(f"Current parameters: mutation={old_mutation:.3f}, "
+                        f"crossover={old_crossover:.3f}, pop_size={old_pop_size}")
+            
+            # Adapt population size based on stagnation
+            if self.stagnation_counter > self.stagnation_limit:
+                new_pop_size = min(int(old_pop_size * 1.5), 500)
+                if new_pop_size != old_pop_size:
+                    algorithm.pop_size = new_pop_size
+                    logger.info(f"Adapting population size: {old_pop_size} -> {new_pop_size}")
+                    self.stagnation_counter = 0
+            
+            # Adapt operator rates based on diversity
+            avg_diversity = float(np.mean(self.diversity_history[-3:]) if len(self.diversity_history) > 2 else diversity)
+            logger.debug(f"Average diversity: {avg_diversity:.6f}")
+            
+            if diversity < avg_diversity:
+                # Low diversity - increase exploration
+                new_mutation = min(float(old_mutation * 1.2), self.max_mutation_rate)
+                new_crossover = max(float(old_crossover * 0.9), self.min_crossover_rate)
+                logger.debug("Low diversity - increasing exploration")
+            else:
+                # High diversity - increase exploitation
+                new_mutation = max(float(old_mutation * 0.8), self.min_mutation_rate)
+                new_crossover = min(float(old_crossover * 1.1), self.max_crossover_rate)
+                logger.debug("High diversity - increasing exploitation")
+            
+            if new_mutation != old_mutation or new_crossover != old_crossover:
+                algorithm.mating.mutation.prob = float(new_mutation)
+                algorithm.mating.crossover.prob = float(new_crossover)
+                logger.info(f"Adapting operators: mutation {old_mutation:.3f}->{new_mutation:.3f}, "
+                          f"crossover {old_crossover:.3f}->{new_crossover:.3f}")
+        except Exception as e:
+            logger.error(f"Error adapting parameters: {str(e)}")
     
     def notify(self, algorithm):
         """Adapt parameters based on optimization progress."""
         try:
+            logger.debug(f"\nGeneration {algorithm.n_gen} started")
+            
             current_best = self._get_current_best(algorithm)
             diversity = self.calculate_diversity(algorithm.pop)
             
             # Store history
             self.diversity_history.append(float(diversity))
-            self.generation_history.append({
+            gen_data = {
                 'generation': int(algorithm.n_gen),
                 'best_fitness': float(current_best),
                 'diversity': float(diversity),
                 'pop_size': int(algorithm.pop_size),
                 'mutation_rate': float(algorithm.mating.mutation.prob),
                 'crossover_rate': float(algorithm.mating.crossover.prob)
-            })
+            }
+            self.generation_history.append(gen_data)
             
-            # Log progress
-            logger.debug(f"Generation {algorithm.n_gen}: Best fitness={current_best:.6f}, "
-                        f"Diversity={diversity:.6f}, Stagnation={self.stagnation_counter}")
+            # Log detailed progress
+            logger.info(f"Generation {algorithm.n_gen}:")
+            logger.info(f"  Best fitness: {current_best:.6f}")
+            logger.info(f"  Diversity: {diversity:.6f}")
+            logger.info(f"  Population size: {algorithm.pop_size}")
+            logger.info(f"  Stagnation counter: {self.stagnation_counter}")
             
             if self._check_improvement(current_best):
                 logger.info(f"New best solution found: {current_best:.6f}")
@@ -194,8 +232,8 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             )
             
             # Process results
-            best_x = result.X
-            best_f = float(-result.F[0])  # Convert back to maximization
+            best_x = result.X.astype(float)  # Convert to native float
+            best_f = float(result.F[0])  # Convert to native float
             
             # Calculate final stage ratios and create results
             stage_ratios, mass_ratios = self.calculate_stage_ratios(best_x)
