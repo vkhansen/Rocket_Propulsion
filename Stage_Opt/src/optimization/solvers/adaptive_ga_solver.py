@@ -91,7 +91,6 @@ class RocketStageProblem(Problem):
             xu=np.array([b[1] for b in bounds])
         )
         self.solver = solver
-        self.problem_params = solver.problem_params  # Store problem params directly
         
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate solutions."""
@@ -107,7 +106,7 @@ class RocketStageProblem(Problem):
             stage_ratios, _ = self.solver.calculate_stage_ratios(x[i])
             delta_v = self.solver.calculate_delta_v(stage_ratios)
             total_dv = np.sum(delta_v)
-            g[i, 0] = total_dv - self.problem_params.get('total_delta_v', 9000)
+            g[i, 0] = total_dv - self.solver.TOTAL_DELTA_V  # Access from solver directly
         
         out["F"] = f
         out["G"] = g
@@ -117,7 +116,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     
     def __init__(self, config, problem_params):
         """Initialize Adaptive GA solver."""
-        super().__init__(config, problem_params)
+        super().__init__(config, problem_params)  # Initialize base solver first
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
     def solve(self, initial_guess, bounds):
@@ -174,7 +173,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
                 elite_size=aga_config.get('elite_size', 2),
                 convergence_threshold=aga_config.get('convergence_threshold', 1e-6)
             )
-
+            
             # Run optimization
             result = minimize(
                 problem,
