@@ -4,11 +4,11 @@ from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
+from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
 from ...utils.config import logger
 from .base_solver import BaseSolver
-from .pymoo_problem import RocketStageProblem, tournament_comp
-from ..objective import objective_with_penalty
+from .pymoo_problem import RocketStageProblem
 
 class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     """Adaptive Genetic Algorithm solver implementation."""
@@ -31,6 +31,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         self.max_generations = int(self.solver_specific.get('max_generations', 100))
         self.initial_mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
         self.initial_crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.9))
+        self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
         
         logger.debug(f"Initialized {self.name} with parameters: "
                     f"min_pop_size={self.min_pop_size}, max_pop_size={self.max_pop_size}, "
@@ -80,8 +81,8 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
                 sampling=FloatRandomSampling(),
                 crossover=SBX(prob=self.initial_crossover_rate, eta=30),
                 mutation=PM(prob=self.initial_mutation_rate, eta=30),
-                eliminate_duplicates=True,
-                selection=tournament_comp
+                selection=TournamentSelection(pressure=self.tournament_size),
+                eliminate_duplicates=True
             )
             
             # Initialize history
