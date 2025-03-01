@@ -64,8 +64,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             problem = RocketStageProblem(
                 solver=self,
                 n_var=n_var,
-                bounds=bounds,
-                objective_func=objective_with_penalty
+                bounds=bounds
             )
             
             # Setup algorithm

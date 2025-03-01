@@ -45,31 +45,19 @@ class SLSQPSolver(BaseSolver):
                 }
             )
             
-            # Process results
-            if result.success:
-                stage_ratios, mass_ratios = self.calculate_stage_ratios(result.x)
-                payload_fraction = self.calculate_fitness(result.x)
-                
-                return {
-                    'success': True,
-                    'x': result.x.tolist(),
-                    'fun': float(result.fun),
-                    'payload_fraction': float(payload_fraction),
-                    'stage_ratios': stage_ratios.tolist(),
-                    'mass_ratios': mass_ratios.tolist(),
-                    'stages': self.create_stage_results(result.x, stage_ratios),
-                    'n_iterations': result.nit,
-                    'n_function_evals': result.nfev
-                }
-            else:
-                return {
-                    'success': False,
-                    'message': f"SLSQP optimization failed: {result.message}"
-                }
+            return self.process_results(
+                x=result.x,
+                success=result.success,
+                message=result.message if not result.success else "",
+                n_iterations=result.nit,
+                n_function_evals=result.nfev,
+                time=0.0  # Time not tracked by scipy
+            )
             
         except Exception as e:
             logger.error(f"Error in SLSQP solver: {str(e)}")
-            return {
-                'success': False,
-                'message': f"Error in SLSQP solver: {str(e)}"
-            }
+            return self.process_results(
+                x=initial_guess,
+                success=False,
+                message=str(e)
+            )

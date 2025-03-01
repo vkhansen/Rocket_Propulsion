@@ -46,9 +46,15 @@ class BasinHoppingOptimizer(BaseSolver):
             # Create bounds constraint
             bounds_list = [(low, high) for low, high in bounds]
             
-            def bounds_constraint(x):
-                """Check if x is within bounds."""
-                return np.all((x >= bounds[:, 0]) & (x <= bounds[:, 1]))
+            class BoundsConstraint:
+                """Bounds constraint for Basin Hopping."""
+                def __init__(self, bounds):
+                    self.bounds = bounds
+                    
+                def __call__(self, **kwargs):
+                    """Check if x is within bounds."""
+                    x = kwargs.get('x_new')
+                    return np.all((x >= self.bounds[:, 0]) & (x <= self.bounds[:, 1]))
             
             # Run optimization
             minimizer_kwargs = {
@@ -67,7 +73,7 @@ class BasinHoppingOptimizer(BaseSolver):
                 T=T,
                 stepsize=stepsize,
                 minimizer_kwargs=minimizer_kwargs,
-                accept_test=bounds_constraint
+                accept_test=BoundsConstraint(np.array(bounds))
             )
             
             return self.process_results(
