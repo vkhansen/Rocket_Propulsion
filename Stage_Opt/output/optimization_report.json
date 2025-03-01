@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T12:52:14.876418",
+    "timestamp": "2025-03-01T12:57:28.811773",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -81,7 +81,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error in GA solver: compare() got an unexpected keyword argument 'algorithm'"
+            "error": "Error in GA solver: 'numpy.float64' object has no attribute 'get'"
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
@@ -91,7 +91,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error in Adaptive GA solver: compare() got an unexpected keyword argument 'algorithm'"
+            "error": "Error in Adaptive GA solver: 'numpy.float64' object has no attribute 'get'"
         },
         "ParticleSwarmOptimizer": {
             "success": true,
@@ -106,7 +106,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 5050,
-            "execution_time": 1.2100403308868408
+            "execution_time": 1.1559503078460693
         },
         "DifferentialEvolutionSolver": {
             "success": true,
@@ -121,7 +121,7 @@
             ],
             "iterations": 21,
             "function_evaluations": 886,
-            "execution_time": 0.07340002059936523
+            "execution_time": 5.853654861450195
         },
         "BasinHoppingOptimizer": {
             "success": true,
@@ -136,7 +136,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 528,
-            "execution_time": 1.5591919422149658
+            "execution_time": 0.06859755516052246
         }
     }
 }

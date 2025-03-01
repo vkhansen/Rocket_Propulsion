@@ -19,13 +19,20 @@ def tournament_comp(pop, P, **kwargs):
     for i in range(P.shape[0]):
         a, b = P[i, 0], P[i, 1]
         
-        # Get objective values (first objective for single-objective)
-        a_cv = pop[a].get("CV")[0] if pop[a].get("CV") is not None else 0
-        b_cv = pop[b].get("CV")[0] if pop[b].get("CV") is not None else 0
+        # Get individuals from population
+        ind_a, ind_b = pop[a], pop[b]
+        
+        # Get constraint violations (if any)
+        a_cv = 0 if ind_a.CV is None else float(ind_a.CV[0])
+        b_cv = 0 if ind_b.CV is None else float(ind_b.CV[0])
+        
+        # Get objective values
+        a_f = float(ind_a.F[0])
+        b_f = float(ind_b.F[0])
         
         # If both feasible or both infeasible
         if (a_cv <= 0 and b_cv <= 0) or (a_cv > 0 and b_cv > 0):
-            S[i] = a if pop[a].get("F")[0] < pop[b].get("F")[0] else b
+            S[i] = a if a_f < b_f else b
         # If one is feasible and other is not
         else:
             S[i] = a if a_cv <= 0 else b
