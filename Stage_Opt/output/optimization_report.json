@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T02:15:14.590676",
+    "timestamp": "2025-03-02T02:25:04.959017",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -88,8 +88,8 @@
         "ParticleSwarmOptimizer": {
             "success": true,
             "message": "PSO optimization completed",
-            "payload_fraction": 0.07574972196817595,
-            "constraint_violation": 4.3290856410749257e-07,
+            "payload_fraction": 0.06917961146262597,
+            "constraint_violation": 0.002227473991297302,
             "execution_metrics": {
                 "iterations": 100,
                 "function_evaluations": 5050,
@@ -98,15 +98,15 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 3811.2072327716587,
-                    "Lambda": 0.27389579518918455,
+                    "delta_v": 6415.611376868099,
+                    "Lambda": 0.11304647120227074,
                     "ISP": 300.0,
                     "EPSILON": 0.04
                 },
                 {
                     "stage": 2,
-                    "delta_v": 5488.79276766125,
-                    "Lambda": 0.20217939064034982,
+                    "delta_v": 2884.3863956579103,
+                    "Lambda": 0.43167954402561204,
                     "ISP": 350.0,
                     "EPSILON": 0.06
                 }
@@ -115,25 +115,25 @@
         "BasinHoppingOptimizer": {
             "success": true,
             "message": "['requested number of basinhopping iterations completed successfully']",
-            "payload_fraction": 0.07194967172064076,
-            "constraint_violation": 3.637978807091713e-12,
+            "payload_fraction": 0.07195027981678408,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
-                "function_evaluations": 3982,
+                "function_evaluations": 4057,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4649.274025526182,
-                    "Lambda": 0.20602171379423356,
+                    "delta_v": 4649.102017304331,
+                    "Lambda": 0.20603375540628613,
                     "ISP": 300.0,
                     "EPSILON": 0.04
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4650.725974473815,
-                    "Lambda": 0.2580725252927662,
+                    "delta_v": 4650.897982695669,
+                    "Lambda": 0.2580595969443507,
                     "ISP": 350.0,
                     "EPSILON": 0.06
                 }
@@ -147,7 +147,7 @@
             "execution_metrics": {
                 "iterations": 71,
                 "function_evaluations": 2358,
-                "execution_time": 0.8284587860107422
+                "execution_time": 2.617527961730957
             },
             "stages": [
                 {
@@ -174,7 +174,7 @@
             "execution_metrics": {
                 "iterations": 101,
                 "function_evaluations": 10000,
-                "execution_time": 6.525953054428101
+                "execution_time": 10.742439270019531
             },
             "stages": [
                 {

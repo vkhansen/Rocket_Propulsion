@@ -44,7 +44,7 @@ class RocketStageProblem(Problem):
         super().__init__(
             n_var=n_var,
             n_obj=1,
-            n_constr=0,
+            n_constr=2,  # Adding explicit constraints instead of penalties
             xl=bounds[:, 0],  # Lower bounds
             xu=bounds[:, 1]   # Upper bounds
         )
@@ -66,45 +66,57 @@ class RocketStageProblem(Problem):
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate objective function with caching."""
         try:
-            f = np.zeros(len(x))
+            population_size = len(x)
+            f = np.zeros(population_size)
+            g = np.zeros((population_size, 2))  # Constraint violations
+            
             for i, x_i in enumerate(x):
-                # Convert numpy array to tuple for caching
-                x_tuple = tuple(x_i)
-                
-                # Try to get from cache first
-                cached_value = self.cache.get(x_tuple)
-                if cached_value is not None:
-                    f[i] = cached_value
-                    self.cache_hits += 1
-                else:
-                    # Calculate and cache if not found
-                    f[i] = objective_with_penalty(
+                try:
+                    # Detailed logging for debugging
+                    logger.debug(f"Evaluating individual {i} with parameters: {x_i}")
+                    
+                    # Calculate objective and constraints
+                    f[i], g1, g2 = objective_with_penalty(
                         dv=x_i,
                         G0=self.solver.G0,
                         ISP=self.solver.ISP,
                         EPSILON=self.solver.EPSILON,
-                        TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V
+                        TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V,
+                        return_constraints=True  # Modified objective function to return constraints
                     )
-                    self.cache.set(x_tuple, f[i])
-                
-                # Update statistics
-                self.best_fitness = min(self.best_fitness, f[i])
-                self.worst_fitness = max(self.worst_fitness, f[i])
+                    
+                    g[i] = [g1, g2]
+                    
+                    # Cache only valid solutions
+                    if g1 <= 0 and g2 <= 0:
+                        x_tuple = tuple(np.round(x_i, decimals=6))  # Round to reduce floating point issues
+                        self.cache.set(x_tuple, f[i])
+                    
+                    # Update statistics
+                    if g1 <= 0 and g2 <= 0:  # Only update stats for valid solutions
+                        self.best_fitness = min(self.best_fitness, f[i])
+                        self.worst_fitness = max(self.worst_fitness, f[i])
+                    
+                except Exception as ind_error:
+                    logger.error(f"Error evaluating individual {i}: {str(ind_error)}")
+                    f[i] = float('inf')
+                    g[i] = [float('inf'), float('inf')]
             
-            self.total_evals += len(x)
+            self.total_evals += population_size
             
             # Log evaluation statistics periodically
             if self.total_evals % 100 == 0:
-                cache_rate = (self.cache_hits / self.total_evals) * 100
-                logger.debug(f"Problem Statistics:")
-                logger.debug(f"  Total Evaluations: {self.total_evals}")
-                logger.debug(f"  Cache Hit Rate: {cache_rate:.1f}%")
-                logger.debug(f"  Best Fitness: {self.best_fitness:.6f}")
-                logger.debug(f"  Worst Fitness: {self.worst_fitness:.6f}")
-                logger.debug(f"  Fitness Range: {self.worst_fitness - self.best_fitness:.6f}")
-            
+                valid_solutions = np.sum(np.all(g <= 0, axis=1))
+                logger.info(f"Problem Statistics:")
+                logger.info(f"  Total Evaluations: {self.total_evals}")
+                logger.info(f"  Valid Solutions: {valid_solutions}/{population_size}")
+                if valid_solutions > 0:
+                    logger.info(f"  Best Fitness (valid): {self.best_fitness:.6f}")
+                
             out["F"] = f
+            out["G"] = g  # Explicit constraint violations
             
         except Exception as e:
-            logger.error(f"Error in problem evaluation: {str(e)}")
+            logger.error(f"Critical error in problem evaluation: {str(e)}", exc_info=True)
             out["F"] = np.array([float('inf')] * len(x))
+            out["G"] = np.array([[float('inf'), float('inf')]] * len(x))

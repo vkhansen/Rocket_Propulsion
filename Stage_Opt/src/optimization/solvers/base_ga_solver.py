@@ -20,40 +20,43 @@ class BaseGASolver(BaseSolver):
         
         # Common GA parameters with consistent naming
         self.pop_size = int(self.solver_specific.get('pop_size', 100))
-        self.n_generations = int(self.solver_specific.get('n_generations', 100))  # Changed from max_generations
+        self.n_generations = int(self.solver_specific.get('n_generations', 100))
         self.mutation_rate = float(self.solver_specific.get('mutation_rate', 0.1))
         self.crossover_rate = float(self.solver_specific.get('crossover_rate', 0.9))
         self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
-        self.eta_crossover = float(self.solver_specific.get('eta_crossover', 30))  # Added SBX parameter
-        self.eta_mutation = float(self.solver_specific.get('eta_mutation', 30))  # Added PM parameter
+        self.eta_crossover = float(self.solver_specific.get('eta_crossover', 30))
+        self.eta_mutation = float(self.solver_specific.get('eta_mutation', 30))
+        
+        # Add timeout parameter
+        self.max_time = float(self.solver_specific.get('max_time', 3600))  # Default 1 hour
         
         self.logger = setup_logging(self.__class__.__name__)
-        self.logger.debug(f"Initialized {self.name} with parameters: "
-                    f"pop_size={self.pop_size}, n_generations={self.n_generations}, "
-                    f"mutation_rate={self.mutation_rate}, crossover_rate={self.crossover_rate}")
+        self.logger.info(f"Initialized {self.name} with parameters:")
+        self.logger.info(f"  Population Size: {self.pop_size}")
+        self.logger.info(f"  Generations: {self.n_generations}")
+        self.logger.info(f"  Mutation Rate: {self.mutation_rate}")
+        self.logger.info(f"  Crossover Rate: {self.crossover_rate}")
+        self.logger.info(f"  Tournament Size: {self.tournament_size}")
+        self.logger.info(f"  Max Time: {self.max_time} seconds")
 
     def create_tournament_selection(self):
         """Create tournament selection operator with comparison function."""
         def tournament_comp(pop, P, **kwargs):
             """Tournament selection comparator."""
-            # P is a 2D array with shape (n_tournaments, tournament_size)
             n_tournaments = P.shape[0]
             S = np.zeros(n_tournaments, dtype=int)
             
             for i in range(n_tournaments):
-                tournament = P[i]  # Get indices for this tournament
-                # Get fitness values for individuals in tournament
-                fitness = np.array([pop[j].get("F")[0] for j in tournament])
-                # Get constraint violations
-                cv = np.array([pop[j].get("CV")[0] if pop[j].get("CV") is not None else 0.0 for j in tournament])
+                tournament = P[i]
+                candidates = []
+                for idx in tournament:
+                    f = pop[idx].get("F")[0]
+                    cv = np.sum(np.maximum(pop[idx].get("G"), 0)) if pop[idx].get("G") is not None else float('inf')
+                    candidates.append((idx, f, cv))
                 
-                # Select winner based on constraint violation and fitness
-                if np.any(cv > 0):
-                    winner_idx = tournament[np.argmin(cv)]
-                else:
-                    winner_idx = tournament[np.argmin(fitness)]
-                    
-                S[i] = winner_idx
+                # Sort by constraint violation first, then by fitness
+                candidates.sort(key=lambda x: (x[2], x[1]))
+                S[i] = candidates[0][0]  # Select the best candidate
             
             return S
 
@@ -67,7 +70,7 @@ class BaseGASolver(BaseSolver):
         if pop_size is None:
             pop_size = self.pop_size
             
-        return GA(
+        algorithm = GA(
             pop_size=pop_size,
             sampling=FloatRandomSampling(),
             crossover=SBX(prob=self.crossover_rate, eta=self.eta_crossover),
@@ -75,6 +78,31 @@ class BaseGASolver(BaseSolver):
             selection=self.create_tournament_selection(),
             eliminate_duplicates=True
         )
+        
+        # Add callback for monitoring
+        def callback(algorithm):
+            gen = algorithm.n_gen
+            pop = algorithm.pop
+            
+            if gen % 10 == 0:  # Log every 10 generations
+                valid_solutions = np.sum(np.all(np.array([ind.get("G") for ind in pop]) <= 0, axis=1))
+                best_cv = float('inf')
+                best_f = float('inf')
+                
+                for ind in pop:
+                    cv = np.sum(np.maximum(ind.get("G"), 0))
+                    f = ind.get("F")[0]
+                    if cv < best_cv or (cv == best_cv and f < best_f):
+                        best_cv = cv
+                        best_f = f
+                
+                self.logger.info(f"Generation {gen}:")
+                self.logger.info(f"  Valid Solutions: {valid_solutions}/{len(pop)}")
+                self.logger.info(f"  Best CV: {best_cv:.6f}")
+                self.logger.info(f"  Best F: {best_f:.6f}")
+        
+        algorithm.callback = callback
+        return algorithm
 
     def create_problem(self, initial_guess, bounds):
         """Create optimization problem."""
@@ -87,5 +115,36 @@ class BaseGASolver(BaseSolver):
         )
 
     def solve(self, initial_guess, bounds):
-        """Base solve method - override in subclasses."""
-        raise NotImplementedError("Solve method must be implemented by subclass")
+        """Base solve method with improved error handling and logging."""
+        try:
+            self.logger.info("Starting optimization")
+            self.logger.info(f"Initial guess: {initial_guess}")
+            self.logger.info(f"Bounds: {bounds}")
+            
+            problem = self.create_problem(initial_guess, bounds)
+            algorithm = self.create_algorithm()
+            
+            result = minimize(
+                problem,
+                algorithm,
+                termination=('n_gen', self.n_generations),
+                seed=42,  # For reproducibility
+                verbose=False,  # We handle our own logging
+                save_history=True
+            )
+            
+            if result.success:
+                self.logger.info("Optimization completed successfully")
+                self.logger.info(f"Best solution X: {result.X}")
+                self.logger.info(f"Best fitness F: {result.F[0]}")
+                if hasattr(result, 'G'):
+                    self.logger.info(f"Constraint violations G: {result.G}")
+            else:
+                self.logger.error("Optimization failed")
+                self.logger.error(f"Termination message: {result.message}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Critical error in solve method: {str(e)}", exc_info=True)
+            raise
