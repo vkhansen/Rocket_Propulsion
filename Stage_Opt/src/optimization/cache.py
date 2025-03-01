@@ -18,12 +18,29 @@ class OptimizationCache:
             max_size: Maximum number of solutions to cache
         """
         # Sanitize cache filename to remove invalid characters
-        cache_file = re.sub(r'[<>:"/\\|?*]', '_', cache_file)
+        cache_file = self._sanitize_filename(cache_file)
         self.cache_file = os.path.join(OUTPUT_DIR, cache_file)
         self.max_size = max_size
         self.cache: Dict[Tuple[float, ...], float] = {}
         self._load_cache()
     
+    def _sanitize_filename(self, filename):
+        """Sanitize filename for Windows compatibility.
+        
+        Args:
+            filename: Original filename
+            
+        Returns:
+            str: Sanitized filename safe for Windows
+        """
+        # Remove invalid characters for Windows filenames
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        # Remove any non-ASCII characters
+        sanitized = re.sub(r'[^\x00-\x7F]+', '_', sanitized)
+        # Remove leading/trailing spaces and dots
+        sanitized = sanitized.strip('. ')
+        return sanitized
+        
     def _load_cache(self):
         """Load cache from disk if it exists."""
         try:
