@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T19:02:08.497817",
+    "timestamp": "2025-03-01T19:11:14.812691",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -87,26 +87,26 @@
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "cannot reshape array of size 300 into shape (50,2)",
-            "payload_fraction": 0.09912624071245398,
-            "constraint_violation": 0.0,
+            "message": "None",
+            "payload_fraction": 0.10830599237924723,
+            "constraint_violation": 2.6398993213661015e-08,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 101,
+                "function_evaluations": 10000,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4650.0,
-                    "Lambda": 6.65936719872629,
+                    "delta_v": 2370.950139003686,
+                    "Lambda": 2.6293805149140432,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4650.0,
-                    "Lambda": 2.867231485205968,
+                    "delta_v": 6929.049861022712,
+                    "Lambda": 4.804781058569518,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -114,26 +114,26 @@
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "cannot reshape array of size 300 into shape (50,2)",
-            "payload_fraction": 0.09912624071245398,
+            "message": "None",
+            "payload_fraction": 0.10830430306630222,
             "constraint_violation": 0.0,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 101,
+                "function_evaluations": 10000,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4650.0,
-                    "Lambda": 6.65936719872629,
+                    "delta_v": 2371.126770111437,
+                    "Lambda": 2.629569891924352,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4650.0,
-                    "Lambda": 2.867231485205968,
+                    "delta_v": 6928.8732298885625,
+                    "Lambda": 4.804588815518312,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -174,7 +174,7 @@
             "execution_metrics": {
                 "iterations": 58,
                 "function_evaluations": 1978,
-                "execution_time": 0.5365033149719238
+                "execution_time": 0.5343773365020752
             },
             "stages": [
                 {
@@ -196,25 +196,25 @@
         "BasinHoppingOptimizer": {
             "success": true,
             "message": "['requested number of basinhopping iterations completed successfully']",
-            "payload_fraction": 0.0991281042974833,
-            "constraint_violation": 4.1109160520136356e-10,
+            "payload_fraction": 0.09912924120219416,
+            "constraint_violation": 1.2732925824820995e-11,
             "execution_metrics": {
                 "iterations": 100,
-                "function_evaluations": 3954,
+                "function_evaluations": 3941,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4651.508741936092,
-                    "Lambda": 6.66346520388825,
+                    "delta_v": 4652.425113425583,
+                    "Lambda": 6.6659554589187735,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4648.491258063497,
-                    "Lambda": 2.866251720060446,
+                    "delta_v": 4647.574886574404,
+                    "Lambda": 2.865656799058504,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }

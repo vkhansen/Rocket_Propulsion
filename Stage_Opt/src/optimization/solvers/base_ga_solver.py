@@ -32,15 +32,24 @@ class BaseGASolver(BaseSolver):
         """Create tournament selection operator with comparison function."""
         def tournament_comp(pop, P, **kwargs):
             """Tournament selection comparator."""
-            S = np.full(len(P), P[0])
+            # P is a 2D array with shape (n_tournaments, tournament_size)
+            n_tournaments = P.shape[0]
+            S = np.zeros(n_tournaments, dtype=int)
             
-            for i in range(len(P)):
-                # Get fitness values for each individual in tournament
-                fitness = np.array([pop[j].get("F")[0] for j in P[i:i+1]])
+            for i in range(n_tournaments):
+                tournament = P[i]  # Get indices for this tournament
+                # Get fitness values for individuals in tournament
+                fitness = np.array([pop[j].get("F")[0] for j in tournament])
                 # Get constraint violations
-                cv = np.array([pop[j].get("CV")[0] if pop[j].get("CV") is not None else 0.0 for j in P[i:i+1]])
+                cv = np.array([pop[j].get("CV")[0] if pop[j].get("CV") is not None else 0.0 for j in tournament])
+                
                 # Select winner based on constraint violation and fitness
-                S[i] = P[i + np.argmin(cv) if np.any(cv > 0) else P[i + np.argmin(fitness)]]
+                if np.any(cv > 0):
+                    winner_idx = tournament[np.argmin(cv)]
+                else:
+                    winner_idx = tournament[np.argmin(fitness)]
+                    
+                S[i] = winner_idx
             
             return S
 
