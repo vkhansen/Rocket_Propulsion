@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 from functools import lru_cache
 from typing import List, Tuple, Dict, Optional
+import re
 from ..utils.config import OUTPUT_DIR, logger
 
 class OptimizationCache:
@@ -16,6 +17,8 @@ class OptimizationCache:
             cache_file: Name of the file to store cached solutions
             max_size: Maximum number of solutions to cache
         """
+        # Sanitize cache filename to remove invalid characters
+        cache_file = re.sub(r'[<>:"/\\|?*]', '_', cache_file)
         self.cache_file = os.path.join(OUTPUT_DIR, cache_file)
         self.max_size = max_size
         self.cache: Dict[Tuple[float, ...], float] = {}

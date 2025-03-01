@@ -64,8 +64,11 @@ class RocketStageProblem(Problem):
             xu=bounds[:, 1]   # Upper bounds
         )
         self.solver = solver
+        
+        # Create a simplified cache filename
+        solver_type = "adaptive_ga" if "adaptive" in solver.name.lower() else "ga"
         self.cache = OptimizationCache(
-            cache_file=f"{solver.name.lower()}_cache.pkl",
+            cache_file=f"{solver_type}_cache.pkl",
             max_size=10000
         )
         
