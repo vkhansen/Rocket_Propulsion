@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T19:43:58.595079",
+    "timestamp": "2025-03-01T20:00:57.906548",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -115,25 +115,25 @@
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
             "message": "None",
-            "payload_fraction": 0.1081852002825764,
-            "constraint_violation": 0.0,
+            "payload_fraction": 0.10610651556105498,
+            "constraint_violation": 2.038923412328586e-07,
             "execution_metrics": {
-                "iterations": 101,
-                "function_evaluations": 10000,
+                "iterations": 501,
+                "function_evaluations": 50000,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 2383.623352596577,
-                    "Lambda": 0.3783575087106398,
+                    "delta_v": 2617.3977661957774,
+                    "Lambda": 0.34395769737600085,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 6916.376647403422,
-                    "Lambda": 0.20872437842491004,
+                    "delta_v": 6682.60223360033,
+                    "Lambda": 0.22007549630361523,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -142,8 +142,8 @@
         "ParticleSwarmOptimizer": {
             "success": true,
             "message": "PSO optimization completed",
-            "payload_fraction": 0.0989588467536718,
-            "constraint_violation": 0.001751182946463814,
+            "payload_fraction": 0.10419571702444048,
+            "constraint_violation": 9.726427379064262e-06,
             "execution_metrics": {
                 "iterations": 100,
                 "function_evaluations": 5050,
@@ -152,15 +152,15 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4396.129565845496,
-                    "Lambda": 0.16654170724423537,
+                    "delta_v": 2866.7036318535884,
+                    "Lambda": 0.3107115249517157,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4903.868682971558,
-                    "Lambda": 0.32927736188370726,
+                    "delta_v": 6433.296358419984,
+                    "Lambda": 0.232861759385707,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -174,7 +174,7 @@
             "execution_metrics": {
                 "iterations": 65,
                 "function_evaluations": 2175,
-                "execution_time": 0.6750354766845703
+                "execution_time": 0.5679810047149658
             },
             "stages": [
                 {
@@ -196,25 +196,25 @@
         "BasinHoppingOptimizer": {
             "success": true,
             "message": "['requested number of basinhopping iterations completed successfully']",
-            "payload_fraction": 0.09912492437154123,
+            "payload_fraction": 0.09912574354784869,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
-                "function_evaluations": 3882,
+                "function_evaluations": 3813,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4648.929260527551,
-                    "Lambda": 0.1502299928031311,
+                    "delta_v": 4649.596089781464,
+                    "Lambda": 0.15018915115738307,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4651.0707394724495,
-                    "Lambda": 0.3486839078064375,
+                    "delta_v": 4650.403910218535,
+                    "Lambda": 0.34873658199196156,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }

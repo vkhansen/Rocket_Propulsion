@@ -12,14 +12,10 @@ class GeneticAlgorithmSolver(BaseGASolver):
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
         # Get solver parameters from config
-        self.pop_size = int(self.solver_specific.get('pop_size', 100))
-        self.max_generations = int(self.solver_specific.get('max_generations', 100))
-        self.mutation_rate = float(self.solver_specific.get('mutation_rate', 0.1))
-        self.crossover_rate = float(self.solver_specific.get('crossover_rate', 0.9))
-        self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
+        self.n_generations = int(self.solver_specific.get('max_generations', 100))
         
         logger.debug(f"Initialized {self.name} with parameters: "
-                    f"pop_size={self.pop_size}, max_generations={self.max_generations}")
+                    f"max_generations={self.n_generations}")
 
     def solve(self, initial_guess, bounds):
         """Solve using Genetic Algorithm."""
@@ -34,7 +30,7 @@ class GeneticAlgorithmSolver(BaseGASolver):
             res = minimize(
                 problem,
                 algorithm,
-                ('n_gen', self.max_generations),
+                ('n_gen', self.n_generations),  
                 seed=1,
                 verbose=False
             )

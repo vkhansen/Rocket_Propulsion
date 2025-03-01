@@ -18,15 +18,18 @@ class BaseGASolver(BaseSolver):
         super().__init__(config, problem_params)
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
-        # Common GA parameters
+        # Common GA parameters with consistent naming
         self.pop_size = int(self.solver_specific.get('pop_size', 100))
-        self.max_generations = int(self.solver_specific.get('max_generations', 100))
+        self.n_generations = int(self.solver_specific.get('n_generations', 100))  # Changed from max_generations
         self.mutation_rate = float(self.solver_specific.get('mutation_rate', 0.1))
         self.crossover_rate = float(self.solver_specific.get('crossover_rate', 0.9))
         self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
+        self.eta_crossover = float(self.solver_specific.get('eta_crossover', 30))  # Added SBX parameter
+        self.eta_mutation = float(self.solver_specific.get('eta_mutation', 30))  # Added PM parameter
         
         logger.debug(f"Initialized {self.name} with parameters: "
-                    f"pop_size={self.pop_size}, max_generations={self.max_generations}")
+                    f"pop_size={self.pop_size}, n_generations={self.n_generations}, "
+                    f"mutation_rate={self.mutation_rate}, crossover_rate={self.crossover_rate}")
 
     def create_tournament_selection(self):
         """Create tournament selection operator with comparison function."""
@@ -66,8 +69,8 @@ class BaseGASolver(BaseSolver):
         return GA(
             pop_size=pop_size,
             sampling=FloatRandomSampling(),
-            crossover=SBX(prob=self.crossover_rate, eta=30),
-            mutation=PM(prob=self.mutation_rate, eta=30),
+            crossover=SBX(prob=self.crossover_rate, eta=self.eta_crossover),
+            mutation=PM(prob=self.mutation_rate, eta=self.eta_mutation),
             selection=self.create_tournament_selection(),
             eliminate_duplicates=True
         )
