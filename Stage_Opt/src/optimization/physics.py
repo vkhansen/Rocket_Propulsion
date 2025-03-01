@@ -21,7 +21,8 @@ def calculate_mass_ratios(dv, ISP, EPSILON, G0):
         EPSILON = np.asarray(EPSILON, dtype=float)
         
         # Calculate mass ratios using the rocket equation
-        mass_ratios = np.exp(dv / (ISP * G0))
+        # r = exp(-ΔV/(g₀*ISP))
+        mass_ratios = np.exp(-dv / (ISP * G0))
         
         return mass_ratios
         
@@ -48,18 +49,19 @@ def calculate_payload_fraction(mass_ratios, EPSILON):
         payload_fraction = 1.0
         
         # Calculate payload fraction stage by stage
+        # For each stage i: Λᵢ = rᵢ/(1 + εᵢ)
         for i in range(len(mass_ratios)):
-            stage_factor = (1 - EPSILON[i]) / mass_ratios[i] + EPSILON[i]
-            payload_fraction *= stage_factor
+            stage_ratio = mass_ratios[i] / (1.0 + EPSILON[i])
+            payload_fraction *= stage_ratio
         
-        return payload_fraction
+        return float(payload_fraction)
         
     except Exception as e:
         logger.error(f"Error calculating payload fraction: {e}")
         return 0.0  # Return zero payload fraction on error
 
 def calculate_stage_ratios(dv, G0, ISP, EPSILON):
-    """Calculate stage ratios (λ) for each stage.
+    """Calculate stage ratios (Λ) for each stage.
     
     Args:
         dv: Stage delta-v values
@@ -69,18 +71,22 @@ def calculate_stage_ratios(dv, G0, ISP, EPSILON):
         
     Returns:
         tuple: (stage_ratios, mass_ratios)
-            - stage_ratios: List of stage ratios (λ)
-            - mass_ratios: List of mass ratios before structural fraction
+            - stage_ratios: List of stage ratios (Λ)
+            - mass_ratios: List of mass ratios (r)
+            
+    For each stage i:
+    - rᵢ = exp(-ΔVᵢ/(g₀*ISPᵢ))  # Mass ratio from rocket equation
+    - Λᵢ = rᵢ/(1 + εᵢ)           # Stage ratio
     """
     try:
         # Calculate mass ratios
         mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
         
-        # Calculate stage ratios (λ)
+        # Calculate stage ratios (Λ)
         stage_ratios = []
         for i in range(len(mass_ratios)):
-            lambda_i = (1 - EPSILON[i]) / mass_ratios[i] + EPSILON[i]
-            stage_ratios.append(lambda_i)
+            lambda_i = mass_ratios[i] / (1.0 + EPSILON[i])
+            stage_ratios.append(float(lambda_i))
             
         return np.array(stage_ratios), mass_ratios
         
