@@ -22,6 +22,7 @@ class RocketStageProblem(Problem):
             xu=np.array([b[1] for b in bounds])
         )
         self.solver = solver
+        self.problem_params = solver.problem_params  # Store problem params directly
         
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate solutions."""
@@ -37,7 +38,7 @@ class RocketStageProblem(Problem):
             stage_ratios, _ = self.solver.calculate_stage_ratios(x[i])
             delta_v = self.solver.calculate_delta_v(stage_ratios)
             total_dv = np.sum(delta_v)
-            g[i, 0] = total_dv - self.solver.problem_params.get('total_delta_v', 9000)
+            g[i, 0] = total_dv - self.problem_params.get('total_delta_v', 9000)
         
         out["F"] = f
         out["G"] = g

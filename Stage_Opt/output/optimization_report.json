@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T11:43:26.228780",
+    "timestamp": "2025-03-01T11:47:32.059929",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -81,7 +81,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error in GA solver: Please provide the comparing function for the tournament selection!"
+            "error": "Error in GA solver: 'GeneticAlgorithmSolver' object has no attribute 'problem_params'"
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
@@ -91,22 +91,22 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error in Adaptive GA solver: Please provide the comparing function for the tournament selection!"
+            "error": "Error in Adaptive GA solver: 'AdaptiveGeneticAlgorithmSolver' object has no attribute 'problem_params'"
         },
         "ParticleSwarmOptimizer": {
             "success": true,
-            "payload_fraction": 0.023588531786684505,
+            "payload_fraction": 1.0,
             "stage_ratios": [
-                0.15939244310638742,
-                0.14799027687241234
+                1.0,
+                1.0
             ],
             "mass_ratios": [
-                44.347171487471634,
-                8.221016389756423
+                1.0,
+                1.0
             ],
             "iterations": 100,
             "function_evaluations": 5050,
-            "execution_time": 1.6907992362976074
+            "execution_time": 1.1479930877685547
         },
         "DifferentialEvolutionSolver": {
             "success": true,
@@ -121,7 +121,7 @@
             ],
             "iterations": 21,
             "function_evaluations": 886,
-            "execution_time": 0.07319021224975586
+            "execution_time": 5.616488695144653
         },
         "BasinHoppingOptimizer": {
             "success": true,
@@ -136,7 +136,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 528,
-            "execution_time": 1.5096046924591064
+            "execution_time": 0.07637572288513184
         }
     }
 }
