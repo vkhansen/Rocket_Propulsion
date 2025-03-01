@@ -90,7 +90,9 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             def callback(algorithm):
                 """Callback to track progress and adapt parameters."""
                 if algorithm.n_gen > 0:
-                    history.append(algorithm.pop.get_f().min())
+                    # Get minimum fitness value from current population
+                    fitness_values = algorithm.pop.get("F")
+                    history.append(np.min(fitness_values))
                     if len(history) >= 2 and algorithm.n_gen % self.adaptation_interval == 0:
                         self.adapt_parameters(algorithm, history)
             

@@ -5,21 +5,38 @@ from ...utils.config import logger
 from ..objective import objective_with_penalty
 
 def tournament_comp(pop, P, **kwargs):
-    """Tournament selection comparator."""
+    """Tournament selection comparator.
+    
+    Args:
+        pop: Population object containing individuals
+        P: Matrix of shape (n_tournaments, 2) containing indices of individuals to compare
+        kwargs: Additional keyword arguments passed by pymoo
+        
+    Returns:
+        S: Array containing selected individual indices
+    """
     S = np.full(P.shape[0], np.nan)
 
     for i in range(P.shape[0]):
         a, b = P[i, 0], P[i, 1]
 
+        # Get fitness values using new pymoo API
+        a_fitness = pop[a].get("F")[0]
+        b_fitness = pop[b].get("F")[0]
+        
+        # Get constraint violations
+        a_cv = pop[a].get("CV")[0] if pop[a].get("CV") is not None else 0.0
+        b_cv = pop[b].get("CV")[0] if pop[b].get("CV") is not None else 0.0
+
         # If invalid solutions exist, always prefer valid solution
-        if pop[a].CV > 0.0 or pop[b].CV > 0.0:
-            if pop[a].CV < pop[b].CV:
+        if a_cv > 0.0 or b_cv > 0.0:
+            if a_cv < b_cv:
                 S[i] = a
             else:
                 S[i] = b
         # Otherwise use objective values
         else:
-            if pop[a].F[0] < pop[b].F[0]:
+            if a_fitness < b_fitness:
                 S[i] = a
             else:
                 S[i] = b

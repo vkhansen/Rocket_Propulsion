@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T18:33:25.640656",
+    "timestamp": "2025-03-01T18:41:31.075199",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -87,7 +87,7 @@
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "'GeneticAlgorithmSolver' object has no attribute 'solver_specific'",
+            "message": "tournament_comp() takes 2 positional arguments but 3 were given",
             "payload_fraction": 0.09912624071245398,
             "constraint_violation": 0.0,
             "execution_metrics": {
@@ -114,7 +114,7 @@
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "'Population' object has no attribute 'get_f'",
+            "message": "tournament_comp() takes 2 positional arguments but 3 were given",
             "payload_fraction": 0.09912624071245398,
             "constraint_violation": 0.0,
             "execution_metrics": {
@@ -174,7 +174,7 @@
             "execution_metrics": {
                 "iterations": 58,
                 "function_evaluations": 1978,
-                "execution_time": 0.5750932693481445
+                "execution_time": 0.5369317531585693
             },
             "stages": [
                 {

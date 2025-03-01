@@ -13,6 +13,11 @@ from ..objective import objective_with_penalty
 class GeneticAlgorithmSolver(BaseSolver):
     """Genetic Algorithm solver implementation."""
     
+    def __init__(self, config, problem_params):
+        """Initialize GA solver."""
+        super().__init__(config, problem_params)
+        self.solver_specific = self.solver_config.get('solver_specific', {})
+        
     def solve(self, initial_guess, bounds):
         """Solve using genetic algorithm."""
         try:
