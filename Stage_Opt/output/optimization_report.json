@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T04:24:10.023686",
+    "timestamp": "2025-03-01T04:31:25.725786",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -60,14 +60,14 @@
     "results": {
         "SLSQPSolver": {
             "success": true,
-            "payload_fraction": 0.0,
+            "payload_fraction": 0.09912624071558591,
             "stage_ratios": [
-                0.2691413995250128,
-                0.3683054367955432
+                0.2691413993641781,
+                0.3683054370296156
             ],
             "mass_ratios": [
-                6.659367198769058,
-                2.8672314852161986
+                6.659367207062737,
+                2.8672314832323704
             ],
             "iterations": 9,
             "function_evaluations": 44,
@@ -81,7 +81,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "GeneticAlgorithmSolver.solve() takes 1 positional argument but 3 were given"
+            "error": "GA optimization failed to converge"
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
@@ -91,7 +91,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error: 'tuple' object has no attribute 'n_offsprings'"
+            "error": "Adaptive GA optimization failed to converge"
         },
         "ParticleSwarmOptimizer": {
             "success": false,

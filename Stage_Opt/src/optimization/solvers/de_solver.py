@@ -14,19 +14,21 @@ class DifferentialEvolutionSolver(BaseSolver):
         
     def objective(self, x):
         """Objective function for optimization."""
-        # Calculate constraint violation penalty
-        penalty = self.enforce_constraints(x)
-        
-        # Calculate payload fraction (negative for minimization)
-        payload_fraction = -self.calculate_fitness(x)
-        
-        # Apply penalty
-        penalty_coeff = self.solver_config.get('penalty_coefficient', 1e3)
-        return payload_fraction + penalty_coeff * penalty
+        return -self.objective_with_penalty(x)  # Negative because DE minimizes
         
     def solve(self, initial_guess, bounds):
-        """Solve using Differential Evolution."""
+        """Solve using Differential Evolution.
+        
+        Args:
+            initial_guess: Initial solution guess
+            bounds: List of (min, max) bounds for each variable
+            
+        Returns:
+            dict: Optimization results
+        """
         try:
+            logger.info("Starting DE optimization...")
+            
             # Get solver parameters
             pop_size = self.solver_specific.get('population_size', 20)
             max_iter = self.solver_specific.get('max_iterations', 1000)
@@ -43,40 +45,36 @@ class DifferentialEvolutionSolver(BaseSolver):
                 popsize=pop_size,
                 mutation=mutation,
                 recombination=recombination,
-                init='latinhypercube'
+                init='latinhypercube',
+                seed=42,
+                workers=1  # For reproducibility
             )
             
-            # Process results
-            success = result.success
-            message = result.message
-            x = result.x
-            n_iter = result.nit
-            n_evals = result.nfev
-            
-            # Calculate final payload fraction
-            payload_fraction = self.calculate_fitness(x)
-            
-            # Calculate stage information
-            stage_ratios, stage_info = calculate_stage_ratios(
-                x, self.G0, self.ISP, self.EPSILON
-            )
-            
-            return {
-                'success': success,
-                'message': message,
-                'payload_fraction': payload_fraction,
-                'stages': stage_info,
-                'n_iterations': n_iter,
-                'n_function_evals': n_evals
-            }
+            if result.success:
+                x = result.x
+                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
+                payload_fraction = self.calculate_fitness(x)
+                
+                return {
+                    'success': True,
+                    'x': x.tolist(),
+                    'fun': float(-result.fun),  # Convert back to maximization
+                    'payload_fraction': float(payload_fraction),
+                    'stage_ratios': stage_ratios.tolist(),
+                    'mass_ratios': mass_ratios.tolist(),
+                    'stages': self.create_stage_results(x, stage_ratios),
+                    'n_iterations': result.nit,
+                    'n_function_evals': result.nfev
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f"DE optimization failed: {result.message}"
+                }
             
         except Exception as e:
             logger.error(f"Error in DE solver: {str(e)}")
             return {
                 'success': False,
-                'message': f"Error: {str(e)}",
-                'payload_fraction': 0.0,
-                'stages': [],
-                'n_iterations': 0,
-                'n_function_evals': 0
+                'message': f"Error in DE solver: {str(e)}"
             }

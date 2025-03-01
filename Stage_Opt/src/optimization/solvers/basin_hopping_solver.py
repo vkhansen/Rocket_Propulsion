@@ -14,19 +14,21 @@ class BasinHoppingOptimizer(BaseSolver):
         
     def objective(self, x):
         """Objective function for optimization."""
-        # Calculate constraint violation penalty
-        penalty = self.enforce_constraints(x)
-        
-        # Calculate payload fraction (negative for minimization)
-        payload_fraction = -self.calculate_fitness(x)
-        
-        # Apply penalty
-        penalty_coeff = self.solver_config.get('penalty_coefficient', 1e3)
-        return payload_fraction + penalty_coeff * penalty
+        return -self.objective_with_penalty(x)  # Negative because Basin Hopping minimizes
         
     def solve(self, initial_guess, bounds):
-        """Solve using Basin Hopping."""
+        """Solve using Basin Hopping.
+        
+        Args:
+            initial_guess: Initial solution guess
+            bounds: List of (min, max) bounds for each variable
+            
+        Returns:
+            dict: Optimization results
+        """
         try:
+            logger.info("Starting Basin Hopping optimization...")
+            
             # Get solver parameters
             n_iter = self.solver_specific.get('n_iterations', 100)
             T = self.solver_specific.get('temperature', 1.0)
@@ -47,40 +49,35 @@ class BasinHoppingOptimizer(BaseSolver):
                 T=T,
                 stepsize=stepsize,
                 interval=interval,
-                minimizer_kwargs=minimizer_kwargs
+                minimizer_kwargs=minimizer_kwargs,
+                seed=42
             )
             
-            # Process results
-            success = result.lowest_optimization_result.success
-            message = result.message
-            x = result.x
-            n_evals = result.nfev
-            
-            # Calculate final payload fraction
-            payload_fraction = self.calculate_fitness(x)
-            
-            # Calculate stage information
-            stage_ratios, stage_info = calculate_stage_ratios(
-                x, self.G0, self.ISP, self.EPSILON
-            )
-            
-            return {
-                'success': success,
-                'message': message,
-                'payload_fraction': payload_fraction,
-                'stages': stage_info,
-                'n_iterations': n_iter,
-                'n_function_evals': n_evals,
-                'n_local_mins': len(result.lowest_optimization_result)
-            }
+            if result.success:
+                x = result.x
+                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
+                payload_fraction = self.calculate_fitness(x)
+                
+                return {
+                    'success': True,
+                    'x': x.tolist(),
+                    'fun': float(-result.fun),  # Convert back to maximization
+                    'payload_fraction': float(payload_fraction),
+                    'stage_ratios': stage_ratios.tolist(),
+                    'mass_ratios': mass_ratios.tolist(),
+                    'stages': self.create_stage_results(x, stage_ratios),
+                    'n_iterations': result.nit,
+                    'n_function_evals': result.nfev
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f"Basin Hopping optimization failed: {result.message}"
+                }
             
         except Exception as e:
             logger.error(f"Error in Basin Hopping solver: {str(e)}")
             return {
                 'success': False,
-                'message': f"Error: {str(e)}",
-                'payload_fraction': 0.0,
-                'stages': [],
-                'n_iterations': 0,
-                'n_function_evals': 0
+                'message': f"Error in Basin Hopping solver: {str(e)}"
             }

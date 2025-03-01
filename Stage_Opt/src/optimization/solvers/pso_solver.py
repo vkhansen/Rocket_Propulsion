@@ -38,22 +38,29 @@ class ParticleSwarmOptimizer(BaseSolver):
         fitness = np.zeros(n_particles)
         
         for i in range(n_particles):
-            penalty = self.enforce_constraints(positions[i])
-            payload_fraction = self.calculate_fitness(positions[i])
-            penalty_coeff = self.solver_config.get('penalty_coefficient', 1e3)
-            fitness[i] = payload_fraction - penalty_coeff * penalty
+            fitness[i] = self.objective_with_penalty(positions[i])
             
         return fitness
         
     def solve(self, initial_guess, bounds):
-        """Solve using Particle Swarm Optimization."""
+        """Solve using Particle Swarm Optimization.
+        
+        Args:
+            initial_guess: Initial solution guess
+            bounds: List of (min, max) bounds for each variable
+            
+        Returns:
+            dict: Optimization results
+        """
         try:
+            logger.info("Starting PSO optimization...")
+            
             # Get solver parameters
             n_particles = self.solver_specific.get('n_particles', 50)
             n_iterations = self.solver_specific.get('n_iterations', 100)
-            w = self.solver_specific.get('w', 0.7)  # Inertia weight
-            c1 = self.solver_specific.get('c1', 1.5)  # Cognitive parameter
-            c2 = self.solver_specific.get('c2', 1.5)  # Social parameter
+            w = self.solver_specific.get('inertia_weight', 0.7)
+            c1 = self.solver_specific.get('cognitive_coeff', 1.5)
+            c2 = self.solver_specific.get('social_coeff', 1.5)
             
             # Initialize swarm
             positions, velocities = self._initialize_swarm(n_particles, bounds)
@@ -61,71 +68,63 @@ class ParticleSwarmOptimizer(BaseSolver):
             # Initialize best positions and fitness
             fitness = self._evaluate_swarm(positions)
             personal_best_pos = positions.copy()
-            personal_best_fitness = fitness.copy()
+            personal_best_fit = fitness.copy()
             
+            # Global best
             global_best_idx = np.argmax(fitness)
             global_best_pos = positions[global_best_idx].copy()
-            global_best_fitness = fitness[global_best_idx]
+            global_best_fit = fitness[global_best_idx]
             
-            n_dim = len(bounds)
-            n_evals = n_particles
-            
-            # Main PSO loop
+            # Optimization loop
             for iteration in range(n_iterations):
                 # Update velocities
-                r1 = np.random.random((n_particles, n_dim))
-                r2 = np.random.random((n_particles, n_dim))
-                
-                cognitive_velocity = c1 * r1 * (personal_best_pos - positions)
-                social_velocity = c2 * r2 * (global_best_pos - positions)
-                
-                velocities = w * velocities + cognitive_velocity + social_velocity
+                r1, r2 = np.random.rand(2, n_particles, len(bounds))
+                cognitive = c1 * r1 * (personal_best_pos - positions)
+                social = c2 * r2 * (global_best_pos - positions)
+                velocities = w * velocities + cognitive + social
                 
                 # Update positions
                 positions += velocities
                 
                 # Enforce bounds
-                for i in range(n_dim):
+                for i in range(len(bounds)):
                     positions[:, i] = np.clip(
                         positions[:, i], bounds[i][0], bounds[i][1]
                     )
-                    
+                
                 # Evaluate new positions
                 fitness = self._evaluate_swarm(positions)
-                n_evals += n_particles
                 
                 # Update personal bests
-                improved = fitness > personal_best_fitness
+                improved = fitness > personal_best_fit
                 personal_best_pos[improved] = positions[improved]
-                personal_best_fitness[improved] = fitness[improved]
+                personal_best_fit[improved] = fitness[improved]
                 
                 # Update global best
                 current_best = np.argmax(fitness)
-                if fitness[current_best] > global_best_fitness:
+                if fitness[current_best] > global_best_fit:
                     global_best_pos = positions[current_best].copy()
-                    global_best_fitness = fitness[current_best]
-                    
-            # Calculate final results
-            stage_ratios, stage_info = calculate_stage_ratios(
-                global_best_pos, self.G0, self.ISP, self.EPSILON
-            )
+                    global_best_fit = fitness[current_best]
+            
+            # Process results
+            stage_ratios, mass_ratios = self.calculate_stage_ratios(global_best_pos)
+            payload_fraction = self.calculate_fitness(global_best_pos)
             
             return {
                 'success': True,
-                'message': "Optimization completed",
-                'payload_fraction': global_best_fitness,
-                'stages': stage_info,
+                'x': global_best_pos.tolist(),
+                'fun': float(-global_best_fit),  # Convert maximization to minimization
+                'payload_fraction': float(payload_fraction),
+                'stage_ratios': stage_ratios.tolist(),
+                'mass_ratios': mass_ratios.tolist(),
+                'stages': self.create_stage_results(global_best_pos, stage_ratios),
                 'n_iterations': n_iterations,
-                'n_function_evals': n_evals
+                'n_function_evals': n_iterations * n_particles
             }
             
         except Exception as e:
             logger.error(f"Error in PSO solver: {str(e)}")
             return {
                 'success': False,
-                'message': f"Error: {str(e)}",
-                'payload_fraction': 0.0,
-                'stages': [],
-                'n_iterations': 0,
-                'n_function_evals': 0
+                'message': f"Error in PSO solver: {str(e)}"
             }
