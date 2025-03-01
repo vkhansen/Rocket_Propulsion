@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T11:31:21.382764",
+    "timestamp": "2025-03-01T11:40:15.346218",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -105,8 +105,8 @@
                 8.221016389756423
             ],
             "iterations": 100,
-            "function_evaluations": 5000,
-            "execution_time": 0.0
+            "function_evaluations": 5050,
+            "execution_time": 0.048497676849365234
         },
         "DifferentialEvolutionSolver": {
             "success": true,
@@ -121,7 +121,7 @@
             ],
             "iterations": 21,
             "function_evaluations": 886,
-            "execution_time": 0.0
+            "execution_time": 0.6121561527252197
         },
         "BasinHoppingOptimizer": {
             "success": true,
@@ -136,7 +136,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 528,
-            "execution_time": 0.0
+            "execution_time": 0.06603622436523438
         }
     }
 }

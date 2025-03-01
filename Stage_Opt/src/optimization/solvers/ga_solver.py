@@ -1,7 +1,11 @@
 """Genetic Algorithm solver implementation."""
 import numpy as np
+import time
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.problem import Problem
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
 from .base_solver import BaseSolver
 from ...utils.config import logger
@@ -13,7 +17,7 @@ class RocketStageProblem(Problem):
         super().__init__(
             n_var=n_var,
             n_obj=1,
-            n_constr=0,
+            n_constr=1,  # Add constraint
             xl=np.array([b[0] for b in bounds]),
             xu=np.array([b[1] for b in bounds])
         )
@@ -21,8 +25,22 @@ class RocketStageProblem(Problem):
         
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate solutions."""
-        f = np.array([self.solver.objective_with_penalty(xi) for xi in x])
+        # Evaluate each solution
+        f = np.zeros((x.shape[0], 1))
+        g = np.zeros((x.shape[0], 1))  # Constraints
+        
+        for i in range(x.shape[0]):
+            # Calculate objective (negative since pymoo minimizes)
+            f[i, 0] = -self.solver.objective_with_penalty(x[i])
+            
+            # Calculate constraint violation
+            stage_ratios, _ = self.solver.calculate_stage_ratios(x[i])
+            delta_v = self.solver.calculate_delta_v(stage_ratios)
+            total_dv = np.sum(delta_v)
+            g[i, 0] = total_dv - self.solver.problem_params.get('total_delta_v', 9000)
+        
         out["F"] = f
+        out["G"] = g
 
 class GeneticAlgorithmSolver(BaseSolver):
     """Genetic Algorithm solver implementation."""
@@ -44,17 +62,31 @@ class GeneticAlgorithmSolver(BaseSolver):
         """
         try:
             logger.info("Starting GA optimization...")
+            start_time = time.time()
             
             # Get solver parameters
-            pop_size = self.solver_specific.get('population_size', 100)
+            pop_size = self.solver_specific.get('pop_size', 100)
             n_gen = self.solver_specific.get('n_generations', 100)
+            
+            # Get mutation and crossover parameters
+            mutation_params = self.solver_specific.get('mutation', {})
+            crossover_params = self.solver_specific.get('crossover', {})
             
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
             
-            # Initialize algorithm
+            # Initialize algorithm with specific operators
             algorithm = GA(
                 pop_size=pop_size,
+                selection=TournamentSelection(pressure=self.solver_specific.get('tournament_size', 3)),
+                crossover=SBX(
+                    prob=crossover_params.get('prob', 0.9),
+                    eta=crossover_params.get('eta', 15)
+                ),
+                mutation=PM(
+                    prob=mutation_params.get('prob', 0.1),
+                    eta=mutation_params.get('eta', 20)
+                ),
                 eliminate_duplicates=True
             )
             
@@ -67,32 +99,28 @@ class GeneticAlgorithmSolver(BaseSolver):
                 verbose=False
             )
             
-            # Process results
+            execution_time = time.time() - start_time
+            
             if result.success:
-                x = result.X
-                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
-                payload_fraction = self.calculate_fitness(x)
-                
-                return {
-                    'success': True,
-                    'x': x.tolist(),
-                    'fun': float(result.F[0]),
-                    'payload_fraction': float(payload_fraction),
-                    'stage_ratios': stage_ratios.tolist(),
-                    'mass_ratios': mass_ratios.tolist(),
-                    'stages': self.create_stage_results(x, stage_ratios),
-                    'n_iterations': result.algorithm.n_iter,
-                    'n_function_evals': result.algorithm.evaluator.n_eval
-                }
+                return self.process_results(
+                    result.X,
+                    success=True,
+                    n_iter=result.algorithm.n_iter,
+                    n_evals=result.algorithm.evaluator.n_eval,
+                    time=execution_time
+                )
             else:
-                return {
-                    'success': False,
-                    'message': "GA optimization failed to converge"
-                }
+                return self.process_results(
+                    np.zeros_like(initial_guess),
+                    success=False,
+                    message="GA optimization failed to converge",
+                    time=execution_time
+                )
             
         except Exception as e:
             logger.error(f"Error in GA solver: {str(e)}")
-            return {
-                'success': False,
-                'message': f"Error in GA solver: {str(e)}"
-            }
+            return self.process_results(
+                np.zeros_like(initial_guess),
+                success=False,
+                message=f"Error in GA solver: {str(e)}"
+            )

@@ -1,70 +1,96 @@
 """Adaptive Genetic Algorithm solver implementation."""
 import numpy as np
+import time
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.callback import Callback
+from pymoo.core.problem import Problem
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
-from .ga_solver import RocketStageProblem
 from .base_solver import BaseSolver
 from ...utils.config import logger
 
 class AdaptiveCallback(Callback):
-    """Callback for adaptive parameter tuning."""
+    """Callback for adaptive population size and operator parameters."""
     
     def __init__(self, solver):
         super().__init__()
         self.solver = solver
-        self.last_best = float('-inf')
-        self.stall_count = 0
-        self.adaptation_interval = 5  # Only adapt every N generations
-        self.generation_counter = 0
+        self.stagnation_counter = 0
+        self.best_fitness = -np.inf
+        self.diversity_history = []
+        
+    def calculate_diversity(self, pop):
+        """Calculate population diversity."""
+        X = pop.get("X")
+        return np.mean(np.std(X, axis=0))
         
     def notify(self, algorithm):
-        """Called after each generation."""
-        try:
-            # Only adapt parameters periodically
-            self.generation_counter += 1
-            if self.generation_counter % self.adaptation_interval != 0:
-                return
-                
-            # Get current best fitness
-            if algorithm.opt is None:
-                return
-                
-            curr_best = -float(algorithm.opt.get("F")[0])  # Negative because we minimize
-            
-            # Check for improvement
-            if curr_best > self.last_best:
-                # Progress is good, reduce exploration
-                self.solver.curr_mutation_rate = max(
-                    self.solver.min_mutation_rate,
-                    self.solver.curr_mutation_rate - self.solver.adaptation_rate
+        """Adapt parameters based on optimization progress."""
+        # Get current best fitness
+        current_best = -float(algorithm.opt.get("F")[0])
+        
+        # Calculate diversity
+        diversity = self.calculate_diversity(algorithm.pop)
+        self.diversity_history.append(diversity)
+        
+        # Check for improvement
+        if current_best > self.best_fitness:
+            self.best_fitness = current_best
+            self.stagnation_counter = 0
+        else:
+            self.stagnation_counter += 1
+        
+        # Adapt population size
+        if self.stagnation_counter > 5:
+            algorithm.pop_size = min(int(algorithm.pop_size * 1.5), 500)
+            self.stagnation_counter = 0
+        
+        # Adapt operator parameters based on diversity
+        if len(self.diversity_history) > 2:
+            if diversity < np.mean(self.diversity_history[-3:]):
+                # Increase mutation probability to promote exploration
+                algorithm.mating.mutation.prob = min(
+                    algorithm.mating.mutation.prob * 1.2, 0.4
                 )
-                self.solver.curr_crossover_rate = min(
-                    self.solver.max_crossover_rate,
-                    self.solver.curr_crossover_rate + self.solver.adaptation_rate
-                )
-                self.stall_count = 0
             else:
-                # No improvement, increase exploration
-                self.solver.curr_mutation_rate = min(
-                    self.solver.max_mutation_rate,
-                    self.solver.curr_mutation_rate + self.solver.adaptation_rate
+                # Decrease mutation probability to promote exploitation
+                algorithm.mating.mutation.prob = max(
+                    algorithm.mating.mutation.prob * 0.8, 0.1
                 )
-                self.solver.curr_crossover_rate = max(
-                    self.solver.min_crossover_rate,
-                    self.solver.curr_crossover_rate - self.solver.adaptation_rate
-                )
-                self.stall_count += 1
+
+class RocketStageProblem(Problem):
+    """Problem definition for pymoo GA."""
+    
+    def __init__(self, solver, n_var, bounds):
+        super().__init__(
+            n_var=n_var,
+            n_obj=1,
+            n_constr=1,
+            xl=np.array([b[0] for b in bounds]),
+            xu=np.array([b[1] for b in bounds])
+        )
+        self.solver = solver
+        
+    def _evaluate(self, x, out, *args, **kwargs):
+        """Evaluate solutions."""
+        # Evaluate each solution
+        f = np.zeros((x.shape[0], 1))
+        g = np.zeros((x.shape[0], 1))  # Constraints
+        
+        for i in range(x.shape[0]):
+            # Calculate objective (negative since pymoo minimizes)
+            f[i, 0] = -self.solver.objective_with_penalty(x[i])
             
-            # Update algorithm parameters
-            algorithm.prob_mut = self.solver.curr_mutation_rate
-            algorithm.prob_cx = self.solver.curr_crossover_rate
-            
-            # Update last best
-            self.last_best = curr_best
-            
-        except Exception as e:
-            logger.error(f"Error in adaptive callback: {str(e)}")
+            # Calculate constraint violation
+            stage_ratios, _ = self.solver.calculate_stage_ratios(x[i])
+            delta_v = self.solver.calculate_delta_v(stage_ratios)
+            total_dv = np.sum(delta_v)
+            g[i, 0] = total_dv - self.solver.problem_params.get('total_delta_v', 9000)
+        
+        out["F"] = f
+        out["G"] = g
 
 class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     """Adaptive Genetic Algorithm solver implementation."""
@@ -73,19 +99,6 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         """Initialize Adaptive GA solver."""
         super().__init__(config, problem_params)
         self.solver_specific = self.solver_config.get('solver_specific', {})
-        
-        # Initialize adaptive parameters
-        self.initial_mutation_rate = self.solver_specific.get('initial_mutation_rate', 0.1)
-        self.initial_crossover_rate = self.solver_specific.get('initial_crossover_rate', 0.8)
-        self.min_mutation_rate = self.solver_specific.get('min_mutation_rate', 0.05)
-        self.max_mutation_rate = self.solver_specific.get('max_mutation_rate', 0.3)
-        self.min_crossover_rate = self.solver_specific.get('min_crossover_rate', 0.6)
-        self.max_crossover_rate = self.solver_specific.get('max_crossover_rate', 0.9)
-        self.adaptation_rate = self.solver_specific.get('adaptation_rate', 0.05)
-        
-        # Current rates
-        self.curr_mutation_rate = self.initial_mutation_rate
-        self.curr_crossover_rate = self.initial_crossover_rate
         
     def solve(self, initial_guess, bounds):
         """Solve using Adaptive Genetic Algorithm.
@@ -99,23 +112,35 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         """
         try:
             logger.info("Starting Adaptive GA optimization...")
+            start_time = time.time()
             
             # Get solver parameters
-            pop_size = self.solver_specific.get('population_size', 100)
+            pop_size = self.solver_specific.get('pop_size', 100)
             n_gen = self.solver_specific.get('n_generations', 100)
+            
+            # Get mutation and crossover parameters
+            mutation_params = self.solver_specific.get('mutation', {})
+            crossover_params = self.solver_specific.get('crossover', {})
             
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
             
-            # Initialize algorithm with adaptive parameters
+            # Initialize algorithm with specific operators
             algorithm = GA(
                 pop_size=pop_size,
-                prob_mut=self.curr_mutation_rate,
-                prob_cx=self.curr_crossover_rate,
+                selection=TournamentSelection(pressure=self.solver_specific.get('tournament_size', 3)),
+                crossover=SBX(
+                    prob=crossover_params.get('prob', 0.9),
+                    eta=crossover_params.get('eta', 15)
+                ),
+                mutation=PM(
+                    prob=mutation_params.get('prob', 0.1),
+                    eta=mutation_params.get('eta', 20)
+                ),
                 eliminate_duplicates=True
             )
             
-            # Add adaptive callback
+            # Create adaptive callback
             callback = AdaptiveCallback(self)
             
             # Run optimization
@@ -128,34 +153,28 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
                 verbose=False
             )
             
-            # Process results
+            execution_time = time.time() - start_time
+            
             if result.success:
-                x = result.X
-                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
-                payload_fraction = self.calculate_fitness(x)
-                
-                return {
-                    'success': True,
-                    'x': x.tolist(),
-                    'fun': float(result.F[0]),
-                    'payload_fraction': float(payload_fraction),
-                    'stage_ratios': stage_ratios.tolist(),
-                    'mass_ratios': mass_ratios.tolist(),
-                    'stages': self.create_stage_results(x, stage_ratios),
-                    'n_iterations': result.algorithm.n_iter,
-                    'n_function_evals': result.algorithm.evaluator.n_eval,
-                    'final_mutation_rate': self.curr_mutation_rate,
-                    'final_crossover_rate': self.curr_crossover_rate
-                }
+                return self.process_results(
+                    result.X,
+                    success=True,
+                    n_iter=result.algorithm.n_iter,
+                    n_evals=result.algorithm.evaluator.n_eval,
+                    time=execution_time
+                )
             else:
-                return {
-                    'success': False,
-                    'message': "Adaptive GA optimization failed to converge"
-                }
+                return self.process_results(
+                    np.zeros_like(initial_guess),
+                    success=False,
+                    message="Adaptive GA optimization failed to converge",
+                    time=execution_time
+                )
             
         except Exception as e:
             logger.error(f"Error in Adaptive GA solver: {str(e)}")
-            return {
-                'success': False,
-                'message': f"Error in Adaptive GA solver: {str(e)}"
-            }
+            return self.process_results(
+                np.zeros_like(initial_guess),
+                success=False,
+                message=f"Error in Adaptive GA solver: {str(e)}"
+            )
