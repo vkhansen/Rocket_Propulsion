@@ -30,6 +30,8 @@ class GeneticAlgorithmSolver(BaseSolver):
         """
         try:
             logger.info("Starting GA optimization...")
+            logger.debug(f"Initial guess: {initial_guess}")
+            logger.debug(f"Bounds: {bounds}")
             start_time = time.time()
             
             # Get solver parameters from config
@@ -39,6 +41,10 @@ class GeneticAlgorithmSolver(BaseSolver):
             tournament_size = ga_config.get('tournament_size', 3)
             crossover_prob = ga_config.get('crossover_prob', 0.9)
             mutation_prob = ga_config.get('mutation_prob', 0.1)
+            
+            logger.debug(f"GA parameters: pop_size={pop_size}, n_gen={n_gen}, "
+                      f"tournament_size={tournament_size}, crossover_prob={crossover_prob}, "
+                      f"mutation_prob={mutation_prob}")
             
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
@@ -71,22 +77,43 @@ class GeneticAlgorithmSolver(BaseSolver):
             )
             
             execution_time = time.time() - start_time
+            logger.debug(f"GA optimization completed in {execution_time:.2f} seconds")
             
-            if result.success:
-                return self.process_results(
-                    result.X,
-                    success=True,
-                    n_iter=result.algorithm.n_iter,
-                    n_evals=result.algorithm.evaluator.n_eval,
-                    time=execution_time
-                )
-            else:
+            # Check solution validity
+            if result.X is None:
+                logger.warning("GA optimization failed to find any solution")
                 return self.process_results(
                     np.zeros_like(initial_guess),
                     success=False,
-                    message="GA optimization failed to converge",
+                    message="GA optimization failed to find any solution",
                     time=execution_time
                 )
+                
+            # Check constraint violation
+            if result.CV is not None and float(result.CV.min()) > 1e-6:
+                logger.warning("GA optimization failed to find a feasible solution")
+                return self.process_results(
+                    np.zeros_like(initial_guess),
+                    success=False,
+                    message="GA optimization failed to find a feasible solution",
+                    time=execution_time
+                )
+            
+            # Get best solution
+            best_x = result.X
+            if isinstance(best_x, np.ndarray):
+                best_x = best_x.copy()  # Make a copy to avoid reference issues
+            else:
+                best_x = np.array(best_x)
+                
+            logger.info("Successfully completed GA optimization")
+            return self.process_results(
+                best_x,
+                success=True,
+                n_iter=result.algorithm.n_iter,
+                n_evals=result.algorithm.evaluator.n_eval,
+                time=execution_time
+            )
             
         except Exception as e:
             logger.error(f"Error in GA solver: {str(e)}")
