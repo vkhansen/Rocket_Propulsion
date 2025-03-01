@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T18:45:18.444976",
+    "timestamp": "2025-03-01T19:02:08.497817",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -87,7 +87,7 @@
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "tournament_comp() takes 2 positional arguments but 3 were given",
+            "message": "cannot reshape array of size 300 into shape (50,2)",
             "payload_fraction": 0.09912624071245398,
             "constraint_violation": 0.0,
             "execution_metrics": {
@@ -114,7 +114,7 @@
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "tournament_comp() takes 2 positional arguments but 3 were given",
+            "message": "cannot reshape array of size 300 into shape (50,2)",
             "payload_fraction": 0.09912624071245398,
             "constraint_violation": 0.0,
             "execution_metrics": {
@@ -142,7 +142,7 @@
         "ParticleSwarmOptimizer": {
             "success": true,
             "message": "PSO optimization completed",
-            "payload_fraction": 0.1479902768724123,
+            "payload_fraction": 0.15939244310638742,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
@@ -152,15 +152,15 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 0.0,
-                    "Lambda": 1.0,
+                    "delta_v": 9300.0,
+                    "Lambda": 44.347171487471634,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 9300.0,
-                    "Lambda": 8.221016389756423,
+                    "delta_v": 0.0,
+                    "Lambda": 1.0,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -174,7 +174,7 @@
             "execution_metrics": {
                 "iterations": 58,
                 "function_evaluations": 1978,
-                "execution_time": 0.5070786476135254
+                "execution_time": 0.5365033149719238
             },
             "stages": [
                 {
@@ -196,25 +196,25 @@
         "BasinHoppingOptimizer": {
             "success": true,
             "message": "['requested number of basinhopping iterations completed successfully']",
-            "payload_fraction": 0.09912838856997462,
-            "constraint_violation": 0.0,
+            "payload_fraction": 0.0991281042974833,
+            "constraint_violation": 4.1109160520136356e-10,
             "execution_metrics": {
                 "iterations": 100,
-                "function_evaluations": 3879,
+                "function_evaluations": 3954,
                 "execution_time": 0.0
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4651.7381585513895,
-                    "Lambda": 6.664088560110983,
+                    "delta_v": 4651.508741936092,
+                    "Lambda": 6.66346520388825,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4648.2618414486105,
-                    "Lambda": 2.8661027680430378,
+                    "delta_v": 4648.491258063497,
+                    "Lambda": 2.866251720060446,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }

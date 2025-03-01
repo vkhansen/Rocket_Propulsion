@@ -1,22 +1,15 @@
 """Adaptive Genetic Algorithm solver implementation."""
 import numpy as np
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.operators.mutation.pm import PM
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
 from ...utils.config import logger
-from .base_solver import BaseSolver
-from .pymoo_problem import RocketStageProblem
+from .base_ga_solver import BaseGASolver
 
-class AdaptiveGeneticAlgorithmSolver(BaseSolver):
+class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     """Adaptive Genetic Algorithm solver implementation."""
     
     def __init__(self, config, problem_params):
         """Initialize Adaptive GA solver."""
         super().__init__(config, problem_params)
-        self.solver_specific = self.solver_config.get('solver_specific', {})
         
         # Initialize adaptive parameters
         self.min_pop_size = int(self.solver_specific.get('min_pop_size', 50))
@@ -26,12 +19,10 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         self.improvement_threshold = float(self.solver_specific.get('improvement_threshold', 0.01))
         self.adaptation_interval = int(self.solver_specific.get('adaptation_interval', 10))
         
-        # Get solver parameters from config
-        self.initial_pop_size = int(self.solver_specific.get('initial_pop_size', 100))
-        self.max_generations = int(self.solver_specific.get('max_generations', 100))
-        self.initial_mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
-        self.initial_crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.9))
-        self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
+        # Override base parameters for initial values
+        self.pop_size = int(self.solver_specific.get('initial_pop_size', 100))
+        self.mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
+        self.crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.9))
         
         logger.debug(f"Initialized {self.name} with parameters: "
                     f"min_pop_size={self.min_pop_size}, max_pop_size={self.max_pop_size}, "
@@ -66,24 +57,9 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         try:
             logger.info("Starting Adaptive GA optimization...")
             
-            # Setup problem
-            n_var = len(initial_guess)
-            bounds = np.array(bounds)  # Convert bounds to numpy array
-            problem = RocketStageProblem(
-                solver=self,
-                n_var=n_var,
-                bounds=bounds
-            )
-            
-            # Setup algorithm
-            algorithm = GA(
-                pop_size=self.initial_pop_size,
-                sampling=FloatRandomSampling(),
-                crossover=SBX(prob=self.initial_crossover_rate, eta=30),
-                mutation=PM(prob=self.initial_mutation_rate, eta=30),
-                selection=TournamentSelection(pressure=self.tournament_size),
-                eliminate_duplicates=True
-            )
+            # Setup problem and algorithm
+            problem = self.create_problem(initial_guess, bounds)
+            algorithm = self.create_algorithm(pop_size=self.pop_size)
             
             # Initialize history
             history = []

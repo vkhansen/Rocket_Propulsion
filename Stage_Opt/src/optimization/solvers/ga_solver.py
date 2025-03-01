@@ -1,16 +1,9 @@
 """Genetic Algorithm solver implementation."""
-import numpy as np
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.operators.mutation.pm import PM
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
 from ...utils.config import logger
-from .base_solver import BaseSolver
-from .pymoo_problem import RocketStageProblem, objective_with_penalty
+from .base_ga_solver import BaseGASolver
 
-class GeneticAlgorithmSolver(BaseSolver):
+class GeneticAlgorithmSolver(BaseGASolver):
     """Genetic Algorithm solver implementation."""
     
     def __init__(self, config, problem_params):
@@ -18,42 +11,30 @@ class GeneticAlgorithmSolver(BaseSolver):
         super().__init__(config, problem_params)
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
+        # Get solver parameters from config
+        self.pop_size = int(self.solver_specific.get('pop_size', 100))
+        self.max_generations = int(self.solver_specific.get('max_generations', 100))
+        self.mutation_rate = float(self.solver_specific.get('mutation_rate', 0.1))
+        self.crossover_rate = float(self.solver_specific.get('crossover_rate', 0.9))
+        self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
+        
+        logger.debug(f"Initialized {self.name} with parameters: "
+                    f"pop_size={self.pop_size}, max_generations={self.max_generations}")
+
     def solve(self, initial_guess, bounds):
-        """Solve using genetic algorithm."""
+        """Solve using Genetic Algorithm."""
         try:
             logger.info("Starting GA optimization...")
             
-            # Setup problem
-            n_var = len(initial_guess)
-            bounds = np.array(bounds)  # Convert bounds to numpy array
-            problem = RocketStageProblem(
-                solver=self,
-                n_var=n_var,
-                bounds=bounds
-            )
-            
-            # Get solver parameters from config
-            pop_size = int(self.solver_specific.get('pop_size', 100))
-            n_gen = int(self.solver_specific.get('n_generations', 100))
-            crossover_prob = float(self.solver_specific.get('crossover_prob', 0.9))
-            mutation_prob = float(self.solver_specific.get('mutation_prob', 0.1))
-            tournament_size = int(self.solver_specific.get('tournament_size', 3))
-            
-            # Setup algorithm
-            algorithm = GA(
-                pop_size=pop_size,
-                sampling=FloatRandomSampling(),
-                crossover=SBX(prob=crossover_prob, eta=30),
-                mutation=PM(prob=mutation_prob, eta=30),
-                selection=TournamentSelection(pressure=tournament_size),
-                eliminate_duplicates=True
-            )
+            # Setup problem and algorithm
+            problem = self.create_problem(initial_guess, bounds)
+            algorithm = self.create_algorithm()
             
             # Run optimization
             res = minimize(
                 problem,
                 algorithm,
-                ('n_gen', n_gen),
+                ('n_gen', self.max_generations),
                 seed=1,
                 verbose=False
             )
