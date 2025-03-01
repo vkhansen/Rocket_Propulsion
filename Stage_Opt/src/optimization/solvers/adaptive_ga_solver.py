@@ -33,11 +33,55 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         self.mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
         self.crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.9))
         
+        # Initialize tracking variables
+        self.best_fitness_history = []
+        self.avg_fitness_history = []
+        self.diversity_history = []
+        self.adaptation_history = []
+        
         logger.debug(f"Initialized {self.name} with adaptive parameters: "
                     f"pop_size=[{self.min_pop_size}, {self.max_pop_size}], "
                     f"generations=[{self.min_generations}, {self.max_generations}], "
                     f"mutation_rate=[{self.min_mutation_rate}, {self.max_mutation_rate}], "
                     f"crossover_rate=[{self.min_crossover_rate}, {self.max_crossover_rate}]")
+    
+    def _log_generation_stats(self, algorithm):
+        """Log statistics for current generation."""
+        pop = algorithm.pop
+        fitness_values = np.array([ind.F[0] for ind in pop])
+        best_fitness = np.min(fitness_values)
+        avg_fitness = np.mean(fitness_values)
+        diversity = np.std(fitness_values)
+        
+        self.best_fitness_history.append(best_fitness)
+        self.avg_fitness_history.append(avg_fitness)
+        self.diversity_history.append(diversity)
+        
+        # Calculate improvement percentage
+        if len(self.best_fitness_history) > 1:
+            improvement = ((self.best_fitness_history[-2] - best_fitness) / 
+                         self.best_fitness_history[-2] * 100)
+        else:
+            improvement = 0.0
+            
+        logger.info(f"Generation {algorithm.n_gen}/{self.max_generations}:")
+        logger.info(f"  Best Fitness: {best_fitness:.6f}")
+        logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
+        logger.info(f"  Population Diversity: {diversity:.6f}")
+        logger.info(f"  Improvement: {improvement:+.2f}%")
+        logger.info(f"  Population Size: {algorithm.pop_size}")
+        logger.info(f"  Mutation Rate: {self.mutation_rate:.3f}")
+        logger.info(f"  Crossover Rate: {self.crossover_rate:.3f}")
+        
+        # Print convergence warning if diversity is too low
+        if diversity < 1e-6:
+            logger.warning("  Low population diversity detected - possible premature convergence")
+            
+        # Print stagnation warning if no improvement for many generations
+        if len(self.best_fitness_history) > 10:
+            recent_improvement = (self.best_fitness_history[-10] - best_fitness) / self.best_fitness_history[-10]
+            if abs(recent_improvement) < 1e-6:
+                logger.warning("  Optimization appears to be stagnating - will adapt parameters more aggressively")
     
     def adapt_parameters(self, algorithm):
         """Adapt algorithm parameters based on performance."""
@@ -57,6 +101,11 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         # Calculate improvement
         improvement = (self._prev_best - current_best) / self._prev_best if self._prev_best != 0 else 0
         self._prev_best = current_best
+        
+        # Store previous parameters for logging
+        prev_pop_size = algorithm.pop_size
+        prev_mutation_rate = self.mutation_rate
+        prev_crossover_rate = self.crossover_rate
         
         # Adjust population size based on improvement
         new_pop_size = algorithm.pop_size
@@ -89,14 +138,32 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             if hasattr(algorithm.mating, 'crossover'):
                 algorithm.mating.crossover.prob = self.crossover_rate
         
-        logger.debug(f"Adapted parameters - pop_size: {new_pop_size}, "
-                    f"mutation_rate: {self.mutation_rate:.3f}, "
-                    f"crossover_rate: {self.crossover_rate:.3f}")
+        # Log adaptation details
+        logger.info("\nParameter Adaptation:")
+        logger.info(f"  Improvement: {improvement:.6f}")
+        logger.info(f"  Population Size: {prev_pop_size} -> {new_pop_size}")
+        logger.info(f"  Mutation Rate: {prev_mutation_rate:.3f} -> {self.mutation_rate:.3f}")
+        logger.info(f"  Crossover Rate: {prev_crossover_rate:.3f} -> {self.crossover_rate:.3f}")
+        
+        # Store adaptation history
+        self.adaptation_history.append({
+            'generation': algorithm.n_gen,
+            'improvement': improvement,
+            'pop_size_change': new_pop_size - prev_pop_size,
+            'mutation_rate_change': self.mutation_rate - prev_mutation_rate,
+            'crossover_rate_change': self.crossover_rate - prev_crossover_rate
+        })
     
     def solve(self, initial_guess, bounds):
         """Solve using Adaptive Genetic Algorithm."""
         try:
-            logger.info("Starting Adaptive GA optimization...")
+            logger.info(f"\nStarting {self.name} optimization...")
+            logger.info(f"Initial population size: {self.pop_size}")
+            logger.info(f"Maximum generations: {self.max_generations}")
+            logger.info(f"Initial mutation rate: {self.mutation_rate}")
+            logger.info(f"Initial crossover rate: {self.crossover_rate}")
+            logger.info(f"Adaptation interval: {self.adaptation_interval}")
+            logger.info("=" * 50)
             
             # Setup problem and algorithm
             problem = self.create_problem(initial_guess, bounds)
@@ -104,6 +171,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             
             def callback(algorithm):
                 """Callback to track progress and adapt parameters."""
+                self._log_generation_stats(algorithm)
                 if algorithm.n_gen > 0 and algorithm.n_gen % self.adaptation_interval == 0:
                     self.adapt_parameters(algorithm)
             
@@ -123,6 +191,26 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             x = res.X if hasattr(res, 'X') else initial_guess
             n_gen = res.algorithm.n_gen if hasattr(res.algorithm, 'n_gen') else 0
             n_eval = res.algorithm.evaluator.n_eval if hasattr(res.algorithm, 'evaluator') else 0
+            
+            # Log final statistics and adaptation summary
+            logger.info("\nOptimization completed:")
+            logger.info(f"  Number of generations: {n_gen}")
+            logger.info(f"  Number of evaluations: {n_eval}")
+            logger.info(f"  Final best fitness: {res.F[0]:.6f}")
+            logger.info(f"  Success: {success}")
+            if message:
+                logger.info(f"  Message: {message}")
+            
+            logger.info("\nParameter Adaptation Summary:")
+            logger.info(f"  Number of adaptations: {len(self.adaptation_history)}")
+            if self.adaptation_history:
+                avg_pop_change = np.mean([h['pop_size_change'] for h in self.adaptation_history])
+                avg_mut_change = np.mean([h['mutation_rate_change'] for h in self.adaptation_history])
+                avg_cross_change = np.mean([h['crossover_rate_change'] for h in self.adaptation_history])
+                logger.info(f"  Average population size change: {avg_pop_change:.1f}")
+                logger.info(f"  Average mutation rate change: {avg_mut_change:.3f}")
+                logger.info(f"  Average crossover rate change: {avg_cross_change:.3f}")
+            logger.info("=" * 50)
             
             return self.process_results(
                 x=x,

@@ -6,16 +6,7 @@ from ..objective import objective_with_penalty
 from ..cache import OptimizationCache
 
 def tournament_comp(pop, P, **kwargs):
-    """Tournament selection comparator.
-    
-    Args:
-        pop: Population object containing individuals
-        P: Matrix of shape (n_tournaments, 2) containing indices of individuals to compare
-        kwargs: Additional keyword arguments passed by pymoo
-        
-    Returns:
-        S: Array containing selected individual indices
-    """
+    """Tournament selection comparator."""
     S = np.full(P.shape[0], np.nan)
 
     for i in range(P.shape[0]):
@@ -48,13 +39,7 @@ class RocketStageProblem(Problem):
     """Problem definition for rocket stage optimization."""
     
     def __init__(self, solver, n_var, bounds):
-        """Initialize problem.
-        
-        Args:
-            solver: Solver instance containing problem parameters
-            n_var: Number of variables (stages)
-            bounds: Variable bounds as numpy array with shape (n_var, 2)
-        """
+        """Initialize problem."""
         bounds = np.array(bounds)  # Convert to numpy array if not already
         super().__init__(
             n_var=n_var,
@@ -72,6 +57,12 @@ class RocketStageProblem(Problem):
             max_size=10000
         )
         
+        # Initialize evaluation counters
+        self.total_evals = 0
+        self.cache_hits = 0
+        self.best_fitness = float('inf')
+        self.worst_fitness = float('-inf')
+        
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate objective function with caching."""
         try:
@@ -84,6 +75,7 @@ class RocketStageProblem(Problem):
                 cached_value = self.cache.get(x_tuple)
                 if cached_value is not None:
                     f[i] = cached_value
+                    self.cache_hits += 1
                 else:
                     # Calculate and cache if not found
                     f[i] = objective_with_penalty(
@@ -94,6 +86,22 @@ class RocketStageProblem(Problem):
                         TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V
                     )
                     self.cache.set(x_tuple, f[i])
+                
+                # Update statistics
+                self.best_fitness = min(self.best_fitness, f[i])
+                self.worst_fitness = max(self.worst_fitness, f[i])
+            
+            self.total_evals += len(x)
+            
+            # Log evaluation statistics periodically
+            if self.total_evals % 100 == 0:
+                cache_rate = (self.cache_hits / self.total_evals) * 100
+                logger.debug(f"Problem Statistics:")
+                logger.debug(f"  Total Evaluations: {self.total_evals}")
+                logger.debug(f"  Cache Hit Rate: {cache_rate:.1f}%")
+                logger.debug(f"  Best Fitness: {self.best_fitness:.6f}")
+                logger.debug(f"  Worst Fitness: {self.worst_fitness:.6f}")
+                logger.debug(f"  Fitness Range: {self.worst_fitness - self.best_fitness:.6f}")
             
             out["F"] = f
             
