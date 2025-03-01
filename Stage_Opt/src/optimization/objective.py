@@ -130,7 +130,8 @@ class RocketStageOptimizer:
         parallel_solver = ParallelSolver(parallel_config)
         
         try:
-            # Run all solvers in parallel
+            # Run all solvers in parallel and return results directly
+            # The parallel solver now returns results in the format expected by reporting
             results = parallel_solver.solve(self.solvers, initial_guess, bounds)
             
             if not results:

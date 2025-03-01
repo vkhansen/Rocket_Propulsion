@@ -115,21 +115,30 @@ class ParallelSolver:
                 for future in done:
                     try:
                         solver_name, results = future.result(timeout=1)  # Short timeout for result collection
-                        all_results[solver_name] = results
+                        all_results[solver_name] = {
+                            'method': solver_name,  # Add method name for plotting
+                            'success': results.get('success', False),
+                            'message': results.get('message', ''),
+                            'payload_fraction': float(results.get('payload_fraction', 0.0)),
+                            'constraint_violation': float(results.get('constraint_violation', float('inf'))),
+                            'execution_time': float(results.get('execution_metrics', {}).get('execution_time', 0.0)),
+                            'n_iterations': int(results.get('execution_metrics', {}).get('iterations', 0)),
+                            'n_function_evals': int(results.get('execution_metrics', {}).get('function_evaluations', 0)),
+                            'stages': results.get('stages', [])
+                        }
                     except Exception as e:
                         solver = future_to_solver[future]
                         solver_name = solver.__class__.__name__
                         logger.error(f"Error collecting results from {solver_name}: {str(e)}")
                         all_results[solver_name] = {
+                            'method': solver_name,
                             'success': False,
                             'message': f"Error collecting results: {str(e)}",
                             'payload_fraction': 0.0,
                             'constraint_violation': float('inf'),
-                            'execution_metrics': {
-                                'execution_time': 0.0,
-                                'iterations': 0,
-                                'function_evaluations': 0
-                            },
+                            'execution_time': 0.0,
+                            'n_iterations': 0,
+                            'n_function_evals': 0,
                             'stages': []
                         }
                 
@@ -139,15 +148,14 @@ class ParallelSolver:
                     solver = future_to_solver[future]
                     solver_name = solver.__class__.__name__
                     all_results[solver_name] = {
+                        'method': solver_name,
                         'success': False,
                         'message': "Solver timeout",
                         'payload_fraction': 0.0,
                         'constraint_violation': float('inf'),
-                        'execution_metrics': {
-                            'execution_time': 0.0,
-                            'iterations': 0,
-                            'function_evaluations': 0
-                        },
+                        'execution_time': 0.0,
+                        'n_iterations': 0,
+                        'n_function_evals': 0,
                         'stages': []
                     }
                     
@@ -158,15 +166,14 @@ class ParallelSolver:
                 solver_name = solver.__class__.__name__
                 if solver_name not in all_results:
                     all_results[solver_name] = {
+                        'method': solver_name,
                         'success': False,
                         'message': f"Parallel execution error: {str(e)}",
                         'payload_fraction': 0.0,
                         'constraint_violation': float('inf'),
-                        'execution_metrics': {
-                            'execution_time': 0.0,
-                            'iterations': 0,
-                            'function_evaluations': 0
-                        },
+                        'execution_time': 0.0,
+                        'n_iterations': 0,
+                        'n_function_evals': 0,
                         'stages': []
                     }
                     
@@ -178,7 +185,7 @@ class ParallelSolver:
         for solver_name, result in all_results.items():
             if result['success']:
                 payload = result['payload_fraction']
-                violation = result.get('constraint_violation', float('inf'))
+                violation = result['constraint_violation']
                 
                 # Only consider solutions with acceptable constraint violations
                 if violation < 1e-3 and payload > best_payload:
@@ -193,9 +200,4 @@ class ParallelSolver:
         else:
             logger.warning("No valid solution found by any solver")
                 
-        return {
-            'all_results': all_results,
-            'best_solver': best_solver,
-            'best_result': best_result,
-            'total_execution_time': total_time
-        }
+        return all_results  # Return just the results dictionary to match expected format
