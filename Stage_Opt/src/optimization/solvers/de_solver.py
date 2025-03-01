@@ -1,5 +1,6 @@
 """Differential Evolution solver implementation."""
 import numpy as np
+import time
 from scipy.optimize import differential_evolution
 from .base_solver import BaseSolver
 from ...utils.config import logger
@@ -28,6 +29,7 @@ class DifferentialEvolutionSolver(BaseSolver):
         """
         try:
             logger.info("Starting DE optimization...")
+            start_time = time.time()
             
             # Get solver parameters
             pop_size = self.solver_specific.get('population_size', 20)
@@ -50,31 +52,20 @@ class DifferentialEvolutionSolver(BaseSolver):
                 workers=1  # For reproducibility
             )
             
-            if result.success:
-                x = result.x
-                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
-                payload_fraction = self.calculate_fitness(x)
-                
-                return {
-                    'success': True,
-                    'x': x.tolist(),
-                    'fun': float(-result.fun),  # Convert back to maximization
-                    'payload_fraction': float(payload_fraction),
-                    'stage_ratios': stage_ratios.tolist(),
-                    'mass_ratios': mass_ratios.tolist(),
-                    'stages': self.create_stage_results(x, stage_ratios),
-                    'n_iterations': result.nit,
-                    'n_function_evals': result.nfev
-                }
-            else:
-                return {
-                    'success': False,
-                    'message': f"DE optimization failed: {result.message}"
-                }
+            execution_time = time.time() - start_time
+            return self.process_results(
+                result.x,
+                success=result.success,
+                message=result.message,
+                n_iter=result.nit,
+                n_evals=result.nfev,
+                time=execution_time
+            )
             
         except Exception as e:
             logger.error(f"Error in DE solver: {str(e)}")
-            return {
-                'success': False,
-                'message': f"Error in DE solver: {str(e)}"
-            }
+            return self.process_results(
+                np.zeros_like(initial_guess),
+                success=False,
+                message=f"Error in DE solver: {str(e)}"
+            )

@@ -76,6 +76,20 @@ class BaseSolver(ABC):
             logger.error(f"Error calculating stage ratios: {e}")
             return np.ones_like(x), np.ones_like(x)
     
+    def calculate_delta_v(self, stage_ratios):
+        """Calculate delta-V for each stage.
+        
+        Args:
+            stage_ratios (np.ndarray): Stage mass ratios (lambda)
+            
+        Returns:
+            np.ndarray: Delta-V values for each stage
+        """
+        return np.array([
+            self.G0 * isp * np.log(ratio)
+            for isp, ratio in zip(self.ISP, stage_ratios)
+        ])
+        
     def calculate_fitness(self, x):
         """Calculate fitness (payload fraction) for a solution."""
         try:
@@ -113,6 +127,46 @@ class BaseSolver(ABC):
             logger.error(f"Error in objective calculation: {e}")
             return 1e6
     
+    def process_results(self, x, success, message="", n_iter=0, n_evals=0, time=0.0):
+        """Process optimization results into a standardized format.
+        
+        Args:
+            x (np.ndarray): Solution vector
+            success (bool): Whether optimization was successful
+            message (str): Optional message from optimizer
+            n_iter (int): Number of iterations
+            n_evals (int): Number of function evaluations
+            time (float): Execution time in seconds
+            
+        Returns:
+            dict: Standardized results dictionary
+        """
+        if success:
+            stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
+            payload_fraction = self.calculate_fitness(x)
+            delta_v = self.calculate_delta_v(stage_ratios)
+            
+            return {
+                'success': True,
+                'x': x.tolist(),
+                'fun': float(self.objective_with_penalty(x)),
+                'payload_fraction': float(payload_fraction),
+                'stage_ratios': stage_ratios.tolist(),
+                'mass_ratios': mass_ratios.tolist(),
+                'stages': self.create_stage_results(x, stage_ratios),
+                'dv': delta_v.tolist(),
+                'method': self.__class__.__name__,
+                'n_iterations': n_iter,
+                'n_function_evals': n_evals,
+                'execution_time': time
+            }
+        else:
+            return {
+                'success': False,
+                'message': message,
+                'method': self.__class__.__name__
+            }
+        
     @abstractmethod
     def solve(self, initial_guess, bounds):
         """Solve the optimization problem.

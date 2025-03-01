@@ -1,5 +1,6 @@
 """Particle Swarm Optimization solver implementation."""
 import numpy as np
+import time
 from .base_solver import BaseSolver
 from ...utils.config import logger
 
@@ -54,6 +55,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         """
         try:
             logger.info("Starting PSO optimization...")
+            start_time = time.time()
             
             # Get solver parameters
             n_particles = self.solver_specific.get('n_particles', 50)
@@ -76,6 +78,7 @@ class ParticleSwarmOptimizer(BaseSolver):
             global_best_fit = fitness[global_best_idx]
             
             # Optimization loop
+            n_evals = n_particles
             for iteration in range(n_iterations):
                 # Update velocities
                 r1, r2 = np.random.rand(2, n_particles, len(bounds))
@@ -94,6 +97,7 @@ class ParticleSwarmOptimizer(BaseSolver):
                 
                 # Evaluate new positions
                 fitness = self._evaluate_swarm(positions)
+                n_evals += n_particles
                 
                 # Update personal bests
                 improved = fitness > personal_best_fit
@@ -106,25 +110,19 @@ class ParticleSwarmOptimizer(BaseSolver):
                     global_best_pos = positions[current_best].copy()
                     global_best_fit = fitness[current_best]
             
-            # Process results
-            stage_ratios, mass_ratios = self.calculate_stage_ratios(global_best_pos)
-            payload_fraction = self.calculate_fitness(global_best_pos)
-            
-            return {
-                'success': True,
-                'x': global_best_pos.tolist(),
-                'fun': float(-global_best_fit),  # Convert maximization to minimization
-                'payload_fraction': float(payload_fraction),
-                'stage_ratios': stage_ratios.tolist(),
-                'mass_ratios': mass_ratios.tolist(),
-                'stages': self.create_stage_results(global_best_pos, stage_ratios),
-                'n_iterations': n_iterations,
-                'n_function_evals': n_iterations * n_particles
-            }
+            execution_time = time.time() - start_time
+            return self.process_results(
+                global_best_pos,
+                success=True,
+                n_iter=n_iterations,
+                n_evals=n_evals,
+                time=execution_time
+            )
             
         except Exception as e:
             logger.error(f"Error in PSO solver: {str(e)}")
-            return {
-                'success': False,
-                'message': f"Error in PSO solver: {str(e)}"
-            }
+            return self.process_results(
+                np.zeros_like(initial_guess),
+                success=False,
+                message=f"Error in PSO solver: {str(e)}"
+            )

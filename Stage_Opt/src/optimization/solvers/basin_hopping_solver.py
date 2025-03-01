@@ -1,5 +1,6 @@
 """Basin Hopping solver implementation."""
 import numpy as np
+import time
 from scipy.optimize import basinhopping
 from .base_solver import BaseSolver
 from ...utils.config import logger
@@ -28,6 +29,7 @@ class BasinHoppingOptimizer(BaseSolver):
         """
         try:
             logger.info("Starting Basin Hopping optimization...")
+            start_time = time.time()
             
             # Get solver parameters
             n_iter = self.solver_specific.get('n_iterations', 100)
@@ -53,31 +55,20 @@ class BasinHoppingOptimizer(BaseSolver):
                 seed=42
             )
             
-            if result.success:
-                x = result.x
-                stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
-                payload_fraction = self.calculate_fitness(x)
-                
-                return {
-                    'success': True,
-                    'x': x.tolist(),
-                    'fun': float(-result.fun),  # Convert back to maximization
-                    'payload_fraction': float(payload_fraction),
-                    'stage_ratios': stage_ratios.tolist(),
-                    'mass_ratios': mass_ratios.tolist(),
-                    'stages': self.create_stage_results(x, stage_ratios),
-                    'n_iterations': result.nit,
-                    'n_function_evals': result.nfev
-                }
-            else:
-                return {
-                    'success': False,
-                    'message': f"Basin Hopping optimization failed: {result.message}"
-                }
+            execution_time = time.time() - start_time
+            return self.process_results(
+                result.x,
+                success=result.lowest_optimization_result.success,
+                message=result.message,
+                n_iter=n_iter,
+                n_evals=result.nfev,
+                time=execution_time
+            )
             
         except Exception as e:
             logger.error(f"Error in Basin Hopping solver: {str(e)}")
-            return {
-                'success': False,
-                'message': f"Error in Basin Hopping solver: {str(e)}"
-            }
+            return self.process_results(
+                np.zeros_like(initial_guess),
+                success=False,
+                message=f"Error in Basin Hopping solver: {str(e)}"
+            )
