@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T11:40:15.346218",
+    "timestamp": "2025-03-01T11:43:26.228780",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -81,7 +81,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "GA optimization failed to converge"
+            "error": "Error in GA solver: Please provide the comparing function for the tournament selection!"
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
@@ -91,7 +91,7 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Adaptive GA optimization failed to converge"
+            "error": "Error in Adaptive GA solver: Please provide the comparing function for the tournament selection!"
         },
         "ParticleSwarmOptimizer": {
             "success": true,
@@ -106,7 +106,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 5050,
-            "execution_time": 0.048497676849365234
+            "execution_time": 1.6907992362976074
         },
         "DifferentialEvolutionSolver": {
             "success": true,
@@ -121,7 +121,7 @@
             ],
             "iterations": 21,
             "function_evaluations": 886,
-            "execution_time": 0.6121561527252197
+            "execution_time": 0.07319021224975586
         },
         "BasinHoppingOptimizer": {
             "success": true,
@@ -136,7 +136,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 528,
-            "execution_time": 0.06603622436523438
+            "execution_time": 1.5096046924591064
         }
     }
 }

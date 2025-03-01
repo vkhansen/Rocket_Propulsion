@@ -6,7 +6,7 @@ from pymoo.core.callback import Callback
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
-from pymoo.operators.selection.tournament import TournamentSelection
+from pymoo.operators.selection.tournament import compare, TournamentSelection
 from pymoo.optimize import minimize
 from .base_solver import BaseSolver
 from ...utils.config import logger
@@ -14,9 +14,16 @@ from ...utils.config import logger
 class AdaptiveCallback(Callback):
     """Callback for adaptive population size and operator parameters."""
     
-    def __init__(self, solver):
+    def __init__(self, solver, stagnation_limit=10, min_mutation_rate=0.01, max_mutation_rate=0.5, min_crossover_rate=0.5, max_crossover_rate=1.0, elite_size=2, convergence_threshold=1e-6):
         super().__init__()
         self.solver = solver
+        self.stagnation_limit = stagnation_limit
+        self.min_mutation_rate = min_mutation_rate
+        self.max_mutation_rate = max_mutation_rate
+        self.min_crossover_rate = min_crossover_rate
+        self.max_crossover_rate = max_crossover_rate
+        self.elite_size = elite_size
+        self.convergence_threshold = convergence_threshold
         self.stagnation_counter = 0
         self.best_fitness = -np.inf
         self.diversity_history = []
@@ -43,7 +50,7 @@ class AdaptiveCallback(Callback):
             self.stagnation_counter += 1
         
         # Adapt population size
-        if self.stagnation_counter > 5:
+        if self.stagnation_counter > self.stagnation_limit:
             algorithm.pop_size = min(int(algorithm.pop_size * 1.5), 500)
             self.stagnation_counter = 0
         
@@ -52,12 +59,24 @@ class AdaptiveCallback(Callback):
             if diversity < np.mean(self.diversity_history[-3:]):
                 # Increase mutation probability to promote exploration
                 algorithm.mating.mutation.prob = min(
-                    algorithm.mating.mutation.prob * 1.2, 0.4
+                    algorithm.mating.mutation.prob * 1.2, self.max_mutation_rate
                 )
             else:
                 # Decrease mutation probability to promote exploitation
                 algorithm.mating.mutation.prob = max(
-                    algorithm.mating.mutation.prob * 0.8, 0.1
+                    algorithm.mating.mutation.prob * 0.8, self.min_mutation_rate
+                )
+            
+            # Adapt crossover probability based on convergence
+            if abs(current_best - self.best_fitness) < self.convergence_threshold:
+                # Increase crossover probability to promote convergence
+                algorithm.mating.crossover.prob = min(
+                    algorithm.mating.crossover.prob * 1.1, self.max_crossover_rate
+                )
+            else:
+                # Decrease crossover probability to promote exploration
+                algorithm.mating.crossover.prob = max(
+                    algorithm.mating.crossover.prob * 0.9, self.min_crossover_rate
                 )
 
 class RocketStageProblem(Problem):
@@ -114,13 +133,13 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             logger.info("Starting Adaptive GA optimization...")
             start_time = time.time()
             
-            # Get solver parameters
-            pop_size = self.solver_specific.get('pop_size', 100)
-            n_gen = self.solver_specific.get('n_generations', 100)
-            
-            # Get mutation and crossover parameters
-            mutation_params = self.solver_specific.get('mutation', {})
-            crossover_params = self.solver_specific.get('crossover', {})
+            # Get solver parameters from config
+            aga_config = self.solver_config.get('solver_specific', {})
+            pop_size = aga_config.get('initial_pop_size', 100)
+            n_gen = aga_config.get('max_generations', 100)
+            tournament_size = aga_config.get('tournament_size', 3)
+            crossover_prob = aga_config.get('initial_crossover_rate', 0.9)
+            mutation_prob = aga_config.get('initial_mutation_rate', 0.1)
             
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
@@ -128,21 +147,33 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             # Initialize algorithm with specific operators
             algorithm = GA(
                 pop_size=pop_size,
-                selection=TournamentSelection(pressure=self.solver_specific.get('tournament_size', 3)),
+                selection=TournamentSelection(
+                    pressure=tournament_size,
+                    func_comp=compare
+                ),
                 crossover=SBX(
-                    prob=crossover_params.get('prob', 0.9),
-                    eta=crossover_params.get('eta', 15)
+                    prob=crossover_prob,
+                    eta=15
                 ),
                 mutation=PM(
-                    prob=mutation_params.get('prob', 0.1),
-                    eta=mutation_params.get('eta', 20)
+                    prob=mutation_prob,
+                    eta=20
                 ),
                 eliminate_duplicates=True
             )
             
-            # Create adaptive callback
-            callback = AdaptiveCallback(self)
-            
+            # Create adaptive callback with config parameters
+            callback = AdaptiveCallback(
+                solver=self,
+                stagnation_limit=aga_config.get('stagnation_limit', 10),
+                min_mutation_rate=aga_config.get('min_mutation_rate', 0.01),
+                max_mutation_rate=aga_config.get('max_mutation_rate', 0.5),
+                min_crossover_rate=aga_config.get('min_crossover_rate', 0.5),
+                max_crossover_rate=aga_config.get('max_crossover_rate', 1.0),
+                elite_size=aga_config.get('elite_size', 2),
+                convergence_threshold=aga_config.get('convergence_threshold', 1e-6)
+            )
+
             # Run optimization
             result = minimize(
                 problem,

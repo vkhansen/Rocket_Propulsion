@@ -5,7 +5,7 @@ from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
-from pymoo.operators.selection.tournament import TournamentSelection
+from pymoo.operators.selection.tournament import compare, TournamentSelection
 from pymoo.optimize import minimize
 from .base_solver import BaseSolver
 from ...utils.config import logger
@@ -64,13 +64,13 @@ class GeneticAlgorithmSolver(BaseSolver):
             logger.info("Starting GA optimization...")
             start_time = time.time()
             
-            # Get solver parameters
-            pop_size = self.solver_specific.get('pop_size', 100)
-            n_gen = self.solver_specific.get('n_generations', 100)
-            
-            # Get mutation and crossover parameters
-            mutation_params = self.solver_specific.get('mutation', {})
-            crossover_params = self.solver_specific.get('crossover', {})
+            # Get solver parameters from config
+            ga_config = self.solver_config.get('solver_specific', {})
+            pop_size = ga_config.get('pop_size', 100)
+            n_gen = ga_config.get('n_generations', 100)
+            tournament_size = ga_config.get('tournament_size', 3)
+            crossover_prob = ga_config.get('crossover_prob', 0.9)
+            mutation_prob = ga_config.get('mutation_prob', 0.1)
             
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
@@ -78,14 +78,17 @@ class GeneticAlgorithmSolver(BaseSolver):
             # Initialize algorithm with specific operators
             algorithm = GA(
                 pop_size=pop_size,
-                selection=TournamentSelection(pressure=self.solver_specific.get('tournament_size', 3)),
+                selection=TournamentSelection(
+                    pressure=tournament_size,
+                    func_comp=compare
+                ),
                 crossover=SBX(
-                    prob=crossover_params.get('prob', 0.9),
-                    eta=crossover_params.get('eta', 15)
+                    prob=crossover_prob,
+                    eta=15
                 ),
                 mutation=PM(
-                    prob=mutation_params.get('prob', 0.1),
-                    eta=mutation_params.get('eta', 20)
+                    prob=mutation_prob,
+                    eta=20
                 ),
                 eliminate_duplicates=True
             )
