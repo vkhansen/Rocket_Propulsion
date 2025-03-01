@@ -42,6 +42,7 @@ class SolverProcess(multiprocessing.Process):
                 if 'execution_metrics' not in results:
                     results['execution_metrics'] = {}
                 results['execution_metrics']['execution_time'] = execution_time
+                results['method'] = solver_name  # Ensure method name is set
                 
             self.logger.info(f"Completed solver: {solver_name} in {execution_time:.2f}s")
             self.result_queue.put((solver_name, results))
@@ -52,6 +53,7 @@ class SolverProcess(multiprocessing.Process):
                 self.result_queue.put((solver_name, {
                     'success': False,
                     'message': f"Error: {str(e)}",
+                    'method': solver_name,
                     'payload_fraction': 0.0,
                     'constraint_violation': float('inf'),
                     'execution_metrics': {
@@ -124,7 +126,7 @@ class ParallelSolver:
             bounds: Solution bounds
             
         Returns:
-            dict: Best solution found
+            dict: Dictionary mapping solver names to their results
         """
         self.logger.info(f"Starting parallel optimization with {len(solvers)} solvers")
         start_time = time.time()
@@ -143,7 +145,7 @@ class ParallelSolver:
             process.start()
             
         # Wait for results or timeout
-        results = []
+        results = {}  # Map solver names to results
         remaining_time = self.timeout
         
         while remaining_time > 0 and any(p.is_alive() for p in processes):
@@ -151,8 +153,11 @@ class ParallelSolver:
             for process in processes:
                 try:
                     while not process.result_queue.empty():
-                        result = process.result_queue.get_nowait()
-                        results.append(result)
+                        solver_name, result = process.result_queue.get_nowait()
+                        # Ensure result is properly formatted
+                        if isinstance(result, dict):
+                            result['method'] = solver_name
+                            results[solver_name] = result
                 except Exception as e:
                     self.logger.error(f"Error getting results: {str(e)}")
                     
@@ -169,30 +174,26 @@ class ParallelSolver:
                 self.logger.warning(f"Terminating {process.solver.__class__.__name__} due to timeout")
                 terminate_process(process)
                 
-        # Find best result
-        best_result = None
-        best_fitness = float('inf')
-        
-        for solver_name, result in results:
-            if result['success'] and result.get('fun', float('inf')) < best_fitness:
-                best_fitness = result['fun']
-                best_result = result
-                best_result['solver'] = solver_name
-                
-        if best_result:
-            self.logger.info(f"Best solution found by {best_result['solver']} with fitness {best_fitness}")
-        else:
-            self.logger.warning("No valid solutions found")
-            best_result = {
-                'success': False,
-                'message': "No valid solutions found",
-                'solver': None,
-                'fun': float('inf'),
-                'x': initial_guess.tolist() if isinstance(initial_guess, np.ndarray) else list(initial_guess),
-                'execution_metrics': {
-                    'execution_time': time.time() - start_time,
-                    'solvers_completed': len(results)
+        # Create default results for solvers that didn't complete
+        total_time = time.time() - start_time
+        for process in processes:
+            solver_name = process.solver.__class__.__name__
+            if solver_name not in results:
+                results[solver_name] = {
+                    'success': False,
+                    'message': "Solver timed out or failed",
+                    'method': solver_name,
+                    'payload_fraction': 0.0,
+                    'constraint_violation': float('inf'),
+                    'execution_metrics': {
+                        'execution_time': total_time,
+                        'iterations': 0,
+                        'function_evaluations': 0
+                    },
+                    'stages': []
                 }
-            }
+                
+        if not results:
+            self.logger.warning("No results from any solver")
             
-        return best_result
+        return results

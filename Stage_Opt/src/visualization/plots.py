@@ -13,7 +13,12 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         if isinstance(results, dict):
             results_list = list(results.values())
         else:
-            results_list = results
+            results_list = results if isinstance(results, list) else []
+            
+        # Skip if no valid results
+        if not results_list or not isinstance(results_list[0], dict):
+            logger.warning("No valid results to plot DV breakdown")
+            return
             
         # Get number of methods
         n_methods = len(results_list)
@@ -32,6 +37,11 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
             stage_ratios = []
             
             for result in results_list:
+                if not isinstance(result, dict):
+                    stage_dvs.append(0.0)
+                    stage_ratios.append(0.0)
+                    continue
+                    
                 stages = result.get('stages', [])
                 if stage_idx < len(stages):
                     stage = stages[stage_idx]
@@ -69,7 +79,7 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         plt.xlabel('Optimization Method')
         plt.ylabel('Delta-V (m/s)')
         plt.title('Stage Delta-V Breakdown by Method')
-        plt.xticks(method_positions, [result.get('method', f'Method {i}') 
+        plt.xticks(method_positions, [result.get('method', f'Method {i}') if isinstance(result, dict) else f'Method {i}'
                                     for i, result in enumerate(results_list)])
         plt.legend()
         plt.grid(True, alpha=0.3)
@@ -93,11 +103,17 @@ def plot_execution_time(results, filename="execution_time.png"):
         if isinstance(results, dict):
             results_list = list(results.values())
         else:
-            results_list = results
+            results_list = results if isinstance(results, list) else []
+            
+        # Skip if no valid results
+        if not results_list or not isinstance(results_list[0], dict):
+            logger.warning("No valid results to plot execution time")
+            return
             
         # Extract execution times and method names
-        times = [float(result.get('execution_time', 0.0)) for result in results_list]
-        methods = [result.get('method', f'Method {i}') 
+        times = [float(result.get('execution_time', 0.0)) if isinstance(result, dict) else 0.0 
+                for result in results_list]
+        methods = [result.get('method', f'Method {i}') if isinstance(result, dict) else f'Method {i}'
                   for i, result in enumerate(results_list)]
         
         # Create bar plot
@@ -133,12 +149,17 @@ def plot_payload_fraction(results, filename="payload_fraction.png"):
         if isinstance(results, dict):
             results_list = list(results.values())
         else:
-            results_list = results
+            results_list = results if isinstance(results, list) else []
+            
+        # Skip if no valid results
+        if not results_list or not isinstance(results_list[0], dict):
+            logger.warning("No valid results to plot payload fraction")
+            return
             
         # Extract payload fractions and method names
-        payload_fractions = [float(result.get('payload_fraction', 0.0)) 
+        payload_fractions = [float(result.get('payload_fraction', 0.0)) if isinstance(result, dict) else 0.0
                            for result in results_list]
-        methods = [result.get('method', f'Method {i}') 
+        methods = [result.get('method', f'Method {i}') if isinstance(result, dict) else f'Method {i}'
                   for i, result in enumerate(results_list)]
         
         # Create bar plot
@@ -168,6 +189,10 @@ def plot_payload_fraction(results, filename="payload_fraction.png"):
 def plot_results(results):
     """Generate all plots."""
     try:
+        if not results:
+            logger.warning("No results to plot")
+            return
+            
         plot_dv_breakdown(results)
         plot_execution_time(results)
         plot_payload_fraction(results)
