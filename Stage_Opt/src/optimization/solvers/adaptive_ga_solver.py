@@ -6,9 +6,9 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.optimize import minimize
 from ...utils.config import logger
-from ..objective import objective_with_penalty
 from .base_solver import BaseSolver
 from .pymoo_problem import RocketStageProblem, tournament_comp
+from ..objective import objective_with_penalty
 
 class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     """Adaptive Genetic Algorithm solver implementation."""
@@ -35,12 +35,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         if len(history) < 2:
             return
             
-        # Calculate improvement
-        current = history[-1]
-        previous = history[-2]
-        improvement = (previous - current) / abs(previous)
+        # Get improvement in last interval
+        current_best = history[-1]
+        prev_best = history[-2]
+        improvement = (prev_best - current_best) / prev_best
         
-        # Adapt population size
+        # Adjust population size based on improvement
         if improvement < self.improvement_threshold:
             algorithm.pop_size = min(
                 self.max_pop_size,
@@ -52,18 +52,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
                 int(algorithm.pop_size * 0.8)
             )
             
-        # Adapt genetic operators
-        if improvement < self.improvement_threshold:
-            algorithm.crossover.prob = min(0.95, algorithm.crossover.prob * 1.1)
-            algorithm.mutation.prob = min(0.2, algorithm.mutation.prob * 1.2)
-        else:
-            algorithm.crossover.prob = max(0.5, algorithm.crossover.prob * 0.9)
-            algorithm.mutation.prob = max(0.05, algorithm.mutation.prob * 0.8)
+        logger.debug(f"Adapted population size to {algorithm.pop_size}")
     
     def solve(self, initial_guess, bounds):
         """Solve using Adaptive Genetic Algorithm."""
         try:
-            logger.info(f"Starting {self.name} optimization")
+            logger.info("Starting Adaptive GA optimization...")
             
             # Setup problem
             n_var = len(initial_guess)
@@ -74,7 +68,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
                 objective_func=objective_with_penalty
             )
             
-            # Initialize algorithm
+            # Setup algorithm
             algorithm = GA(
                 pop_size=self.min_pop_size,
                 sampling=FloatRandomSampling(),
@@ -86,51 +80,41 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             
             # Initialize history
             history = []
-            best_f = float('inf')
             
-            # Run optimization with adaptation
-            for gen in range(self.max_gen):
-                res = minimize(
-                    problem,
-                    algorithm,
-                    seed=1,
-                    verbose=False
-                )
-                
-                current_f = float(res.F[0])
-                history.append(current_f)
-                
-                # Update best solution
-                if current_f < best_f:
-                    best_f = current_f
-                    best_x = res.X
-                
-                # Adapt parameters periodically
-                if gen % self.adaptation_interval == 0:
-                    self.adapt_parameters(algorithm, history)
-                    logger.debug(f"Generation {gen}: Adapted parameters - "
-                               f"pop_size={algorithm.pop_size}, "
-                               f"crossover_prob={algorithm.crossover.prob:.2f}, "
-                               f"mutation_prob={algorithm.mutation.prob:.2f}")
-                
-                # Check convergence
-                if gen >= self.min_gen and len(history) >= 10:
-                    recent_improvement = (history[-10] - history[-1]) / abs(history[-10])
-                    if recent_improvement < self.improvement_threshold:
-                        logger.info(f"Converged after {gen} generations")
-                        break
+            def callback(algorithm):
+                """Callback to track progress and adapt parameters."""
+                if algorithm.n_gen > 0:
+                    history.append(algorithm.pop.get_f().min())
+                    if len(history) >= 2 and algorithm.n_gen % self.adaptation_interval == 0:
+                        self.adapt_parameters(algorithm, history)
+            
+            # Run optimization
+            res = minimize(
+                problem,
+                algorithm,
+                seed=1,
+                callback=callback,
+                verbose=False
+            )
+            
+            # Process results
+            success = res.success if hasattr(res, 'success') else True
+            message = res.message if hasattr(res, 'message') else ""
+            x = res.X if hasattr(res, 'X') else initial_guess
+            n_gen = res.algorithm.n_gen if hasattr(res.algorithm, 'n_gen') else 0
+            n_eval = res.algorithm.evaluator.n_eval if hasattr(res.algorithm, 'evaluator') else 0
             
             return self.process_results(
-                x=best_x,
-                success=True,
-                message=f"Optimization completed after {gen} generations",
-                n_iterations=gen,
-                n_function_evals=res.algorithm.evaluator.n_eval,
+                x=x,
+                success=success,
+                message=message,
+                n_iterations=n_gen,
+                n_function_evals=n_eval,
                 time=0.0  # Time not tracked by pymoo
             )
             
         except Exception as e:
-            logger.error(f"Error in {self.name}: {str(e)}")
+            logger.error(f"Error in Adaptive GA solver: {str(e)}")
             return self.process_results(
                 x=initial_guess,
                 success=False,

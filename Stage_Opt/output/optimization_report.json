@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T13:56:54.954068",
+    "timestamp": "2025-03-01T17:53:43.272765",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -72,32 +72,62 @@
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "",
-            "payload_fraction": 0.0,
-            "constraint_violation": Infinity,
+            "message": "list indices must be integers or slices, not tuple",
+            "payload_fraction": 0.09912624071245398,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
                 "execution_time": 0.0
             },
-            "stages": []
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 4650.0,
+                    "Lambda": 6.65936719872629,
+                    "ISP": 250.0,
+                    "EPSILON": 0.14
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 4650.0,
+                    "Lambda": 2.867231485205968,
+                    "ISP": 450.0,
+                    "EPSILON": 0.03
+                }
+            ]
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "",
-            "payload_fraction": 0.0,
-            "constraint_violation": Infinity,
+            "message": "list indices must be integers or slices, not tuple",
+            "payload_fraction": 0.09912624071245398,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
                 "execution_time": 0.0
             },
-            "stages": []
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 4650.0,
+                    "Lambda": 6.65936719872629,
+                    "ISP": 250.0,
+                    "EPSILON": 0.14
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 4650.0,
+                    "Lambda": 2.867231485205968,
+                    "ISP": 450.0,
+                    "EPSILON": 0.03
+                }
+            ]
         },
         "ParticleSwarmOptimizer": {
             "success": false,
             "message": "Error in PSO solver: 'ParticleSwarmOptimizer' object has no attribute 'objective_with_penalty'",
-            "payload_fraction": 0.8516436722875149,
+            "payload_fraction": 1.0,
             "constraint_violation": 9300.0,
             "execution_metrics": {
                 "iterations": 0,
@@ -108,14 +138,14 @@
                 {
                     "stage": 1,
                     "delta_v": 0.0,
-                    "Lambda": 0.8771929824561403,
+                    "Lambda": 1.0,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
                     "delta_v": 0.0,
-                    "Lambda": 0.970873786407767,
+                    "Lambda": 1.0,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -124,7 +154,7 @@
         "DifferentialEvolutionSolver": {
             "success": false,
             "message": "Error in DE solver: 'DifferentialEvolutionSolver' object has no attribute 'objective_with_penalty'",
-            "payload_fraction": 0.8516436722875149,
+            "payload_fraction": 1.0,
             "constraint_violation": 9300.0,
             "execution_metrics": {
                 "iterations": 0,
@@ -135,14 +165,14 @@
                 {
                     "stage": 1,
                     "delta_v": 0.0,
-                    "Lambda": 0.8771929824561403,
+                    "Lambda": 1.0,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
                     "delta_v": 0.0,
-                    "Lambda": 0.970873786407767,
+                    "Lambda": 1.0,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }
@@ -151,7 +181,7 @@
         "BasinHoppingOptimizer": {
             "success": false,
             "message": "Error in Basin Hopping solver: 'BasinHoppingOptimizer' object has no attribute 'objective_with_penalty'",
-            "payload_fraction": 0.8516436722875149,
+            "payload_fraction": 1.0,
             "constraint_violation": 9300.0,
             "execution_metrics": {
                 "iterations": 0,
@@ -162,14 +192,14 @@
                 {
                     "stage": 1,
                     "delta_v": 0.0,
-                    "Lambda": 0.8771929824561403,
+                    "Lambda": 1.0,
                     "ISP": 250.0,
                     "EPSILON": 0.14
                 },
                 {
                     "stage": 2,
                     "delta_v": 0.0,
-                    "Lambda": 0.970873786407767,
+                    "Lambda": 1.0,
                     "ISP": 450.0,
                     "EPSILON": 0.03
                 }

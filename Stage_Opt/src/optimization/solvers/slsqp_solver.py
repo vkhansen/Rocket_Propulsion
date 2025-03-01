@@ -1,8 +1,9 @@
 """SLSQP solver implementation."""
 import numpy as np
 from scipy.optimize import minimize
-from .base_solver import BaseSolver
 from ...utils.config import logger
+from .base_solver import BaseSolver
+from ..objective import objective_with_penalty
 
 class SLSQPSolver(BaseSolver):
     """SLSQP solver implementation."""
@@ -14,7 +15,13 @@ class SLSQPSolver(BaseSolver):
         
     def objective(self, x):
         """Objective function for optimization."""
-        return self.objective_with_penalty(x)
+        return objective_with_penalty(
+            dv=x,
+            G0=self.G0,
+            ISP=self.ISP,
+            EPSILON=self.EPSILON,
+            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+        )
         
     def solve(self, initial_guess, bounds):
         """Solve using SLSQP."""

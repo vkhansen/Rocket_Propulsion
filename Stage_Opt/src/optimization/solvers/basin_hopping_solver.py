@@ -1,9 +1,9 @@
 """Basin Hopping solver implementation."""
 import numpy as np
-import time
 from scipy.optimize import basinhopping
-from .base_solver import BaseSolver
 from ...utils.config import logger
+from .base_solver import BaseSolver
+from ..objective import objective_with_penalty
 
 class BasinHoppingOptimizer(BaseSolver):
     """Basin Hopping solver implementation."""
@@ -15,7 +15,13 @@ class BasinHoppingOptimizer(BaseSolver):
         
     def objective(self, x):
         """Objective function for optimization."""
-        return -self.objective_with_penalty(x)  # Negative because Basin Hopping minimizes
+        return objective_with_penalty(
+            dv=x,
+            G0=self.G0,
+            ISP=self.ISP,
+            EPSILON=self.EPSILON,
+            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+        )
         
     def solve(self, initial_guess, bounds):
         """Solve using Basin Hopping.
@@ -29,46 +35,54 @@ class BasinHoppingOptimizer(BaseSolver):
         """
         try:
             logger.info("Starting Basin Hopping optimization...")
-            start_time = time.time()
             
             # Get solver parameters
-            n_iter = self.solver_specific.get('n_iterations', 100)
-            T = self.solver_specific.get('temperature', 1.0)
-            stepsize = self.solver_specific.get('stepsize', 0.5)
-            interval = self.solver_specific.get('interval', 50)
+            niter = int(self.solver_specific.get('niter', 100))
+            T = float(self.solver_specific.get('T', 1.0))
+            stepsize = float(self.solver_specific.get('stepsize', 0.5))
+            maxiter = int(self.solver_specific.get('maxiter', 1000))
+            ftol = float(self.solver_specific.get('ftol', 1e-6))
             
-            # Create minimizer kwargs for local optimization
-            minimizer_kwargs = {
-                'method': 'L-BFGS-B',
-                'bounds': bounds
-            }
+            # Create bounds constraint
+            bounds_list = [(low, high) for low, high in bounds]
+            
+            def bounds_constraint(x):
+                """Check if x is within bounds."""
+                return np.all((x >= bounds[:, 0]) & (x <= bounds[:, 1]))
             
             # Run optimization
+            minimizer_kwargs = {
+                'method': 'SLSQP',
+                'bounds': bounds_list,
+                'options': {
+                    'maxiter': maxiter,
+                    'ftol': ftol
+                }
+            }
+            
             result = basinhopping(
                 self.objective,
-                initial_guess,
-                niter=n_iter,
+                x0=initial_guess,
+                niter=niter,
                 T=T,
                 stepsize=stepsize,
-                interval=interval,
                 minimizer_kwargs=minimizer_kwargs,
-                seed=42
+                accept_test=bounds_constraint
             )
             
-            execution_time = time.time() - start_time
             return self.process_results(
-                result.x,
-                success=result.lowest_optimization_result.success,
+                x=result.x,
+                success=result.success,
                 message=result.message,
-                n_iter=n_iter,
-                n_evals=result.nfev,
-                time=execution_time
+                n_iterations=result.nit,
+                n_function_evals=result.nfev,
+                time=0.0  # Time not tracked by scipy
             )
             
         except Exception as e:
             logger.error(f"Error in Basin Hopping solver: {str(e)}")
             return self.process_results(
-                np.zeros_like(initial_guess),
+                x=initial_guess,
                 success=False,
-                message=f"Error in Basin Hopping solver: {str(e)}"
+                message=str(e)
             )

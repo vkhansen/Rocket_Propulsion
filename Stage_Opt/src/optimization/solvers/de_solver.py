@@ -2,8 +2,9 @@
 import numpy as np
 import time
 from scipy.optimize import differential_evolution
-from .base_solver import BaseSolver
 from ...utils.config import logger
+from .base_solver import BaseSolver
+from ..objective import objective_with_penalty
 
 class DifferentialEvolutionSolver(BaseSolver):
     """Differential Evolution solver implementation."""
@@ -15,7 +16,13 @@ class DifferentialEvolutionSolver(BaseSolver):
         
     def objective(self, x):
         """Objective function for optimization."""
-        return -self.objective_with_penalty(x)  # Negative because DE minimizes
+        return objective_with_penalty(
+            dv=x,
+            G0=self.G0,
+            ISP=self.ISP,
+            EPSILON=self.EPSILON,
+            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+        )
         
     def solve(self, initial_guess, bounds):
         """Solve using Differential Evolution.
@@ -32,40 +39,40 @@ class DifferentialEvolutionSolver(BaseSolver):
             start_time = time.time()
             
             # Get solver parameters
-            pop_size = self.solver_specific.get('population_size', 20)
-            max_iter = self.solver_specific.get('max_iterations', 1000)
-            strategy = self.solver_specific.get('strategy', 'best1bin')
-            mutation = self.solver_specific.get('mutation', [0.5, 1.0])
-            recombination = self.solver_specific.get('recombination', 0.7)
+            max_iter = int(self.solver_specific.get('maxiter', 1000))
+            pop_size = int(self.solver_specific.get('popsize', 15))
+            mutation = self.solver_specific.get('mutation', (0.5, 1.0))
+            recombination = float(self.solver_specific.get('recombination', 0.7))
+            seed = int(self.solver_specific.get('seed', 42))
+            strategy = str(self.solver_specific.get('strategy', 'best1bin'))
             
             # Run optimization
             result = differential_evolution(
                 self.objective,
-                bounds,
-                strategy=strategy,
+                bounds=bounds,
                 maxiter=max_iter,
                 popsize=pop_size,
                 mutation=mutation,
                 recombination=recombination,
-                init='latinhypercube',
-                seed=42,
-                workers=1  # For reproducibility
+                seed=seed,
+                strategy=strategy,
+                init='sobol'
             )
             
             execution_time = time.time() - start_time
             return self.process_results(
-                result.x,
+                x=result.x,
                 success=result.success,
                 message=result.message,
-                n_iter=result.nit,
-                n_evals=result.nfev,
+                n_iterations=result.nit,
+                n_function_evals=result.nfev,
                 time=execution_time
             )
             
         except Exception as e:
             logger.error(f"Error in DE solver: {str(e)}")
             return self.process_results(
-                np.zeros_like(initial_guess),
+                x=initial_guess,
                 success=False,
-                message=f"Error in DE solver: {str(e)}"
+                message=str(e)
             )

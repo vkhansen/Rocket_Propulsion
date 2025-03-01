@@ -2,6 +2,7 @@
 import numpy as np
 from pymoo.core.problem import Problem
 from ...utils.config import logger
+from ..objective import objective_with_penalty
 
 def tournament_comp(pop, P, **kwargs):
     """Tournament selection comparator."""
@@ -28,14 +29,13 @@ def tournament_comp(pop, P, **kwargs):
 class RocketStageProblem(Problem):
     """Problem definition for rocket stage optimization."""
     
-    def __init__(self, solver, n_var, bounds, objective_func):
+    def __init__(self, solver, n_var, bounds):
         """Initialize problem.
         
         Args:
             solver: Solver instance containing problem parameters
             n_var: Number of variables (stages)
             bounds: Variable bounds
-            objective_func: Objective function to minimize
         """
         super().__init__(
             n_var=n_var,
@@ -45,13 +45,12 @@ class RocketStageProblem(Problem):
             xu=bounds[:, 1]
         )
         self.solver = solver
-        self.objective_func = objective_func
         
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate objective function."""
         try:
             f = np.array([
-                self.objective_func(
+                objective_with_penalty(
                     dv=x_i,
                     G0=self.solver.G0,
                     ISP=self.solver.ISP,

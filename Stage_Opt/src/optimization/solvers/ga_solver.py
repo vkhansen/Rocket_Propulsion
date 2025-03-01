@@ -6,9 +6,9 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.optimize import minimize
 from ...utils.config import logger
-from ..objective import objective_with_penalty
 from .base_solver import BaseSolver
 from .pymoo_problem import RocketStageProblem, tournament_comp
+from ..objective import objective_with_penalty
 
 class GeneticAlgorithmSolver(BaseSolver):
     """Genetic Algorithm solver implementation."""
