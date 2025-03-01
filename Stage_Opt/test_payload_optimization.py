@@ -8,7 +8,8 @@ import logging
 from pathlib import Path
 
 # Import our modules
-from src.utils.data import load_input_data, calculate_mass_ratios, calculate_payload_fraction
+from src.utils.data import load_input_data
+from src.optimization.physics import calculate_mass_ratios, calculate_payload_fraction
 from src.optimization.objective import payload_fraction_objective, objective_with_penalty
 from src.optimization.solvers.slsqp_solver import SLSQPSolver
 from src.optimization.solvers.basin_hopping_solver import BasinHoppingOptimizer
