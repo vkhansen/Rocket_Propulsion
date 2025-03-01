@@ -2,7 +2,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from ..utils.config import logger
+from ..utils.config import logger, OUTPUT_DIR
 
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
     """Plot ΔV breakdown for each optimization method."""
@@ -25,16 +25,29 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         colors = ['dodgerblue', 'orange', 'green']  # Colors for up to 3 stages
         
         # Plot each stage
-        n_stages = len(results_list[0]['dv'])
-        for stage in range(n_stages):
+        n_stages = len(results_list[0].get('stages', []))
+        for stage_idx in range(n_stages):
             # Extract ΔV values and ratios for this stage across all methods
-            stage_dvs = np.array([result['dv'][stage] for result in results_list])
-            stage_ratios = np.array([result['stage_ratios'][stage] for result in results_list])
+            stage_dvs = []
+            stage_ratios = []
+            
+            for result in results_list:
+                stages = result.get('stages', [])
+                if stage_idx < len(stages):
+                    stage = stages[stage_idx]
+                    stage_dvs.append(float(stage.get('delta_v', 0.0)))
+                    stage_ratios.append(float(stage.get('Lambda', 0.0)))
+                else:
+                    stage_dvs.append(0.0)
+                    stage_ratios.append(0.0)
+            
+            stage_dvs = np.array(stage_dvs)
+            stage_ratios = np.array(stage_ratios)
             
             # Plot bars for this stage
             plt.bar(method_positions, stage_dvs, bar_width,
-                   bottom=bottom, color=colors[stage % len(colors)],
-                   label=f'Stage {stage+1}')
+                   bottom=bottom, color=colors[stage_idx % len(colors)],
+                   label=f'Stage {stage_idx+1}')
             
             # Add text labels with ΔV and Λ values
             for i, (dv, lambda_ratio) in enumerate(zip(stage_dvs, stage_ratios)):
@@ -50,116 +63,107 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
                             pad=1
                         ))
             
-            # Update bottom for next stack
-            bottom = bottom + stage_dvs
+            bottom += stage_dvs
         
-        # Add total text above each bar
-        for i, total in enumerate(bottom):
-            plt.text(i, float(total) + 100,
-                    f"Total: {float(total):.0f} m/s",
-                    ha='center', va='bottom',
-                    color='black',  # Changed to black since it's outside bars
-                    fontweight='bold',
-                    fontsize=10)
-        
-        # Add horizontal line for total mission ΔV
-        total_dv = float(np.sum(results_list[0]['dv']))  # Use first result's total
-        plt.axhline(y=total_dv, color='red', linestyle='--',
-                   label=f'Required ΔV = {total_dv} m/s')
-        
-        plt.ylabel('Delta-V (m/s)')
+        # Customize plot
         plt.xlabel('Optimization Method')
-        plt.title('Delta-V Solution per Solver')
-        plt.xticks(method_positions, [result['method'] for result in results_list])
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.ylabel('ΔV (m/s)')
+        plt.title('Stage ΔV Breakdown by Method')
+        plt.xticks(method_positions, [result.get('method', f'Method {i}') 
+                                    for i, result in enumerate(results_list)])
+        plt.legend()
         plt.grid(True, alpha=0.3)
         
-        # Adjust layout to prevent label cutoff
-        plt.tight_layout()
-        
         # Save plot
-        output_path = os.path.join(logger.OUTPUT_DIR, filename)
-        plt.savefig(output_path, bbox_inches='tight', dpi=300)
+        output_path = os.path.join(OUTPUT_DIR, filename)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         
-        logger.info(f"Plot saved to: {output_path}")
+        logger.info(f"ΔV breakdown plot saved to {output_path}")
         
     except Exception as e:
-        logger.error(f"Error in plotting Delta-V breakdown: {e}")
+        logger.error(f"Error plotting ΔV breakdown: {str(e)}")
 
 def plot_execution_time(results, filename="execution_time.png"):
     """Plot execution time for each optimization method."""
     try:
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(10, 6))
         
         # Convert results dict to list if necessary
         if isinstance(results, dict):
             results_list = list(results.values())
         else:
             results_list = results
+            
+        # Extract execution times and method names
+        times = [float(result.get('execution_time', 0.0)) for result in results_list]
+        methods = [result.get('method', f'Method {i}') 
+                  for i, result in enumerate(results_list)]
         
-        # Extract method names and times
-        method_names = [result['method'] for result in results_list]
-        times = [result.get('execution_time', result.get('time', 0)) for result in results_list]
+        # Create bar plot
+        plt.bar(methods, times, color='dodgerblue')
         
-        plt.bar(method_names, times)
-        plt.title('Solver Execution Time')
-        plt.xlabel('Solver Method')
-        plt.ylabel('Time (s)')
+        # Add value labels on top of bars
+        for i, time in enumerate(times):
+            plt.text(i, time, f'{time:.2f}s',
+                    ha='center', va='bottom')
+        
+        # Customize plot
+        plt.xlabel('Optimization Method')
+        plt.ylabel('Execution Time (s)')
+        plt.title('Execution Time by Method')
         plt.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
         
         # Save plot
-        output_path = os.path.join(logger.OUTPUT_DIR, filename)
-        plt.savefig(output_path)
+        output_path = os.path.join(OUTPUT_DIR, filename)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         
-        logger.info(f"Execution time plot saved to: {output_path}")
+        logger.info(f"Execution time plot saved to {output_path}")
         
     except Exception as e:
-        logger.error(f"Error in plotting execution time: {e}")
+        logger.error(f"Error plotting execution time: {str(e)}")
 
 def plot_payload_fraction(results, filename="payload_fraction.png"):
     """Plot payload fraction for each optimization method."""
     try:
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(10, 6))
         
         # Convert results dict to list if necessary
         if isinstance(results, dict):
             results_list = list(results.values())
         else:
             results_list = results
+            
+        # Extract payload fractions and method names
+        payload_fractions = [float(result.get('payload_fraction', 0.0)) 
+                           for result in results_list]
+        methods = [result.get('method', f'Method {i}') 
+                  for i, result in enumerate(results_list)]
         
-        # Extract method names and payload fractions
-        method_names = [result['method'] for result in results_list]
-        payload_fractions = [result['payload_fraction'] for result in results_list]
+        # Create bar plot
+        plt.bar(methods, payload_fractions, color='dodgerblue')
         
-        bars = plt.bar(method_names, payload_fractions)
-        plt.title('Payload Mass Fraction per Solver')
-        plt.xlabel('Solver Method')
-        plt.ylabel('Payload Mass Fraction')
-        
-        # Add value labels on top of each bar
-        for bar in bars:
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.3f}',
+        # Add value labels on top of bars
+        for i, pf in enumerate(payload_fractions):
+            plt.text(i, pf, f'{pf:.3f}',
                     ha='center', va='bottom')
         
+        # Customize plot
+        plt.xlabel('Optimization Method')
+        plt.ylabel('Payload Fraction')
+        plt.title('Payload Fraction by Method')
         plt.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
         
         # Save plot
-        output_path = os.path.join(logger.OUTPUT_DIR, filename)
-        plt.savefig(output_path)
+        output_path = os.path.join(OUTPUT_DIR, filename)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         
-        logger.info(f"Payload fraction plot saved to: {output_path}")
+        logger.info(f"Payload fraction plot saved to {output_path}")
         
     except Exception as e:
-        logger.error(f"Error in plotting payload fraction: {e}")
+        logger.error(f"Error plotting payload fraction: {str(e)}")
 
 def plot_results(results):
     """Generate all plots."""
@@ -167,5 +171,6 @@ def plot_results(results):
         plot_dv_breakdown(results)
         plot_execution_time(results)
         plot_payload_fraction(results)
+        logger.info("All plots generated successfully")
     except Exception as e:
-        logger.error(f"Error in plotting results: {e}")
+        logger.error(f"Error generating plots: {str(e)}")

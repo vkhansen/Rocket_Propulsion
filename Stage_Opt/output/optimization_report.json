@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T13:48:51.508179",
+    "timestamp": "2025-03-01T13:55:48.130100",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -60,17 +60,17 @@
     "results": {
         "SLSQPSolver": {
             "success": true,
-            "payload_fraction": -9299999.976411467,
+            "payload_fraction": -9299999.99732715,
             "stage_ratios": [
-                0.15939244310638742,
-                0.14799027687241234
+                0.019780133728804238,
+                0.11809656378431918
             ],
             "mass_ratios": [
-                44.347171487471634,
-                8.221016389756423
+                0.02254935245083683,
+                0.12163946069784876
             ],
-            "iterations": 4,
-            "function_evaluations": 10,
+            "iterations": 3,
+            "function_evaluations": 11,
             "execution_time": 0.0
         },
         "GeneticAlgorithmSolver": {
@@ -95,48 +95,48 @@
         },
         "ParticleSwarmOptimizer": {
             "success": true,
-            "payload_fraction": 0.15939244310638742,
+            "payload_fraction": 0.019204013327616842,
             "stage_ratios": [
-                0.15939244310638742,
-                1.0
+                0.01978013372744535,
+                0.970873786407767
             ],
             "mass_ratios": [
-                44.347171487471634,
+                0.0225493524492877,
                 1.0
             ],
             "iterations": 100,
             "function_evaluations": 5050,
-            "execution_time": 0.26337242126464844
+            "execution_time": 0.4933645725250244
         },
         "DifferentialEvolutionSolver": {
             "success": true,
-            "payload_fraction": 0.14787480403958528,
+            "payload_fraction": 0.10349856768936201,
             "stage_ratios": [
-                0.998410900490563,
-                0.14811157414821507
+                0.8754802908168801,
+                0.11822485853320372
             ],
             "mass_ratios": [
-                1.001851210776248,
-                8.212573636371765
+                0.9980475315312434,
+                0.12177160428919984
             ],
-            "iterations": 62,
-            "function_evaluations": 2598,
-            "execution_time": 3.4908814430236816
+            "iterations": 64,
+            "function_evaluations": 2684,
+            "execution_time": 3.806490659713745
         },
         "BasinHoppingOptimizer": {
             "success": true,
-            "payload_fraction": 0.09912580679519686,
+            "payload_fraction": 0.04461687868133234,
             "stage_ratios": [
-                0.26915996210658577,
-                0.3682784245449686
+                0.13181668680994665,
+                0.3384767115688545
             ],
             "mass_ratios": [
-                6.658410129373593,
-                2.8674604397392014
+                0.1502710229633392,
+                0.34863101291592014
             ],
             "iterations": 100,
-            "function_evaluations": 16455,
-            "execution_time": 19.273807048797607
+            "function_evaluations": 16905,
+            "execution_time": 21.352965116500854
         }
     }
 }

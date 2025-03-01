@@ -15,19 +15,32 @@ def generate_report(results, config, filename="optimization_report.json"):
         
         # Process results for each method
         for method, result in results.items():
-            report['results'][method] = {
-                'success': result.get('success', False),
-                'payload_fraction': result.get('payload_fraction', 0.0),
-                'stage_ratios': result.get('stage_ratios', []),
-                'mass_ratios': result.get('mass_ratios', []),
-                'iterations': result.get('n_iterations', 0),
-                'function_evaluations': result.get('n_function_evals', 0),
-                'execution_time': result.get('execution_time', 0.0)
+            method_report = {
+                'success': bool(result.get('success', False)),
+                'message': str(result.get('message', '')),
+                'payload_fraction': float(result.get('payload_fraction', 0.0)),
+                'constraint_violation': float(result.get('constraint_violation', float('inf'))),
+                'execution_metrics': {
+                    'iterations': int(result.get('n_iterations', 0)),
+                    'function_evaluations': int(result.get('n_function_evals', 0)),
+                    'execution_time': float(result.get('execution_time', 0.0))
+                },
+                'stages': []
             }
             
-            if not result.get('success', False):
-                report['results'][method]['error'] = result.get('message', 'Unknown error')
-        
+            # Process stage results
+            for stage in result.get('stages', []):
+                stage_data = {
+                    'stage': int(stage.get('stage', 0)),
+                    'delta_v': float(stage.get('delta_v', 0.0)),
+                    'Lambda': float(stage.get('Lambda', 0.0)),
+                    'ISP': float(stage.get('ISP', 0.0)),
+                    'EPSILON': float(stage.get('EPSILON', 0.0))
+                }
+                method_report['stages'].append(stage_data)
+            
+            report['results'][method] = method_report
+            
         # Save report
         output_path = os.path.join(OUTPUT_DIR, filename)
         with open(output_path, 'w') as f:
