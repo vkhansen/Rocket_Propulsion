@@ -7,8 +7,9 @@ from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.operators.selection.tournament import TournamentSelection, compare
 from pymoo.optimize import minimize
 from ...utils.config import logger, setup_logging
+from ..cache import OptimizationCache
 from .base_solver import BaseSolver
-from .pymoo_problem import RocketStageProblem
+from ..pymoo_problem import RocketStageProblem
 
 class BaseGASolver(BaseSolver):
     """Base class for GA-based solvers."""

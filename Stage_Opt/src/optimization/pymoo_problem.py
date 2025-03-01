@@ -1,9 +1,9 @@
 """PyMOO problem definition for rocket stage optimization."""
 import numpy as np
 from pymoo.core.problem import Problem
-from ...utils.config import logger
-from ..objective import objective_with_penalty
-from ..cache import OptimizationCache
+from src.utils.config import logger
+from src.optimization.objective import objective_with_penalty
+from src.optimization.cache import OptimizationCache
 from datetime import datetime
 
 def tournament_comp(pop, P, **kwargs):

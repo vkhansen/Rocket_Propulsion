@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T02:45:19.788751",
+    "timestamp": "2025-03-02T04:41:09.459789",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -60,20 +60,20 @@
     "results": {
         "SLSQPSolver": {
             "success": false,
-            "message": "The user-provided objective function must return a scalar value.",
-            "payload_fraction": 0.07194710595390245,
+            "message": "Failed to process results: cannot unpack non-iterable float object",
+            "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 9,
+                "function_evaluations": 44,
                 "execution_time": 0.0
             },
             "stages": []
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "OptimizationCache.__init__() got an unexpected keyword argument 'cache_file'",
-            "payload_fraction": 0.07194710595390245,
+            "message": "Failed to process results: cannot unpack non-iterable float object",
+            "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
@@ -84,8 +84,8 @@
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "Optimization failed: OptimizationCache.__init__() got an unexpected keyword argument 'cache_file'",
-            "payload_fraction": 0.07194710595390245,
+            "message": "Failed to process results: cannot unpack non-iterable float object",
+            "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
@@ -96,36 +96,36 @@
         },
         "ParticleSwarmOptimizer": {
             "success": false,
-            "message": "boolean index did not match indexed array along axis 1; size of axis is 2 but size of corresponding boolean axis is 3",
-            "payload_fraction": 0.07194710595390245,
+            "message": "Failed to process results: cannot unpack non-iterable float object",
+            "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 100,
+                "function_evaluations": 5050,
                 "execution_time": 0.0
             },
             "stages": []
         },
         "BasinHoppingOptimizer": {
             "success": false,
-            "message": "The user-provided objective function must return a scalar value.",
-            "payload_fraction": 0.07194710595390245,
+            "message": "Failed to process results: cannot unpack non-iterable float object",
+            "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 100,
+                "function_evaluations": 4045,
                 "execution_time": 0.0
             },
             "stages": []
         },
         "DifferentialEvolutionSolver": {
             "success": false,
-            "message": "func(x, *args) must return a scalar value",
-            "payload_fraction": 0.07194710595390245,
+            "message": "Failed to process results: cannot unpack non-iterable float object",
+            "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 58,
+                "function_evaluations": 1969,
                 "execution_time": 0.0
             },
             "stages": []

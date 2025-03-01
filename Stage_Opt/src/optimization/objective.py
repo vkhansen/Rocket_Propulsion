@@ -3,6 +3,7 @@ import numpy as np
 from typing import Tuple, Dict
 from .physics import calculate_stage_ratios, calculate_payload_fraction
 from ..utils.config import logger
+from .parallel_solver import ParallelSolver
 
 def calculate_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.ndarray) -> float:
     """Calculate the objective value (negative payload fraction).
