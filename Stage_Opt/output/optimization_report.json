@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T21:03:05.992789",
+    "timestamp": "2025-03-01T21:28:01.847357",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -58,167 +58,77 @@
         }
     },
     "results": {
-        "DifferentialEvolutionSolver": {
-            "success": true,
-            "message": "Optimization terminated successfully.",
-            "payload_fraction": 0.09922096586923276,
-            "constraint_violation": 1.2732925824820995e-11,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.9174692630767822
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 4718.348371307646,
-                    "Lambda": 0.14603728376312955,
-                    "ISP": 250.0,
-                    "EPSILON": 0.14
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 4581.651628692367,
-                    "Lambda": 0.3542103877581318,
-                    "ISP": 450.0,
-                    "EPSILON": 0.03
-                }
-            ]
-        },
-        "ParticleSwarmOptimizer": {
-            "success": true,
-            "message": "PSO optimization completed",
-            "payload_fraction": 0.139655121963886,
-            "constraint_violation": 6.696784112136811e-06,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.23904037475585938
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 351.37225878484634,
-                    "Lambda": 0.8665191639819232,
-                    "ISP": 250.0,
-                    "EPSILON": 0.14
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 8948.627747911938,
-                    "Lambda": 0.13171710217650734,
-                    "ISP": 450.0,
-                    "EPSILON": 0.03
-                }
-            ]
-        },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "None",
-            "payload_fraction": 0.10818625919771321,
-            "constraint_violation": 0.0030255543497332837,
+            "message": "Error collecting results: module 'signal' has no attribute 'SIGALRM'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
-                "execution_time": 5.919435262680054
+                "execution_time": 0.0
             },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 2383.5050698766436,
-                    "Lambda": 0.378375757124285,
-                    "ISP": 250.0,
-                    "EPSILON": 0.14
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 6916.497955677707,
-                    "Lambda": 0.20871864286114045,
-                    "ISP": 450.0,
-                    "EPSILON": 0.03
-                }
-            ]
+            "stages": []
         },
-        "SLSQPSolver": {
-            "success": true,
-            "message": "",
-            "payload_fraction": 0.09912624071263962,
-            "constraint_violation": 5.644687917083502e-08,
+        "DifferentialEvolutionSolver": {
+            "success": false,
+            "message": "Error collecting results: module 'signal' has no attribute 'SIGALRM'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
-                "execution_time": 0.008138656616210938
+                "execution_time": 0.0
             },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 4650.000001095933,
-                    "Lambda": 0.1501644179862018,
-                    "ISP": 250.0,
-                    "EPSILON": 0.14
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 4649.999998960515,
-                    "Lambda": 0.34876849162516615,
-                    "ISP": 450.0,
-                    "EPSILON": 0.03
-                }
-            ]
+            "stages": []
         },
         "BasinHoppingOptimizer": {
-            "success": true,
-            "message": "['requested number of basinhopping iterations completed successfully']",
-            "payload_fraction": 0.09912681035312892,
-            "constraint_violation": 0.0,
+            "success": false,
+            "message": "Error collecting results: module 'signal' has no attribute 'SIGALRM'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
-                "execution_time": 0.7615187168121338
+                "execution_time": 0.0
             },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 4650.462058841774,
-                    "Lambda": 0.15013612926173173,
-                    "ISP": 250.0,
-                    "EPSILON": 0.14
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 4649.537941158225,
-                    "Lambda": 0.34880499850856095,
-                    "ISP": 450.0,
-                    "EPSILON": 0.03
-                }
-            ]
+            "stages": []
+        },
+        "ParticleSwarmOptimizer": {
+            "success": false,
+            "message": "Error collecting results: module 'signal' has no attribute 'SIGALRM'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "SLSQPSolver": {
+            "success": false,
+            "message": "Error collecting results: module 'signal' has no attribute 'SIGALRM'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "None",
-            "payload_fraction": 0.10610651556105498,
-            "constraint_violation": 2.038923412328586e-07,
+            "message": "Error collecting results: module 'signal' has no attribute 'SIGALRM'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
-                "execution_time": 25.85490608215332
+                "execution_time": 0.0
             },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 2617.3977661957774,
-                    "Lambda": 0.34395769737600085,
-                    "ISP": 250.0,
-                    "EPSILON": 0.14
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 6682.60223360033,
-                    "Lambda": 0.22007549630361523,
-                    "ISP": 450.0,
-                    "EPSILON": 0.03
-                }
-            ]
+            "stages": []
         }
     }
 }

@@ -23,8 +23,11 @@
         },
         "parallel": {
             "max_workers": 4,
-            "timeout": 3600
+            "timeout": 30
         },
+        "parallel_solver_timeout": 30,
+        "max_processes": 4,
+        "cache_size": 1000,
         "solvers": {
             "slsqp": {
                 "solver_specific": {

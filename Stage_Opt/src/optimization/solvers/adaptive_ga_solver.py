@@ -16,22 +16,29 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         
         # Initialize adaptive parameters with consistent naming
         self.min_pop_size = int(self.solver_specific.get('min_pop_size', 50))
-        self.max_pop_size = int(self.solver_specific.get('max_pop_size', 200))
+        self.max_pop_size = int(self.solver_specific.get('max_pop_size', 300))  # Increased max population
         self.min_generations = int(self.solver_specific.get('min_generations', 50))
         self.max_generations = int(self.solver_specific.get('max_generations', 500))
         self.improvement_threshold = float(self.solver_specific.get('improvement_threshold', 0.01))
-        self.adaptation_interval = int(self.solver_specific.get('adaptation_interval', 10))
+        self.adaptation_interval = int(self.solver_specific.get('adaptation_interval', 5))  # More frequent adaptation
         
-        # Mutation and crossover rate adaptation parameters
+        # Mutation and crossover rate adaptation parameters - wider ranges
         self.min_mutation_rate = float(self.solver_specific.get('min_mutation_rate', 0.01))
-        self.max_mutation_rate = float(self.solver_specific.get('max_mutation_rate', 0.2))
-        self.min_crossover_rate = float(self.solver_specific.get('min_crossover_rate', 0.5))
+        self.max_mutation_rate = float(self.solver_specific.get('max_mutation_rate', 0.4))  # Increased for more exploration
+        self.min_crossover_rate = float(self.solver_specific.get('min_crossover_rate', 0.3))  # Lower minimum
         self.max_crossover_rate = float(self.solver_specific.get('max_crossover_rate', 1.0))
         
-        # Override base parameters for initial values
-        self.pop_size = int(self.solver_specific.get('initial_pop_size', 100))
-        self.mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
-        self.crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.9))
+        # Override base parameters for initial values - start with more exploration
+        self.pop_size = int(self.solver_specific.get('initial_pop_size', 150))  # Larger initial population
+        self.mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.2))  # Start with high mutation
+        self.crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.7))  # Balanced crossover
+        
+        # Add stagnation counter and diversity threshold
+        self.stagnation_counter = 0
+        self.stagnation_threshold = 5  # Number of adaptations before triggering reset
+        self.diversity_threshold = 1e-6
+        self.last_reset_gen = 0
+        self.min_reset_interval = 20  # Minimum generations between resets
         
         # Initialize tracking variables
         self.best_fitness_history = []
@@ -44,6 +51,45 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                     f"generations=[{self.min_generations}, {self.max_generations}], "
                     f"mutation_rate=[{self.min_mutation_rate}, {self.max_mutation_rate}], "
                     f"crossover_rate=[{self.min_crossover_rate}, {self.max_crossover_rate}]")
+    
+    def _reset_population(self, algorithm):
+        """Reset population when stuck in local optimum."""
+        if algorithm.n_gen - self.last_reset_gen < self.min_reset_interval:
+            return False
+            
+        # Store best solutions
+        n_elite = max(5, int(0.05 * algorithm.pop_size))  # Keep top 5% or at least 5 solutions
+        elite_pop = sorted(algorithm.pop, key=lambda x: x.F[0])[:n_elite]
+        
+        # Create new population
+        new_pop_size = min(self.max_pop_size, algorithm.pop_size * 2)
+        new_algorithm = self.create_algorithm(pop_size=new_pop_size)
+        
+        # Inject elite solutions
+        if hasattr(new_algorithm, 'pop') and new_algorithm.pop is not None:
+            algorithm.pop = new_algorithm.pop
+            for i in range(min(n_elite, len(elite_pop))):
+                algorithm.pop[i] = elite_pop[i]
+            
+        # Reset parameters for exploration
+        self.mutation_rate = 0.6  # Start with very high mutation
+        self.crossover_rate = 0.4  # Lower crossover rate
+        algorithm.pop_size = new_pop_size
+        
+        # Update operators
+        if hasattr(algorithm, 'mating'):
+            if hasattr(algorithm.mating, 'mutation'):
+                algorithm.mating.mutation.prob = self.mutation_rate
+            if hasattr(algorithm.mating, 'crossover'):
+                algorithm.mating.crossover.prob = self.crossover_rate
+        
+        self.last_reset_gen = algorithm.n_gen
+        logger.warning(f"\nResetting population at generation {algorithm.n_gen}:")
+        logger.warning(f"  New population size: {new_pop_size}")
+        logger.warning(f"  New mutation rate: {self.mutation_rate:.3f}")
+        logger.warning(f"  New crossover rate: {self.crossover_rate:.3f}")
+        logger.warning(f"  Elite solutions preserved: {n_elite}")
+        return True
     
     def _log_generation_stats(self, algorithm):
         """Log statistics for current generation."""
@@ -73,15 +119,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         logger.info(f"  Mutation Rate: {self.mutation_rate:.3f}")
         logger.info(f"  Crossover Rate: {self.crossover_rate:.3f}")
         
-        # Print convergence warning if diversity is too low
-        if diversity < 1e-6:
+        # Check for convergence issues
+        if diversity < self.diversity_threshold:
             logger.warning("  Low population diversity detected - possible premature convergence")
-            
-        # Print stagnation warning if no improvement for many generations
-        if len(self.best_fitness_history) > 10:
-            recent_improvement = (self.best_fitness_history[-10] - best_fitness) / self.best_fitness_history[-10]
-            if abs(recent_improvement) < 1e-6:
-                logger.warning("  Optimization appears to be stagnating - will adapt parameters more aggressively")
+            self.stagnation_counter += 1
+        else:
+            self.stagnation_counter = 0
     
     def adapt_parameters(self, algorithm):
         """Adapt algorithm parameters based on performance."""
@@ -107,29 +150,28 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         prev_mutation_rate = self.mutation_rate
         prev_crossover_rate = self.crossover_rate
         
-        # Adjust population size based on improvement
-        new_pop_size = algorithm.pop_size
-        if improvement < self.improvement_threshold:
-            new_pop_size = min(self.max_pop_size, int(algorithm.pop_size * 1.5))
+        # Check if reset is needed
+        if self.stagnation_counter >= 3:  # Reduced from 5 to 3 generations
+            if self._reset_population(algorithm):
+                self.stagnation_counter = 0
+                return
+        
+        # More aggressive parameter adaptation
+        if improvement <= 0.001:  # No significant improvement
+            self.mutation_rate = min(0.8, self.mutation_rate * 1.8)  # Much more aggressive mutation
+            self.crossover_rate = max(0.2, self.crossover_rate * 0.7)  # Reduce crossover more aggressively
+            self.pop_size = min(400, int(self.pop_size * 1.7))  # Larger population increase
         else:
-            new_pop_size = max(self.min_pop_size, int(algorithm.pop_size * 0.8))
-            
-        # Adjust mutation and crossover rates
-        if improvement < self.improvement_threshold:
-            # Increase exploration
-            self.mutation_rate = min(self.max_mutation_rate, self.mutation_rate * 1.2)
-            self.crossover_rate = max(self.min_crossover_rate, self.crossover_rate * 0.9)
-        else:
-            # Increase exploitation
-            self.mutation_rate = max(self.min_mutation_rate, self.mutation_rate * 0.9)
-            self.crossover_rate = min(self.max_crossover_rate, self.crossover_rate * 1.1)
+            self.mutation_rate = max(0.1, self.mutation_rate * 0.9)
+            self.crossover_rate = min(0.9, self.crossover_rate * 1.1)
+            self.pop_size = max(100, int(self.pop_size * 0.95))
         
         # Create new algorithm with adapted parameters if population size changed
-        if new_pop_size != algorithm.pop_size:
-            new_algorithm = self.create_algorithm(pop_size=new_pop_size)
+        if self.pop_size != prev_pop_size:
+            new_algorithm = self.create_algorithm(pop_size=self.pop_size)
             if hasattr(new_algorithm, 'pop') and new_algorithm.pop is not None:
                 algorithm.pop = new_algorithm.pop
-                algorithm.pop_size = new_pop_size
+                algorithm.pop_size = self.pop_size
             
         # Update operators if they exist
         if hasattr(algorithm, 'mating'):
@@ -141,7 +183,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         # Log adaptation details
         logger.info("\nParameter Adaptation:")
         logger.info(f"  Improvement: {improvement:.6f}")
-        logger.info(f"  Population Size: {prev_pop_size} -> {new_pop_size}")
+        logger.info(f"  Population Size: {prev_pop_size} -> {self.pop_size}")
         logger.info(f"  Mutation Rate: {prev_mutation_rate:.3f} -> {self.mutation_rate:.3f}")
         logger.info(f"  Crossover Rate: {prev_crossover_rate:.3f} -> {self.crossover_rate:.3f}")
         
@@ -149,7 +191,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         self.adaptation_history.append({
             'generation': algorithm.n_gen,
             'improvement': improvement,
-            'pop_size_change': new_pop_size - prev_pop_size,
+            'pop_size_change': self.pop_size - prev_pop_size,
             'mutation_rate_change': self.mutation_rate - prev_mutation_rate,
             'crossover_rate_change': self.crossover_rate - prev_crossover_rate
         })
