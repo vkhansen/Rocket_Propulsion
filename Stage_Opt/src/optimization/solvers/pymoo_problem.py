@@ -3,6 +3,7 @@ import numpy as np
 from pymoo.core.problem import Problem
 from ...utils.config import logger
 from ..objective import objective_with_penalty
+from ..cache import OptimizationCache
 
 def tournament_comp(pop, P, **kwargs):
     """Tournament selection comparator.
@@ -63,20 +64,34 @@ class RocketStageProblem(Problem):
             xu=bounds[:, 1]   # Upper bounds
         )
         self.solver = solver
+        self.cache = OptimizationCache(
+            cache_file=f"{solver.name.lower()}_cache.pkl",
+            max_size=10000
+        )
         
     def _evaluate(self, x, out, *args, **kwargs):
-        """Evaluate objective function."""
+        """Evaluate objective function with caching."""
         try:
-            f = np.array([
-                objective_with_penalty(
-                    dv=x_i,
-                    G0=self.solver.G0,
-                    ISP=self.solver.ISP,
-                    EPSILON=self.solver.EPSILON,
-                    TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V
-                )
-                for x_i in x
-            ])
+            f = np.zeros(len(x))
+            for i, x_i in enumerate(x):
+                # Convert numpy array to tuple for caching
+                x_tuple = tuple(x_i)
+                
+                # Try to get from cache first
+                cached_value = self.cache.get(x_tuple)
+                if cached_value is not None:
+                    f[i] = cached_value
+                else:
+                    # Calculate and cache if not found
+                    f[i] = objective_with_penalty(
+                        dv=x_i,
+                        G0=self.solver.G0,
+                        ISP=self.solver.ISP,
+                        EPSILON=self.solver.EPSILON,
+                        TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V
+                    )
+                    self.cache.set(x_tuple, f[i])
+            
             out["F"] = f
             
         except Exception as e:
