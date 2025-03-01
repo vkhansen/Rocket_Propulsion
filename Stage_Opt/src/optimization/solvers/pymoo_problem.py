@@ -1,88 +1,67 @@
-"""Common PyMOO problem definitions and utilities."""
+"""PyMOO problem definition for rocket stage optimization."""
 import numpy as np
 from pymoo.core.problem import Problem
+from ...utils.config import logger
 
 def tournament_comp(pop, P, **kwargs):
-    """Tournament selection comparison function.
-    
-    Args:
-        pop: Population to select from
-        P: Tournament pairs matrix
-        **kwargs: Additional arguments
-        
-    Returns:
-        np.ndarray: Selected individual indices
-    """
-    if len(pop) == 0:
-        return np.zeros(P.shape[0], dtype=int)
-        
+    """Tournament selection comparator."""
     S = np.full(P.shape[0], np.nan)
-    
+
     for i in range(P.shape[0]):
         a, b = P[i, 0], P[i, 1]
-        
-        # Get individuals from population
-        ind_a, ind_b = pop[a], pop[b]
-        
-        # Get constraint violations (if any)
-        a_cv = 0 if ind_a.CV is None else float(ind_a.CV[0])
-        b_cv = 0 if ind_b.CV is None else float(ind_b.CV[0])
-        
-        # Get objective values
-        a_f = float(ind_a.F[0])
-        b_f = float(ind_b.F[0])
-        
-        # If both feasible or both infeasible
-        if (a_cv <= 0 and b_cv <= 0) or (a_cv > 0 and b_cv > 0):
-            S[i] = a if a_f < b_f else b
-        # If one is feasible and other is not
+
+        # If invalid solutions exist, always prefer valid solution
+        if pop[a].CV > 0.0 or pop[b].CV > 0.0:
+            if pop[a].CV < pop[b].CV:
+                S[i] = a
+            else:
+                S[i] = b
+        # Otherwise use objective values
         else:
-            S[i] = a if a_cv <= 0 else b
-            
+            if pop[a].F[0] < pop[b].F[0]:
+                S[i] = a
+            else:
+                S[i] = b
+
     return S
 
 class RocketStageProblem(Problem):
-    """Problem definition for pymoo-based solvers."""
+    """Problem definition for rocket stage optimization."""
     
-    def __init__(self, solver, n_var, bounds):
+    def __init__(self, solver, n_var, bounds, objective_func):
         """Initialize problem.
         
         Args:
-            solver: Solver instance
-            n_var: Number of variables
-            bounds: List of (min, max) bounds for each variable
+            solver: Solver instance containing problem parameters
+            n_var: Number of variables (stages)
+            bounds: Variable bounds
+            objective_func: Objective function to minimize
         """
         super().__init__(
             n_var=n_var,
             n_obj=1,
-            n_constr=1,
-            xl=np.array([b[0] for b in bounds]),
-            xu=np.array([b[1] for b in bounds])
+            n_constr=0,
+            xl=bounds[:, 0],
+            xu=bounds[:, 1]
         )
         self.solver = solver
+        self.objective_func = objective_func
         
     def _evaluate(self, x, out, *args, **kwargs):
-        """Evaluate solutions.
-        
-        Args:
-            x: Solutions to evaluate
-            out: Output dictionary
-            *args: Additional positional arguments
-            **kwargs: Additional keyword arguments
-        """
-        # Evaluate each solution
-        f = np.zeros((x.shape[0], 1))
-        g = np.zeros((x.shape[0], 1))  # Constraints
-        
-        for i in range(x.shape[0]):
-            # Calculate objective (negative since pymoo minimizes)
-            f[i, 0] = -self.solver.objective_with_penalty(x[i])
+        """Evaluate objective function."""
+        try:
+            f = np.array([
+                self.objective_func(
+                    dv=x_i,
+                    G0=self.solver.G0,
+                    ISP=self.solver.ISP,
+                    EPSILON=self.solver.EPSILON,
+                    TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V
+                )
+                for x_i in x
+            ])
+            out["F"] = f
             
-            # Calculate constraint violation
-            stage_ratios, _ = self.solver.calculate_stage_ratios(x[i])
-            delta_v = self.solver.calculate_delta_v(stage_ratios)
-            total_dv = np.sum(delta_v)
-            g[i, 0] = total_dv - self.solver.TOTAL_DELTA_V
-        
-        out["F"] = f
-        out["G"] = g
+        except Exception as e:
+            logger.error(f"Error in problem evaluation: {str(e)}")
+            out["F"] = np.array([float('inf')] * len(x))

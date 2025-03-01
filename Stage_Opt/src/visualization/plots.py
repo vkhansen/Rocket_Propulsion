@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from ..utils.config import logger, OUTPUT_DIR
 
 def plot_dv_breakdown(results, filename="dv_breakdown.png"):
-    """Plot ΔV breakdown for each optimization method."""
+    """Plot DV breakdown for each optimization method."""
     try:
         plt.figure(figsize=(12, 6))
         
@@ -27,7 +27,7 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         # Plot each stage
         n_stages = len(results_list[0].get('stages', []))
         for stage_idx in range(n_stages):
-            # Extract ΔV values and ratios for this stage across all methods
+            # Extract DV values and ratios for this stage across all methods
             stage_dvs = []
             stage_ratios = []
             
@@ -49,11 +49,11 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
                    bottom=bottom, color=colors[stage_idx % len(colors)],
                    label=f'Stage {stage_idx+1}')
             
-            # Add text labels with ΔV and Λ values
+            # Add text labels with DV and Lambda values
             for i, (dv, lambda_ratio) in enumerate(zip(stage_dvs, stage_ratios)):
                 # Add black text with white background for better visibility
                 plt.text(i, float(bottom[i]) + float(dv)/2,
-                        f"{float(dv):.0f} m/s\nΛ={float(lambda_ratio):.3f}",
+                        f"{float(dv):.0f} m/s\nL={float(lambda_ratio):.3f}",
                         ha='center', va='center',
                         color='black', fontweight='bold',
                         fontsize=10, bbox=dict(
@@ -67,8 +67,8 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         
         # Customize plot
         plt.xlabel('Optimization Method')
-        plt.ylabel('ΔV (m/s)')
-        plt.title('Stage ΔV Breakdown by Method')
+        plt.ylabel('Delta-V (m/s)')
+        plt.title('Stage Delta-V Breakdown by Method')
         plt.xticks(method_positions, [result.get('method', f'Method {i}') 
                                     for i, result in enumerate(results_list)])
         plt.legend()
@@ -79,10 +79,10 @@ def plot_dv_breakdown(results, filename="dv_breakdown.png"):
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         
-        logger.info(f"ΔV breakdown plot saved to {output_path}")
+        logger.info(f"Delta-V breakdown plot saved to {output_path}")
         
     except Exception as e:
-        logger.error(f"Error plotting ΔV breakdown: {str(e)}")
+        logger.error(f"Error plotting Delta-V breakdown: {str(e)}")
 
 def plot_execution_time(results, filename="execution_time.png"):
     """Plot execution time for each optimization method."""

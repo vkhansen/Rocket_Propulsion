@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T13:55:48.130100",
+    "timestamp": "2025-03-01T13:56:54.954068",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -59,84 +59,121 @@
     },
     "results": {
         "SLSQPSolver": {
-            "success": true,
-            "payload_fraction": -9299999.99732715,
-            "stage_ratios": [
-                0.019780133728804238,
-                0.11809656378431918
-            ],
-            "mass_ratios": [
-                0.02254935245083683,
-                0.12163946069784876
-            ],
-            "iterations": 3,
-            "function_evaluations": 11,
-            "execution_time": 0.0
+            "success": false,
+            "message": "Error in SLSQP solver: 'SLSQPSolver' object has no attribute 'objective_with_penalty'",
+            "payload_fraction": 0.0,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
         },
         "GeneticAlgorithmSolver": {
             "success": false,
+            "message": "",
             "payload_fraction": 0.0,
-            "stage_ratios": [],
-            "mass_ratios": [],
-            "iterations": 0,
-            "function_evaluations": 0,
-            "execution_time": 0.0,
-            "error": "Unknown error"
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
+            "message": "",
             "payload_fraction": 0.0,
-            "stage_ratios": [],
-            "mass_ratios": [],
-            "iterations": 0,
-            "function_evaluations": 0,
-            "execution_time": 0.0,
-            "error": "Unknown error"
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
         },
         "ParticleSwarmOptimizer": {
-            "success": true,
-            "payload_fraction": 0.019204013327616842,
-            "stage_ratios": [
-                0.01978013372744535,
-                0.970873786407767
-            ],
-            "mass_ratios": [
-                0.0225493524492877,
-                1.0
-            ],
-            "iterations": 100,
-            "function_evaluations": 5050,
-            "execution_time": 0.4933645725250244
+            "success": false,
+            "message": "Error in PSO solver: 'ParticleSwarmOptimizer' object has no attribute 'objective_with_penalty'",
+            "payload_fraction": 0.8516436722875149,
+            "constraint_violation": 9300.0,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 0.0,
+                    "Lambda": 0.8771929824561403,
+                    "ISP": 250.0,
+                    "EPSILON": 0.14
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 0.0,
+                    "Lambda": 0.970873786407767,
+                    "ISP": 450.0,
+                    "EPSILON": 0.03
+                }
+            ]
         },
         "DifferentialEvolutionSolver": {
-            "success": true,
-            "payload_fraction": 0.10349856768936201,
-            "stage_ratios": [
-                0.8754802908168801,
-                0.11822485853320372
-            ],
-            "mass_ratios": [
-                0.9980475315312434,
-                0.12177160428919984
-            ],
-            "iterations": 64,
-            "function_evaluations": 2684,
-            "execution_time": 3.806490659713745
+            "success": false,
+            "message": "Error in DE solver: 'DifferentialEvolutionSolver' object has no attribute 'objective_with_penalty'",
+            "payload_fraction": 0.8516436722875149,
+            "constraint_violation": 9300.0,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 0.0,
+                    "Lambda": 0.8771929824561403,
+                    "ISP": 250.0,
+                    "EPSILON": 0.14
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 0.0,
+                    "Lambda": 0.970873786407767,
+                    "ISP": 450.0,
+                    "EPSILON": 0.03
+                }
+            ]
         },
         "BasinHoppingOptimizer": {
-            "success": true,
-            "payload_fraction": 0.04461687868133234,
-            "stage_ratios": [
-                0.13181668680994665,
-                0.3384767115688545
-            ],
-            "mass_ratios": [
-                0.1502710229633392,
-                0.34863101291592014
-            ],
-            "iterations": 100,
-            "function_evaluations": 16905,
-            "execution_time": 21.352965116500854
+            "success": false,
+            "message": "Error in Basin Hopping solver: 'BasinHoppingOptimizer' object has no attribute 'objective_with_penalty'",
+            "payload_fraction": 0.8516436722875149,
+            "constraint_violation": 9300.0,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 0.0,
+                    "Lambda": 0.8771929824561403,
+                    "ISP": 250.0,
+                    "EPSILON": 0.14
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 0.0,
+                    "Lambda": 0.970873786407767,
+                    "ISP": 450.0,
+                    "EPSILON": 0.03
+                }
+            ]
         }
     }
 }

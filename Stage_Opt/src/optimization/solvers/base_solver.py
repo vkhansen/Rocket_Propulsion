@@ -80,6 +80,7 @@ class BaseSolver(ABC):
             return {
                 'success': bool(success),
                 'message': str(message),
+                'method': self.name,
                 'x': x.tolist(),
                 'dv': x.tolist(),  # For backward compatibility
                 'stages': stages,
@@ -97,6 +98,7 @@ class BaseSolver(ABC):
             return {
                 'success': False,
                 'message': f"Error processing results: {str(e)}",
+                'method': self.name,
                 'x': [],
                 'dv': [],
                 'stages': [],
