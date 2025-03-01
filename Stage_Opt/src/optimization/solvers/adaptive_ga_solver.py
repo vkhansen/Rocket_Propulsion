@@ -3,18 +3,31 @@ import numpy as np
 import time
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.callback import Callback
-from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
 from .base_solver import BaseSolver
+from .pymoo_problem import RocketStageProblem, tournament_comp
 from ...utils.config import logger
 
 class AdaptiveCallback(Callback):
     """Callback for adaptive population size and operator parameters."""
     
-    def __init__(self, solver, stagnation_limit=10, min_mutation_rate=0.01, max_mutation_rate=0.5, min_crossover_rate=0.5, max_crossover_rate=1.0, elite_size=2, convergence_threshold=1e-6):
+    def __init__(self, solver, stagnation_limit=10, min_mutation_rate=0.01, max_mutation_rate=0.5, 
+                 min_crossover_rate=0.5, max_crossover_rate=1.0, elite_size=2, convergence_threshold=1e-6):
+        """Initialize adaptive callback.
+        
+        Args:
+            solver: Solver instance
+            stagnation_limit: Number of generations without improvement before adaptation
+            min_mutation_rate: Minimum mutation rate
+            max_mutation_rate: Maximum mutation rate
+            min_crossover_rate: Minimum crossover rate
+            max_crossover_rate: Maximum crossover rate
+            elite_size: Number of elite solutions to preserve
+            convergence_threshold: Threshold for convergence detection
+        """
         super().__init__()
         self.solver = solver
         self.stagnation_limit = stagnation_limit
@@ -79,38 +92,6 @@ class AdaptiveCallback(Callback):
                     algorithm.mating.crossover.prob * 0.9, self.min_crossover_rate
                 )
 
-class RocketStageProblem(Problem):
-    """Problem definition for pymoo GA."""
-    
-    def __init__(self, solver, n_var, bounds):
-        super().__init__(
-            n_var=n_var,
-            n_obj=1,
-            n_constr=1,
-            xl=np.array([b[0] for b in bounds]),
-            xu=np.array([b[1] for b in bounds])
-        )
-        self.solver = solver
-        
-    def _evaluate(self, x, out, *args, **kwargs):
-        """Evaluate solutions."""
-        # Evaluate each solution
-        f = np.zeros((x.shape[0], 1))
-        g = np.zeros((x.shape[0], 1))  # Constraints
-        
-        for i in range(x.shape[0]):
-            # Calculate objective (negative since pymoo minimizes)
-            f[i, 0] = -self.solver.objective_with_penalty(x[i])
-            
-            # Calculate constraint violation
-            stage_ratios, _ = self.solver.calculate_stage_ratios(x[i])
-            delta_v = self.solver.calculate_delta_v(stage_ratios)
-            total_dv = np.sum(delta_v)
-            g[i, 0] = total_dv - self.solver.TOTAL_DELTA_V  # Access from solver directly
-        
-        out["F"] = f
-        out["G"] = g
-
 class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     """Adaptive Genetic Algorithm solver implementation."""
     
@@ -143,26 +124,6 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
-            
-            def tournament_comp(pop, P, **kwargs):
-                """Tournament selection comparison function."""
-                S = np.full(P.shape[0], np.nan)
-                
-                for i in range(P.shape[0]):
-                    a, b = P[i, 0], P[i, 1]
-                    
-                    # Get objective values (first objective for single-objective)
-                    a_cv = pop[a].get("CV")[0] if pop[a].get("CV") is not None else 0
-                    b_cv = pop[b].get("CV")[0] if pop[b].get("CV") is not None else 0
-                    
-                    # If both feasible or both infeasible
-                    if (a_cv <= 0 and b_cv <= 0) or (a_cv > 0 and b_cv > 0):
-                        S[i] = a if pop[a].get("F")[0] < pop[b].get("F")[0] else b
-                    # If one is feasible and other is not
-                    else:
-                        S[i] = a if a_cv <= 0 else b
-                        
-                return S
             
             # Initialize algorithm with specific operators
             algorithm = GA(
