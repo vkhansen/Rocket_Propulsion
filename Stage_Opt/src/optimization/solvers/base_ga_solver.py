@@ -4,7 +4,7 @@ from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.operators.selection.tournament import TournamentSelection
+from pymoo.operators.selection.tournament import TournamentSelection, compare
 from pymoo.optimize import minimize
 from ...utils.config import logger
 from .base_solver import BaseSolver
@@ -30,9 +30,23 @@ class BaseGASolver(BaseSolver):
 
     def create_tournament_selection(self):
         """Create tournament selection operator with comparison function."""
+        def tournament_comp(pop, P, **kwargs):
+            """Tournament selection comparator."""
+            S = np.full(len(P), P[0])
+            
+            for i in range(len(P)):
+                # Get fitness values for each individual in tournament
+                fitness = np.array([pop[j].get("F")[0] for j in P[i:i+1]])
+                # Get constraint violations
+                cv = np.array([pop[j].get("CV")[0] if pop[j].get("CV") is not None else 0.0 for j in P[i:i+1]])
+                # Select winner based on constraint violation and fitness
+                S[i] = P[i + np.argmin(cv) if np.any(cv > 0) else P[i + np.argmin(fitness)]]
+            
+            return S
+
         return TournamentSelection(
             pressure=self.tournament_size,
-            func_comp=lambda pop, P, **kwargs: np.argsort(pop.get("F").flatten()[P])
+            func_comp=tournament_comp
         )
 
     def create_algorithm(self, pop_size=None):
