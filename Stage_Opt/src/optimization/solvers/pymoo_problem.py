@@ -1,7 +1,6 @@
 """Common PyMOO problem definitions and utilities."""
 import numpy as np
 from pymoo.core.problem import Problem
-from pymoo.operators.selection.tournament import TournamentSelection
 
 def tournament_comp(pop, P, **kwargs):
     """Tournament selection comparison function.
@@ -14,6 +13,9 @@ def tournament_comp(pop, P, **kwargs):
     Returns:
         np.ndarray: Selected individual indices
     """
+    if len(pop) == 0:
+        return np.zeros(P.shape[0], dtype=int)
+        
     S = np.full(P.shape[0], np.nan)
     
     for i in range(P.shape[0]):

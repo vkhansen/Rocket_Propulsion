@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-01T13:01:07.117345",
+    "timestamp": "2025-03-01T13:02:02.201218",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -91,22 +91,22 @@
             "iterations": 0,
             "function_evaluations": 0,
             "execution_time": 0.0,
-            "error": "Error in Adaptive GA solver: 'Population' object has no attribute 'F'"
+            "error": "Error in Adaptive GA solver: 'numpy.float64' object has no attribute 'get'"
         },
         "ParticleSwarmOptimizer": {
             "success": true,
-            "payload_fraction": 1.0,
+            "payload_fraction": 0.023588531786684505,
             "stage_ratios": [
-                1.0,
-                1.0
+                0.15939244310638742,
+                0.14799027687241234
             ],
             "mass_ratios": [
-                1.0,
-                1.0
+                44.347171487471634,
+                8.221016389756423
             ],
             "iterations": 100,
             "function_evaluations": 5050,
-            "execution_time": 1.0526256561279297
+            "execution_time": 1.1684648990631104
         },
         "DifferentialEvolutionSolver": {
             "success": true,
@@ -121,7 +121,7 @@
             ],
             "iterations": 21,
             "function_evaluations": 886,
-            "execution_time": 6.313511610031128
+            "execution_time": 0.0726926326751709
         },
         "BasinHoppingOptimizer": {
             "success": true,
@@ -136,7 +136,7 @@
             ],
             "iterations": 100,
             "function_evaluations": 528,
-            "execution_time": 0.08608174324035645
+            "execution_time": 1.526407241821289
         }
     }
 }
