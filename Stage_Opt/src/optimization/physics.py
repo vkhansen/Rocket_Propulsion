@@ -12,7 +12,9 @@ def calculate_stage_ratios(dv, G0, ISP, EPSILON):
         EPSILON (np.ndarray): Structural coefficients for each stage
         
     Returns:
-        tuple: (stage_ratios, mass_ratios)
+        tuple: (stage_ratios, mass_ratios) where:
+            - stage_ratios (λ) = mf/m0 (final mass / initial mass for each stage)
+            - mass_ratios (μ) = stage mass ratio accounting for structural mass
     """
     try:
         # Convert inputs to numpy arrays
@@ -20,13 +22,14 @@ def calculate_stage_ratios(dv, G0, ISP, EPSILON):
         ISP = np.asarray(ISP, dtype=float)
         EPSILON = np.asarray(EPSILON, dtype=float)
         
-        # Calculate stage ratios (λ)
-        stage_ratios = np.exp(dv / (G0 * ISP))
+        # Calculate stage ratios (λ = mf/m0)
+        stage_ratios = np.exp(-dv / (G0 * ISP))  # Added negative sign to get mf/m0
         
         # Calculate mass ratios (μ)
         mass_ratios = np.zeros_like(stage_ratios)
         for i in range(len(stage_ratios)):
-            mass_ratios[i] = stage_ratios[i] / (1.0 - EPSILON[i] * (1.0 - stage_ratios[i]))
+            # Since λ is now mf/m0, we need to adjust the mass ratio formula
+            mass_ratios[i] = 1.0 / (stage_ratios[i] * (1.0 - EPSILON[i]) + EPSILON[i])
         
         return stage_ratios, mass_ratios
         
@@ -38,7 +41,7 @@ def calculate_mass_ratios(stage_ratios, EPSILON):
     """Calculate mass ratios from stage ratios.
     
     Args:
-        stage_ratios (np.ndarray): Stage ratios (λ) for each stage
+        stage_ratios (np.ndarray): Stage ratios (λ = mf/m0) for each stage
         EPSILON (np.ndarray): Structural coefficients for each stage
         
     Returns:
@@ -49,10 +52,10 @@ def calculate_mass_ratios(stage_ratios, EPSILON):
         stage_ratios = np.asarray(stage_ratios, dtype=float)
         EPSILON = np.asarray(EPSILON, dtype=float)
         
-        # Calculate mass ratios
+        # Calculate mass ratios using corrected formula for mf/m0
         mass_ratios = np.zeros_like(stage_ratios)
         for i in range(len(stage_ratios)):
-            mass_ratios[i] = stage_ratios[i] / (1.0 - EPSILON[i] * (1.0 - stage_ratios[i]))
+            mass_ratios[i] = 1.0 / (stage_ratios[i] * (1.0 - EPSILON[i]) + EPSILON[i])
             
         return mass_ratios
         

@@ -493,7 +493,7 @@ class TestCSVOutputs(unittest.TestCase):
                 if result['success']:
                     # Add required fields for CSV output
                     result['payload_fraction'] = result.get('payload_fraction', 0.0)
-                    result['error'] = result.get('error', 0.0)
+                    result['constraint_violation'] = result.get('constraint_violation', 0.0)  # Changed from 'error'
                     result['execution_time'] = result.get('execution_time', 0.0)
                     
                     # Convert stage data to expected format

@@ -77,20 +77,22 @@ class BaseSolver(ABC):
             # Create detailed stage results
             stages = self.create_stage_results(x, stage_ratios)
             
+            # Calculate constraint violation
+            constraint_violation = self.enforce_constraints(x)
+            
             return {
                 'success': bool(success),
                 'message': str(message),
                 'method': self.name,
-                'x': x.tolist(),
-                'dv': x.tolist(),  # For backward compatibility
-                'stages': stages,
-                'stage_ratios': [float(r) for r in stage_ratios],
-                'mass_ratios': [float(r) for r in mass_ratios],
+                'dv': x.tolist(),
+                'stage_ratios': stage_ratios.tolist(),
+                'mass_ratios': mass_ratios.tolist(),
                 'payload_fraction': float(payload_fraction),
+                'constraint_violation': float(constraint_violation),
+                'execution_time': float(time),
                 'n_iterations': int(n_iterations),
                 'n_function_evals': int(n_function_evals),
-                'execution_time': float(time),
-                'constraint_violation': float(self.enforce_constraints(x))
+                'stages': stages
             }
             
         except Exception as e:
@@ -99,16 +101,15 @@ class BaseSolver(ABC):
                 'success': False,
                 'message': f"Error processing results: {str(e)}",
                 'method': self.name,
-                'x': [],
                 'dv': [],
-                'stages': [],
                 'stage_ratios': [],
                 'mass_ratios': [],
                 'payload_fraction': 0.0,
+                'constraint_violation': float('inf'),
+                'execution_time': 0.0,
                 'n_iterations': 0,
                 'n_function_evals': 0,
-                'execution_time': 0.0,
-                'constraint_violation': float('inf')
+                'stages': []
             }
     
     def calculate_stage_ratios(self, x):

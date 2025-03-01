@@ -1,9 +1,9 @@
 """CSV report generation for optimization results."""
 import os
 import csv
-from .utils.config import OUTPUT_DIR, logger
+from ..utils.config import logger
 
-def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
+def write_results_to_csv(results, stages, output_dir):
     """Write optimization results to CSV files.
     
     Args:
@@ -28,14 +28,11 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
                 writer = csv.writer(f)
                 writer.writerow(['Method', 'Payload Fraction', 'Error', 'Time (s)'])
                 for method, result in results.items():
-                    if not all(k in result for k in ['payload_fraction', 'error', 'execution_time']):
-                        logger.warning(f"Skipping incomplete result for {method}")
-                        continue
                     writer.writerow([
                         method,
-                        f"{result['payload_fraction']:.4f}",
-                        f"{result['error']:.4e}",
-                        f"{result['execution_time']:.2f}"
+                        f"{result.get('payload_fraction', 0.0):.4f}",
+                        f"{result.get('constraint_violation', 0.0):.4e}",  # Changed from 'error'
+                        f"{result.get('execution_time', 0.0):.2f}"
                     ])
             logger.info(f"Summary results written to {summary_path}")
         except Exception as e:
@@ -49,11 +46,15 @@ def write_results_to_csv(results, stages, output_dir=OUTPUT_DIR):
                 writer = csv.writer(f)
                 writer.writerow(['Stage', 'Delta-V (m/s)', 'Stage Ratio (lambda)', 'Delta-V Contribution (%)', 'Method'])
                 for method, result in results.items():
-                    if not all(k in result for k in ['dv', 'stage_ratios']):
-                        logger.warning(f"Skipping incomplete stage data for {method}")
+                    if not result.get('dv') or not result.get('stage_ratios'):  # Check for required data
+                        logger.warning(f"Missing required data for {method}")
                         continue
-                    total_dv = sum(result['dv'])
-                    for i, (dv, lambda_ratio) in enumerate(zip(result['dv'], result['stage_ratios'])):
+                        
+                    dv_values = result['dv']
+                    lambda_values = result['stage_ratios']
+                    total_dv = sum(dv_values)
+                    
+                    for i, (dv, lambda_ratio) in enumerate(zip(dv_values, lambda_values)):
                         writer.writerow([
                             i + 1,
                             f"{dv:.2f}",
