@@ -1,10 +1,12 @@
 """Base solver class for optimization."""
 from abc import ABC, abstractmethod
+from typing import Dict
 import numpy as np
-from typing import Dict, List, Union, Optional
+
 from ...utils.config import logger
-from ..physics import calculate_stage_ratios, calculate_mass_ratios, calculate_payload_fraction
 from ..cache import OptimizationCache
+from ..physics import calculate_stage_ratios, calculate_payload_fraction
+from ..objective import objective_with_penalty
 
 class BaseSolver(ABC):
     """Base class for all optimization solvers."""
@@ -32,46 +34,52 @@ class BaseSolver(ABC):
         # Initialize cache
         self.cache = OptimizationCache()
         
-        # Validate initialization
-        if len(self.ISP) != len(self.EPSILON):
-            raise ValueError("Number of ISP values must match number of EPSILON values")
-        if len(self.ISP) == 0:
-            raise ValueError("At least one stage must be defined")
-        if self.TOTAL_DELTA_V <= 0:
-            raise ValueError("Total delta-v must be positive")
+        # Initialize name
+        self.name = self.__class__.__name__
         
-    @property
-    def name(self) -> str:
-        """Get solver name."""
-        return self.__class__.__name__
+    def objective_with_penalty(self, x):
+        """Calculate objective value and constraints.
         
-    def create_stage_results(self, x: np.ndarray, stage_ratios: np.ndarray) -> List[Dict]:
-        """Create detailed results for each stage.
+        Args:
+            x: Input vector (delta-v values)
+            
+        Returns:
+            tuple: (objective_value, dv_constraint, physical_constraint)
+        """
+        return objective_with_penalty(
+            dv=x,
+            G0=self.G0,
+            ISP=self.ISP,
+            EPSILON=self.EPSILON,
+            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+        )
+        
+    def calculate_stage_ratios(self, x: np.ndarray):
+        """Calculate stage ratios for a solution.
         
         Args:
             x: Array of delta-v values
-            stage_ratios: Array of stage ratios
             
         Returns:
-            List of dictionaries containing stage-specific results
+            Tuple of (stage_ratios, mass_ratios)
         """
         try:
-            stages = []
-            for i, (dv_i, lambda_i) in enumerate(zip(x, stage_ratios)):
-                stage = {
-                    'stage': i + 1,
-                    'delta_v': float(dv_i),
-                    'Lambda': float(lambda_i),
-                    'ISP': float(self.ISP[i]),
-                    'EPSILON': float(self.EPSILON[i])
-                }
-                stages.append(stage)
-            return stages
+            # Ensure x is a 1D array matching the number of stages
+            x = np.asarray(x, dtype=float).reshape(-1)
+            if x.size != len(self.ISP):
+                raise ValueError(f"Expected {len(self.ISP)} stages, got {x.size}")
+                
+            return calculate_stage_ratios(
+                dv=x,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON
+            )
         except Exception as e:
-            logger.error(f"Error creating stage results: {e}")
-            return []
-        
-    def enforce_constraints(self, x: np.ndarray) -> float:
+            logger.error(f"Error calculating stage ratios: {str(e)}")
+            return np.zeros_like(self.ISP), np.zeros_like(self.ISP)
+
+    def enforce_constraints(self, x: np.ndarray):
         """Enforce optimization constraints.
         
         Args:
@@ -81,31 +89,14 @@ class BaseSolver(ABC):
             Total constraint violation value
         """
         try:
-            # Convert input to numpy array if needed
-            x_arr = np.asarray(x, dtype=float)
-            
-            # Calculate total delta-v constraint violation
-            total_dv = float(np.sum(x_arr))
-            violation = abs(total_dv - self.TOTAL_DELTA_V)
-            
-            # Add penalties for negative values and physical constraints
-            violation += np.sum(np.abs(np.minimum(x_arr, 0)))
-            
-            # Add penalties for unrealistic stage ratios
-            stage_ratios, _ = self.calculate_stage_ratios(x_arr)
-            min_ratio, max_ratio = 0.1, 0.9
-            ratio_violations = np.sum(
-                np.where(stage_ratios < min_ratio, min_ratio - stage_ratios, 0) +
-                np.where(stage_ratios > max_ratio, stage_ratios - max_ratio, 0)
-            )
-            violation += ratio_violations
-            
-            return float(violation)
+            # Calculate constraint violations
+            _, dv_constraint, physical_constraint = self.objective_with_penalty(x)
+            return float(abs(dv_constraint) + abs(physical_constraint))
             
         except Exception as e:
-            logger.error(f"Error enforcing constraints: {e}")
+            logger.error(f"Error enforcing constraints: {str(e)}")
             return float('inf')
-    
+            
     def process_results(self, x: np.ndarray, success: bool = True, message: str = "", 
                        n_iterations: int = 0, n_function_evals: int = 0, 
                        time: float = 0.0) -> Dict:
@@ -132,75 +123,48 @@ class BaseSolver(ABC):
             stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
             payload_fraction = calculate_payload_fraction(mass_ratios, self.EPSILON)
             
-            # Validate results
-            if not np.all(np.isfinite(stage_ratios)) or not np.all(np.isfinite(mass_ratios)):
-                raise ValueError("Invalid stage or mass ratios")
-            
-            # Create detailed stage results
-            stages = self.create_stage_results(x, stage_ratios)
-            
-            # Calculate constraint violation
-            constraint_violation = self.enforce_constraints(x)
+            # Calculate constraint violations
+            _, dv_constraint, physical_constraint = self.objective_with_penalty(x)
             
             return {
-                'success': bool(success),
-                'message': str(message),
-                'method': self.name,
-                'dv': x.tolist(),
+                'solver': self.name,
+                'success': success,
+                'message': message,
+                'x': x.tolist(),
                 'stage_ratios': stage_ratios.tolist(),
                 'mass_ratios': mass_ratios.tolist(),
                 'payload_fraction': float(payload_fraction),
-                'constraint_violation': float(constraint_violation),
-                'execution_time': float(time),
-                'n_iterations': int(n_iterations),
-                'n_function_evals': int(n_function_evals),
-                'stages': stages,
-                'timestamp': None  # Will be set by parallel solver
+                'dv_constraint': float(dv_constraint),
+                'physical_constraint': float(physical_constraint),
+                'n_iterations': n_iterations,
+                'n_function_evals': n_function_evals,
+                'time': time
             }
             
         except Exception as e:
             logger.error(f"Error processing results: {str(e)}")
             return {
+                'solver': self.name,
                 'success': False,
-                'message': f"Error processing results: {str(e)}",
-                'method': self.name,
-                'dv': [],
+                'message': f"Failed to process results: {str(e)}",
+                'x': x.tolist() if isinstance(x, np.ndarray) else x,
                 'stage_ratios': [],
                 'mass_ratios': [],
                 'payload_fraction': 0.0,
-                'constraint_violation': float('inf'),
-                'execution_time': float(time),
-                'n_iterations': int(n_iterations),
-                'n_function_evals': int(n_function_evals),
-                'stages': [],
-                'timestamp': None
+                'dv_constraint': float('inf'),
+                'physical_constraint': float('inf'),
+                'n_iterations': n_iterations,
+                'n_function_evals': n_function_evals,
+                'time': time
             }
-    
-    def calculate_stage_ratios(self, x: np.ndarray) -> tuple:
-        """Calculate stage ratios for a solution.
-        
-        Args:
-            x: Array of delta-v values
             
-        Returns:
-            Tuple of (stage_ratios, mass_ratios)
-        """
-        try:
-            x_arr = np.asarray(x, dtype=float)
-            if not np.all(np.isfinite(x_arr)):
-                raise ValueError("Invalid delta-v values")
-            return calculate_stage_ratios(x_arr, self.G0, self.ISP, self.EPSILON)
-        except Exception as e:
-            logger.error(f"Error calculating stage ratios: {e}")
-            return np.ones_like(x), np.ones_like(x)
-    
     @abstractmethod
-    def solve(self, initial_guess: np.ndarray, bounds: List[tuple]) -> Dict:
-        """Solve optimization problem.
+    def solve(self, initial_guess, bounds):
+        """Solve the optimization problem.
         
         Args:
-            initial_guess: Initial solution vector
-            bounds: List of (min, max) tuples for each variable
+            initial_guess: Initial solution guess
+            bounds: List of (min, max) bounds for each variable
             
         Returns:
             Dictionary containing optimization results

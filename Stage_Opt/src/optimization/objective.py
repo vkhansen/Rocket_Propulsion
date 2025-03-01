@@ -1,80 +1,102 @@
-"""Objective functions for optimization."""
+"""Objective functions for rocket stage optimization."""
 import numpy as np
+from typing import Tuple, Dict
+from .physics import calculate_stage_ratios, calculate_payload_fraction
 from ..utils.config import logger
-from .physics import calculate_mass_ratios, calculate_payload_fraction, calculate_stage_ratios
-from .parallel_solver import ParallelSolver
 
-def payload_fraction_objective(dv, G0, ISP, EPSILON):
-    """Calculate the payload fraction objective using the corrected physics model."""
-    try:
-        logger.debug(f"Evaluating payload fraction objective with dv={dv}")
-        
-        # Calculate mass ratios and payload fraction
-        stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
-        payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
-        
-        return -payload_fraction  # Negative for minimization
-        
-    except Exception as e:
-        logger.error(f"Error in payload fraction objective: {e}")
-        return 1e6  # Large penalty for failed calculations
-
-def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
-    """Calculate objective value with penalty for constraint violations.
+def calculate_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.ndarray) -> float:
+    """Calculate the objective value (negative payload fraction).
     
     Args:
-        dv (np.ndarray): Delta-v values for each stage
-        G0 (float): Gravitational acceleration
-        ISP (np.ndarray): Specific impulse for each stage
-        EPSILON (np.ndarray): Structural coefficients for each stage
-        TOTAL_DELTA_V (float): Total required delta-v
+        dv: Array of delta-v values for each stage
+        G0: Gravitational constant
+        ISP: Array of specific impulse values for each stage
+        EPSILON: Array of structural coefficients for each stage
         
     Returns:
-        float: Objective value (negative payload fraction) with penalties
+        float: Negative payload fraction (for minimization)
+    """
+    try:
+        stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+        payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
+        return float(-payload_fraction)  # Negative for minimization
+    except Exception as e:
+        logger.error(f"Error in objective calculation: {str(e)}")
+        return 1e6  # Large penalty for failed calculations
+
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> float:
+    """Calculate objective value with penalties for constraint violations.
+    
+    Args:
+        dv: Array of delta-v values for each stage
+        G0: Gravitational constant
+        ISP: Array of specific impulse values for each stage
+        EPSILON: Array of structural coefficients for each stage
+        TOTAL_DELTA_V: Required total delta-v
+        
+    Returns:
+        float: Penalized objective value (scalar)
     """
     try:
         # Convert inputs to numpy arrays
-        dv = np.asarray(dv, dtype=float)
+        dv = np.asarray(dv, dtype=float).reshape(-1)  # Ensure 1D array
         ISP = np.asarray(ISP, dtype=float)
         EPSILON = np.asarray(EPSILON, dtype=float)
         
-        # Calculate stage ratios and mass ratios using physics module
+        # Calculate stage ratios and mass ratios
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
         
         # Calculate payload fraction
-        payload_fraction = 1.0
-        for ratio in mass_ratios:
-            payload_fraction /= ratio
+        payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
         
         # Calculate constraint violations
-        total_dv = float(np.sum(dv))
-        dv_violation = abs(total_dv - TOTAL_DELTA_V)
-        negative_violation = np.sum(np.abs(np.minimum(dv, 0)))
+        dv_constraint = abs(np.sum(dv) - TOTAL_DELTA_V)
         
-        # Apply much stronger penalties
-        penalty_coefficient = 1e6  # Increased from 1e3 to 1e6
-        penalty = dv_violation + negative_violation
+        # Physical constraints on stage ratios (should be between 0 and 1)
+        physical_constraint = np.sum(np.maximum(0, -stage_ratios)) + np.sum(np.maximum(0, stage_ratios - 1))
         
-        # Add physical constraint penalties
-        physical_penalty = 0.0
-        min_stage_ratio = 0.1  # Minimum allowable stage ratio
-        max_stage_ratio = 0.9  # Maximum allowable stage ratio
+        # Return negative payload fraction (for minimization) plus penalties
+        penalty_factor = 1000.0
+        objective = -payload_fraction + penalty_factor * (dv_constraint + physical_constraint)
         
-        # Penalize stage ratios outside physical bounds
-        for ratio in stage_ratios:
-            if ratio < min_stage_ratio or ratio > max_stage_ratio:
-                physical_penalty += 1.0
-                
-        # Add strong penalty for unrealistic stage ratios
-        penalty += physical_penalty * penalty_coefficient
-        
-        result = float(payload_fraction) - penalty_coefficient * penalty
-        
-        return -result  # Negative because we want to maximize payload fraction
+        return float(objective)  # Ensure scalar return
         
     except Exception as e:
-        logger.error(f"Error calculating objective: {str(e)}")
-        return float('inf')
+        logger.error(f"Error in objective calculation: {str(e)}")
+        return float('inf')  # Return scalar infinity for failed calculations
+
+def get_constraint_violations(dv: np.ndarray, G0: float, ISP: np.ndarray, 
+                            EPSILON: np.ndarray, TOTAL_DELTA_V: float) -> Tuple[float, float]:
+    """Calculate constraint violations.
+    
+    Args:
+        dv: Array of delta-v values for each stage
+        G0: Gravitational constant
+        ISP: Array of specific impulse values for each stage
+        EPSILON: Array of structural coefficients for each stage
+        TOTAL_DELTA_V: Required total delta-v
+        
+    Returns:
+        tuple: (dv_constraint, physical_constraint)
+            - dv_constraint: Delta-v constraint violation
+            - physical_constraint: Physical constraint violation
+    """
+    try:
+        dv = np.asarray(dv, dtype=float).reshape(-1)
+        stage_ratios, _ = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+        
+        # Delta-v constraint
+        dv_constraint = float(abs(np.sum(dv) - TOTAL_DELTA_V))
+        
+        # Physical constraints
+        physical_constraint = float(np.sum(np.maximum(0, -stage_ratios)) + 
+                                 np.sum(np.maximum(0, stage_ratios - 1)))
+        
+        return dv_constraint, physical_constraint
+        
+    except Exception as e:
+        logger.error(f"Error calculating constraints: {str(e)}")
+        return float('inf'), float('inf')
 
 class RocketStageOptimizer:
     """Class to manage rocket stage optimization using different solvers."""

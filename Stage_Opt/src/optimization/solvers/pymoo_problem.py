@@ -4,6 +4,7 @@ from pymoo.core.problem import Problem
 from ...utils.config import logger
 from ..objective import objective_with_penalty
 from ..cache import OptimizationCache
+from datetime import datetime
 
 def tournament_comp(pop, P, **kwargs):
     """Tournament selection comparator."""
@@ -44,79 +45,79 @@ class RocketStageProblem(Problem):
         super().__init__(
             n_var=n_var,
             n_obj=1,
-            n_constr=2,  # Adding explicit constraints instead of penalties
+            n_constr=2,  # Two constraints: delta-v and physical constraints
             xl=bounds[:, 0],  # Lower bounds
             xu=bounds[:, 1]   # Upper bounds
         )
         self.solver = solver
         
-        # Create a simplified cache filename
+        # Create a simplified cache filename with timestamp to avoid conflicts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         solver_type = "adaptive_ga" if "adaptive" in solver.name.lower() else "ga"
         self.cache = OptimizationCache(
-            cache_file=f"{solver_type}_cache.pkl",
+            cache_file=f"{solver_type}_cache_{timestamp}.pkl",
             max_size=10000
         )
         
-        # Initialize evaluation counters
+        # Initialize evaluation counters and statistics
         self.total_evals = 0
         self.cache_hits = 0
-        self.best_fitness = float('inf')
-        self.worst_fitness = float('-inf')
+        self.best_objective = float('inf')
+        self.best_feasible = None
+        self.constraint_violations = []
         
     def _evaluate(self, x, out, *args, **kwargs):
-        """Evaluate objective function with caching."""
+        """Evaluate objective function with caching.
+        
+        Args:
+            x: Input vector (delta-v values)
+            out: Output dictionary containing objective and constraint values
+        """
         try:
-            population_size = len(x)
-            f = np.zeros(population_size)
-            g = np.zeros((population_size, 2))  # Constraint violations
+            # Convert to tuple for hashing in cache
+            x_tuple = tuple(x.flatten())
             
-            for i, x_i in enumerate(x):
-                try:
-                    # Detailed logging for debugging
-                    logger.debug(f"Evaluating individual {i} with parameters: {x_i}")
-                    
-                    # Calculate objective and constraints
-                    f[i], g1, g2 = objective_with_penalty(
-                        dv=x_i,
-                        G0=self.solver.G0,
-                        ISP=self.solver.ISP,
-                        EPSILON=self.solver.EPSILON,
-                        TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V,
-                        return_constraints=True  # Modified objective function to return constraints
-                    )
-                    
-                    g[i] = [g1, g2]
-                    
-                    # Cache only valid solutions
-                    if g1 <= 0 and g2 <= 0:
-                        x_tuple = tuple(np.round(x_i, decimals=6))  # Round to reduce floating point issues
-                        self.cache.set(x_tuple, f[i])
-                    
-                    # Update statistics
-                    if g1 <= 0 and g2 <= 0:  # Only update stats for valid solutions
-                        self.best_fitness = min(self.best_fitness, f[i])
-                        self.worst_fitness = max(self.worst_fitness, f[i])
-                    
-                except Exception as ind_error:
-                    logger.error(f"Error evaluating individual {i}: {str(ind_error)}")
-                    f[i] = float('inf')
-                    g[i] = [float('inf'), float('inf')]
+            # Try to get from cache first
+            cached_result = self.cache.get(x_tuple)
+            if cached_result is not None:
+                self.cache_hits += 1
+                objective, dv_constraint, physical_constraint = cached_result
+            else:
+                # Calculate objective and constraints
+                objective, dv_constraint, physical_constraint = self.solver.objective_with_penalty(x)
+                self.cache.add(x_tuple, (objective, dv_constraint, physical_constraint))
             
-            self.total_evals += population_size
+            # Update statistics
+            self.total_evals += 1
+            if dv_constraint <= 0 and physical_constraint <= 0:  # Feasible solution
+                if -objective < self.best_objective:  # Note: objective is negative for maximization
+                    self.best_objective = -objective
+                    self.best_feasible = x.copy()
             
-            # Log evaluation statistics periodically
-            if self.total_evals % 100 == 0:
-                valid_solutions = np.sum(np.all(g <= 0, axis=1))
-                logger.info(f"Problem Statistics:")
-                logger.info(f"  Total Evaluations: {self.total_evals}")
-                logger.info(f"  Valid Solutions: {valid_solutions}/{population_size}")
-                if valid_solutions > 0:
-                    logger.info(f"  Best Fitness (valid): {self.best_fitness:.6f}")
-                
-            out["F"] = f
-            out["G"] = g  # Explicit constraint violations
+            # Track constraint violations for adaptive penalty adjustment
+            self.constraint_violations.append((dv_constraint, physical_constraint))
+            if len(self.constraint_violations) > 1000:  # Keep last 1000 evaluations
+                self.constraint_violations.pop(0)
+            
+            # Store results
+            out["F"] = np.array([objective])  # Objective value (to be minimized)
+            out["G"] = np.array([dv_constraint, physical_constraint])  # Constraints g(x) <= 0
             
         except Exception as e:
-            logger.error(f"Critical error in problem evaluation: {str(e)}", exc_info=True)
-            out["F"] = np.array([float('inf')] * len(x))
-            out["G"] = np.array([[float('inf'), float('inf')]] * len(x))
+            logger.error(f"Error in evaluation: {str(e)}")
+            # Return a highly penalized solution
+            out["F"] = np.array([1e6])
+            out["G"] = np.array([1e6, 1e6])
+            
+    def get_constraint_statistics(self):
+        """Get statistics about constraint violations."""
+        if not self.constraint_violations:
+            return {"dv_mean": 0.0, "dv_max": 0.0, "physical_mean": 0.0, "physical_max": 0.0}
+            
+        dv_violations, physical_violations = zip(*self.constraint_violations)
+        return {
+            "dv_mean": np.mean(dv_violations),
+            "dv_max": np.max(dv_violations),
+            "physical_mean": np.mean(physical_violations),
+            "physical_max": np.max(physical_violations)
+        }

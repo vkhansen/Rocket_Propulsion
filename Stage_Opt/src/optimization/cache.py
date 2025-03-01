@@ -1,111 +1,89 @@
-"""Cache and persistence utilities for optimization."""
+"""Cache implementation for optimization results."""
 import os
-import pickle
+import json
+import time
+from typing import Dict, Optional
 import numpy as np
-from functools import lru_cache
-from typing import List, Tuple, Dict, Optional
-import re
-from ..utils.config import OUTPUT_DIR, logger
+from ..utils.config import logger
 
 class OptimizationCache:
-    """Cache for optimization results and fitness evaluations."""
+    """Cache for optimization results to avoid redundant calculations."""
     
-    def __init__(self, cache_file: str = "optimization_cache.pkl", max_size: int = 1000):
-        """Initialize the cache.
+    def __init__(self):
+        """Initialize the cache."""
+        self.cache = {}
+        self.hits = 0
+        self.misses = 0
+        
+    def _hash_array(self, arr: np.ndarray) -> str:
+        """Create a hash for a numpy array.
         
         Args:
-            cache_file: Name of the file to store cached solutions
-            max_size: Maximum number of solutions to cache
-        """
-        # Sanitize cache filename to remove invalid characters
-        cache_file = self._sanitize_filename(cache_file)
-        self.cache_file = os.path.join(OUTPUT_DIR, cache_file)
-        self.max_size = max_size
-        self.cache: Dict[Tuple[float, ...], float] = {}
-        self._load_cache()
-    
-    def _sanitize_filename(self, filename):
-        """Sanitize filename for Windows compatibility.
-        
-        Args:
-            filename: Original filename
+            arr: Numpy array to hash
             
         Returns:
-            str: Sanitized filename safe for Windows
+            String hash of the array
         """
-        # Remove invalid characters for Windows filenames
-        sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
-        # Remove any non-ASCII characters
-        sanitized = re.sub(r'[^\x00-\x7F]+', '_', sanitized)
-        # Remove leading/trailing spaces and dots
-        sanitized = sanitized.strip('. ')
-        return sanitized
-        
-    def _load_cache(self):
-        """Load cache from disk if it exists."""
         try:
-            if os.path.exists(self.cache_file):
-                with open(self.cache_file, 'rb') as f:
-                    self.cache = pickle.load(f)
-                logger.debug(f"Loaded {len(self.cache)} cached solutions")
+            # Round to reduce floating point differences
+            arr_rounded = np.round(arr, decimals=6)
+            return hash(arr_rounded.tobytes())
         except Exception as e:
-            logger.warning(f"Failed to load cache: {e}")
-            self.cache = {}
-    
-    def _save_cache(self):
-        """Save cache to disk."""
-        try:
-            os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-            with open(self.cache_file, 'wb') as f:
-                pickle.dump(self.cache, f)
-            logger.debug(f"Saved {len(self.cache)} solutions to cache")
-        except Exception as e:
-            logger.warning(f"Failed to save cache: {e}")
-    
-    def get(self, key: Tuple[float, ...]) -> Optional[float]:
-        """Get a cached fitness value.
+            logger.error(f"Error hashing array: {str(e)}")
+            return None
+            
+    def add(self, x: np.ndarray, result: Dict) -> None:
+        """Add a result to the cache.
         
         Args:
-            key: Solution vector as a tuple
+            x: Input array
+            result: Dictionary containing optimization results
+        """
+        try:
+            key = self._hash_array(x)
+            if key is not None:
+                self.cache[key] = {
+                    'result': result,
+                    'timestamp': time.time()
+                }
+        except Exception as e:
+            logger.error(f"Error adding to cache: {str(e)}")
+            
+    def get(self, x: np.ndarray) -> Optional[Dict]:
+        """Get a result from the cache if it exists.
+        
+        Args:
+            x: Input array
             
         Returns:
-            float: Cached fitness value if found, None otherwise
+            Cached result dictionary if found, None otherwise
         """
-        return self.cache.get(key)
-    
-    def set(self, key: Tuple[float, ...], value: float):
-        """Cache a fitness value.
-        
-        Args:
-            key: Solution vector as a tuple
-            value: Fitness value to cache
-        """
-        # Enforce maximum cache size
-        if len(self.cache) >= self.max_size:
-            # Remove random entry
-            random_key = next(iter(self.cache))
-            del self.cache[random_key]
-        
-        self.cache[key] = value
-        
-        # Periodically save cache to disk
-        if len(self.cache) % 100 == 0:
-            self._save_cache()
-    
-    def clear(self):
+        try:
+            key = self._hash_array(x)
+            if key is not None and key in self.cache:
+                self.hits += 1
+                return self.cache[key]['result']
+            self.misses += 1
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving from cache: {str(e)}")
+            return None
+            
+    def clear(self) -> None:
         """Clear the cache."""
-        self.cache.clear()
-        if os.path.exists(self.cache_file):
-            try:
-                os.remove(self.cache_file)
-                logger.debug("Cache file removed")
-            except Exception as e:
-                logger.warning(f"Failed to remove cache file: {e}")
-    
-    def __len__(self):
-        """Get number of cached solutions."""
-        return len(self.cache)
-    
-    def __contains__(self, key: Tuple[float, ...]):
-        """Check if solution is in cache."""
-        return key in self.cache
+        self.cache = {}
+        self.hits = 0
+        self.misses = 0
+        
+    def get_stats(self) -> Dict:
+        """Get cache statistics.
+        
+        Returns:
+            Dictionary containing cache statistics
+        """
+        return {
+            'size': len(self.cache),
+            'hits': self.hits,
+            'misses': self.misses,
+            'hit_rate': self.hits / (self.hits + self.misses) if (self.hits + self.misses) > 0 else 0
+        }

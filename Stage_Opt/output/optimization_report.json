@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T02:25:04.959017",
+    "timestamp": "2025-03-02T02:45:19.788751",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -59,144 +59,69 @@
     },
     "results": {
         "SLSQPSolver": {
-            "success": true,
-            "message": "",
-            "payload_fraction": 0.071947105971816,
-            "constraint_violation": 5.859146767761558e-08,
+            "success": false,
+            "message": "The user-provided objective function must return a scalar value.",
+            "payload_fraction": 0.07194710595390245,
+            "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 9,
-                "function_evaluations": 44,
+                "iterations": 0,
+                "function_evaluations": 0,
                 "execution_time": 0.0
             },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 4649.999994651644,
-                    "Lambda": 0.2059708993335587,
-                    "ISP": 300.0,
-                    "EPSILON": 0.04
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 4650.000005406948,
-                    "Lambda": 0.25812709715192267,
-                    "ISP": 350.0,
-                    "EPSILON": 0.06
-                }
-            ]
-        },
-        "ParticleSwarmOptimizer": {
-            "success": true,
-            "message": "PSO optimization completed",
-            "payload_fraction": 0.06917961146262597,
-            "constraint_violation": 0.002227473991297302,
-            "execution_metrics": {
-                "iterations": 100,
-                "function_evaluations": 5050,
-                "execution_time": 0.0
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 6415.611376868099,
-                    "Lambda": 0.11304647120227074,
-                    "ISP": 300.0,
-                    "EPSILON": 0.04
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 2884.3863956579103,
-                    "Lambda": 0.43167954402561204,
-                    "ISP": 350.0,
-                    "EPSILON": 0.06
-                }
-            ]
-        },
-        "BasinHoppingOptimizer": {
-            "success": true,
-            "message": "['requested number of basinhopping iterations completed successfully']",
-            "payload_fraction": 0.07195027981678408,
-            "constraint_violation": 0.0,
-            "execution_metrics": {
-                "iterations": 100,
-                "function_evaluations": 4057,
-                "execution_time": 0.0
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 4649.102017304331,
-                    "Lambda": 0.20603375540628613,
-                    "ISP": 300.0,
-                    "EPSILON": 0.04
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 4650.897982695669,
-                    "Lambda": 0.2580595969443507,
-                    "ISP": 350.0,
-                    "EPSILON": 0.06
-                }
-            ]
-        },
-        "DifferentialEvolutionSolver": {
-            "success": true,
-            "message": "Optimization terminated successfully.",
-            "payload_fraction": 0.06940489715369506,
-            "constraint_violation": 4.001776687800884e-11,
-            "execution_metrics": {
-                "iterations": 71,
-                "function_evaluations": 2358,
-                "execution_time": 2.617527961730957
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 6725.953422188652,
-                    "Lambda": 0.10173262701820765,
-                    "ISP": 300.0,
-                    "EPSILON": 0.04
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 2574.046577811308,
-                    "Lambda": 0.4725149408522712,
-                    "ISP": 350.0,
-                    "EPSILON": 0.06
-                }
-            ]
+            "stages": []
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "None\nBest fitness: 178995.242649\nGenerations: 101/100",
-            "payload_fraction": 0.08677338263845591,
-            "constraint_violation": 0.17899532942283258,
+            "message": "OptimizationCache.__init__() got an unexpected keyword argument 'cache_file'",
+            "payload_fraction": 0.07194710595390245,
+            "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 101,
-                "function_evaluations": 10000,
-                "execution_time": 10.742439270019531
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
             },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 2366.2377564704325,
-                    "Lambda": 0.4475252387809701,
-                    "ISP": 300.0,
-                    "EPSILON": 0.04
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 6933.583248200145,
-                    "Lambda": 0.1327361125732465,
-                    "ISP": 350.0,
-                    "EPSILON": 0.06
-                }
-            ]
+            "stages": []
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "Solver timed out or failed",
-            "payload_fraction": 0.0,
+            "message": "Optimization failed: OptimizationCache.__init__() got an unexpected keyword argument 'cache_file'",
+            "payload_fraction": 0.07194710595390245,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "ParticleSwarmOptimizer": {
+            "success": false,
+            "message": "boolean index did not match indexed array along axis 1; size of axis is 2 but size of corresponding boolean axis is 3",
+            "payload_fraction": 0.07194710595390245,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "BasinHoppingOptimizer": {
+            "success": false,
+            "message": "The user-provided objective function must return a scalar value.",
+            "payload_fraction": 0.07194710595390245,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "DifferentialEvolutionSolver": {
+            "success": false,
+            "message": "func(x, *args) must return a scalar value",
+            "payload_fraction": 0.07194710595390245,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
