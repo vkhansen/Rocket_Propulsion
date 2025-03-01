@@ -2,6 +2,7 @@
 import numpy as np
 from ..utils.config import logger
 from .physics import calculate_mass_ratios, calculate_payload_fraction, calculate_stage_ratios
+from .parallel_solver import ParallelSolver
 
 def payload_fraction_objective(dv, G0, ISP, EPSILON):
     """Calculate the payload fraction objective using the corrected physics model."""
@@ -112,28 +113,33 @@ class RocketStageOptimizer:
         ]
     
     def solve(self, initial_guess, bounds):
-        """Run optimization with all available solvers."""
+        """Run optimization with all available solvers in parallel."""
         if not self.solvers:
             self.solvers = self._initialize_solvers()
+        
+        # Configure parallel solver
+        parallel_config = self.config.get('parallel', {})
+        if not parallel_config:
+            parallel_config = {
+                'max_workers': None,  # Use all available CPUs
+                'timeout': 3600,      # 1 hour total timeout
+                'solver_timeout': 600  # 10 minutes per solver
+            }
+        
+        # Initialize parallel solver
+        parallel_solver = ParallelSolver(parallel_config)
+        
+        try:
+            # Run all solvers in parallel
+            results = parallel_solver.solve(self.solvers, initial_guess, bounds)
             
-        results = {}
-        
-        for solver in self.solvers:
-            try:
-                logger.info(f"Starting {solver.name} optimization...")
-                solution = solver.solve(initial_guess, bounds)
+            if not results:
+                logger.warning("No solutions found from any solver")
+                return {}
                 
-                if solution:
-                    results[solver.name] = solution
-                    logger.info(f"Successfully completed {solver.name} optimization")
-                else:
-                    logger.warning(f"{solver.name} optimization returned no solution")
-                    
-            except Exception as e:
-                logger.error(f"Error in {solver.name} optimization: {str(e)}")
-                results[solver.name] = {
-                    'success': False,
-                    'message': str(e)
-                }
-        
-        return results
+            logger.info(f"Successfully completed parallel optimization with {len(results)} solutions")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in parallel optimization: {str(e)}")
+            return {}
