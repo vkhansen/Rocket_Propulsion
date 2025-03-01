@@ -9,19 +9,9 @@ class BaseSolver(ABC):
     """Base class for all optimization solvers."""
     
     def __init__(self, config, problem_params):
-        """Initialize solver.
-        
-        Args:
-            config: Configuration dictionary
-            problem_params: Dictionary containing problem parameters
-                - G0: Gravitational constant
-                - ISP: List of specific impulse values
-                - EPSILON: List of structural fraction values
-                - TOTAL_DELTA_V: Total required delta-v
-        """
-        self.config = config
-        solver_config = config.get('solver', {}) if isinstance(config, dict) else {}
-        self.solver_config = solver_config
+        """Initialize solver."""
+        self.config = config if isinstance(config, dict) else {}
+        self.solver_config = self.config.get('optimization', {}).get('solver', {})
         
         # Problem parameters - ensure all values are Python floats
         if not isinstance(problem_params, dict):
@@ -29,8 +19,8 @@ class BaseSolver(ABC):
             
         self.G0 = float(problem_params.get('G0', 9.81))
         stages = problem_params.get('stages', [])
-        self.ISP = [float(stage.get('ISP', 0.0)) for stage in stages]
-        self.EPSILON = [float(stage.get('EPSILON', 0.0)) for stage in stages]
+        self.ISP = np.array([float(stage.get('ISP', 0.0)) for stage in stages])
+        self.EPSILON = np.array([float(stage.get('EPSILON', 0.0)) for stage in stages])
         self.TOTAL_DELTA_V = float(problem_params.get('TOTAL_DELTA_V', 0.0))
         
         # Initialize cache
@@ -59,7 +49,7 @@ class BaseSolver(ABC):
         """Enforce optimization constraints."""
         try:
             # Convert input to numpy array if needed
-            x_arr = np.asarray(x)
+            x_arr = np.asarray(x, dtype=float)
             
             # Calculate total delta-v constraint violation
             total_dv = float(np.sum(x_arr))
@@ -77,34 +67,57 @@ class BaseSolver(ABC):
     def calculate_stage_ratios(self, x):
         """Calculate stage ratios for a solution."""
         try:
-            x_arr = np.asarray(x)
+            x_arr = np.asarray(x, dtype=float)
             return calculate_stage_ratios(x_arr, self.G0, self.ISP, self.EPSILON)
         except Exception as e:
             logger.error(f"Error calculating stage ratios: {e}")
             return np.ones_like(x), np.ones_like(x)
     
     def calculate_delta_v(self, stage_ratios):
-        """Calculate delta-V for each stage.
-        
-        Args:
-            stage_ratios (np.ndarray): Stage mass ratios (lambda)
+        """Calculate delta-V for each stage."""
+        try:
+            stage_ratios_arr = np.asarray(stage_ratios, dtype=float)
+            return np.array([
+                self.G0 * float(isp) * np.log(float(ratio))
+                for isp, ratio in zip(self.ISP, stage_ratios_arr)
+            ])
+        except Exception as e:
+            logger.error(f"Error calculating delta-v: {e}")
+            return np.zeros_like(self.ISP)
             
-        Returns:
-            np.ndarray: Delta-V values for each stage
-        """
-        stage_ratios_arr = np.asarray(stage_ratios)
-        return np.array([
-            self.G0 * isp * np.log(ratio)
-            for isp, ratio in zip(self.ISP, stage_ratios_arr)
-        ])
-        
+    def objective_with_penalty(self, x):
+        """Calculate objective value with penalty for constraint violations."""
+        try:
+            # Get cached result if available
+            x_tuple = tuple(float(xi) for xi in x)  # Convert to float tuple for caching
+            cached_result = self.cache.get(x_tuple)
+            if cached_result is not None:
+                return cached_result
+            
+            # Calculate stage ratios and payload fraction
+            stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
+            payload_fraction = calculate_payload_fraction(mass_ratios, self.EPSILON)
+            
+            # Add penalty for constraint violations
+            penalty = self.enforce_constraints(x)
+            penalty_coefficient = float(self.solver_config.get('penalty_coefficient', 1e3))
+            result = float(payload_fraction) - penalty_coefficient * penalty
+            
+            # Cache result
+            self.cache.set(x_tuple, result)
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating objective: {e}")
+            return -float('inf')
+    
     def calculate_fitness(self, x):
         """Calculate fitness (payload fraction) for a solution."""
         try:
-            x_arr = np.asarray(x)
+            x_arr = np.asarray(x, dtype=float)
             
             # Check cache first
-            cached_result = self.cache.get(tuple(x_arr.tolist()))
+            cached_result = self.cache.get(tuple(float(xi) for xi in x_arr.tolist()))
             if cached_result is not None:
                 return float(cached_result)
             
@@ -113,29 +126,13 @@ class BaseSolver(ABC):
             payload_fraction = calculate_payload_fraction(mass_ratios, self.EPSILON)
             
             # Cache result
-            self.cache.set(tuple(x_arr.tolist()), float(payload_fraction))
+            self.cache.set(tuple(float(xi) for xi in x_arr.tolist()), float(payload_fraction))
             
             return float(payload_fraction)
             
         except Exception as e:
             logger.error(f"Error calculating fitness: {e}")
             return 0.0
-    
-    def objective_with_penalty(self, x):
-        """Calculate objective with penalty for constraint violation."""
-        try:
-            # Calculate payload fraction (negative for minimization)
-            payload_fraction = -self.calculate_fitness(x)
-            
-            # Calculate constraint violation penalty
-            penalty = self.enforce_constraints(x)
-            penalty_coeff = float(self.solver_config.get('penalty_coefficient', 1e3))
-            
-            return float(payload_fraction + penalty_coeff * penalty)
-            
-        except Exception as e:
-            logger.error(f"Error in objective calculation: {e}")
-            return float(1e6)
     
     def process_results(self, x, success, message="", n_iter=0, n_evals=0, time=0.0):
         """Process optimization results into a standardized format.

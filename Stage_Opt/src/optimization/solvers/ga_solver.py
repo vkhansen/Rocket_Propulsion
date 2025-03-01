@@ -15,53 +15,49 @@ class GeneticAlgorithmSolver(BaseSolver):
     
     def __init__(self, config, problem_params):
         """Initialize GA solver."""
-        super().__init__(config, problem_params)  # Initialize base solver first
+        super().__init__(config, problem_params)
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
-    def solve(self, initial_guess, bounds):
-        """Solve using Genetic Algorithm.
+        # Initialize solver parameters with defaults
+        self.pop_size = int(self.solver_specific.get('population_size', 100))
+        self.n_gen = int(self.solver_specific.get('n_generations', 200))
+        self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
+        self.crossover_rate = float(self.solver_specific.get('crossover_rate', 0.9))
+        self.mutation_rate = float(self.solver_specific.get('mutation_rate', 0.1))
         
-        Args:
-            initial_guess: Initial solution guess
-            bounds: List of (min, max) bounds for each variable
-            
-        Returns:
-            dict: Optimization results
-        """
+        logger.debug(f"Initialized {self.name} with parameters: "
+                    f"pop_size={self.pop_size}, n_gen={self.n_gen}, "
+                    f"tournament_size={self.tournament_size}, "
+                    f"crossover_rate={self.crossover_rate}, "
+                    f"mutation_rate={self.mutation_rate}")
+    
+    def solve(self, initial_guess, bounds):
+        """Solve using Genetic Algorithm."""
         try:
-            logger.info("Starting GA optimization...")
-            logger.debug(f"Initial guess: {initial_guess}")
-            logger.debug(f"Bounds: {bounds}")
+            logger.info(f"Starting {self.name} optimization")
             start_time = time.time()
             
-            # Get solver parameters from config
-            ga_config = self.solver_config.get('solver_specific', {})
-            pop_size = ga_config.get('pop_size', 100)
-            n_gen = ga_config.get('n_generations', 100)
-            tournament_size = ga_config.get('tournament_size', 3)
-            crossover_prob = ga_config.get('crossover_prob', 0.9)
-            mutation_prob = ga_config.get('mutation_prob', 0.1)
-            
-            logger.debug(f"GA parameters: pop_size={pop_size}, n_gen={n_gen}, "
-                      f"tournament_size={tournament_size}, crossover_prob={crossover_prob}, "
-                      f"mutation_prob={mutation_prob}")
-            
             # Initialize problem
-            problem = RocketStageProblem(self, len(initial_guess), bounds)
+            problem = RocketStageProblem(
+                solver=self,
+                n_var=len(initial_guess),
+                bounds=bounds
+            )
             
             # Initialize algorithm with specific operators
             algorithm = GA(
-                pop_size=pop_size,
+                pop_size=self.pop_size,
+                sampling=np.array(initial_guess).reshape(1, -1),
                 selection=TournamentSelection(
-                    pressure=tournament_size,
+                    pressure=self.tournament_size,
                     func_comp=tournament_comp
                 ),
                 crossover=SBX(
-                    prob=crossover_prob,
+                    prob=self.crossover_rate,
                     eta=15
                 ),
                 mutation=PM(
-                    prob=mutation_prob,
+                    prob=self.mutation_rate,
                     eta=20
                 ),
                 eliminate_duplicates=True
@@ -71,54 +67,36 @@ class GeneticAlgorithmSolver(BaseSolver):
             result = minimize(
                 problem,
                 algorithm,
-                ('n_gen', n_gen),
+                ('n_gen', self.n_gen),
                 seed=42,
                 verbose=False
             )
             
-            execution_time = time.time() - start_time
-            logger.debug(f"GA optimization completed in {execution_time:.2f} seconds")
-            
-            # Check solution validity
-            if result.X is None:
-                logger.warning("GA optimization failed to find any solution")
-                return self.process_results(
-                    np.zeros_like(initial_guess),
-                    success=False,
-                    message="GA optimization failed to find any solution",
-                    time=execution_time
-                )
-                
-            # Check constraint violation
-            if result.CV is not None and float(result.CV.min()) > 1e-6:
-                logger.warning("GA optimization failed to find a feasible solution")
-                return self.process_results(
-                    np.zeros_like(initial_guess),
-                    success=False,
-                    message="GA optimization failed to find a feasible solution",
-                    time=execution_time
-                )
-            
-            # Get best solution
+            # Process results
             best_x = result.X
-            if isinstance(best_x, np.ndarray):
-                best_x = best_x.copy()  # Make a copy to avoid reference issues
-            else:
-                best_x = np.array(best_x)
-                
-            logger.info("Successfully completed GA optimization")
-            return self.process_results(
-                best_x,
-                success=True,
-                n_iter=result.algorithm.n_iter,
-                n_evals=result.algorithm.evaluator.n_eval,
-                time=execution_time
-            )
+            best_f = float(-result.F[0])  # Convert back to maximization
+            
+            # Calculate final stage ratios and create results
+            stage_ratios, mass_ratios = self.calculate_stage_ratios(best_x)
+            stages = self.create_stage_results(best_x, stage_ratios)
+            
+            execution_time = time.time() - start_time
+            logger.info(f"Optimization completed in {execution_time:.2f} seconds")
+            logger.info(f"Best fitness achieved: {best_f:.6f}")
+            
+            return {
+                'x': best_x.tolist(),
+                'f': best_f,
+                'success': True,
+                'stages': stages,
+                'execution_time': execution_time,
+                'n_generations': result.algorithm.n_gen,
+                'n_evaluations': result.algorithm.evaluator.n_eval
+            }
             
         except Exception as e:
-            logger.error(f"Error in GA solver: {str(e)}")
-            return self.process_results(
-                np.zeros_like(initial_guess),
-                success=False,
-                message=f"Error in GA solver: {str(e)}"
-            )
+            logger.error(f"Error in {self.name}: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }

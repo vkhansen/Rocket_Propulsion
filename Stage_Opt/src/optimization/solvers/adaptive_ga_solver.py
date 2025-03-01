@@ -19,15 +19,15 @@ class AdaptiveCallback(Callback):
         """Initialize adaptive callback."""
         super().__init__()
         self.solver = solver
-        self.stagnation_limit = stagnation_limit
-        self.min_mutation_rate = min_mutation_rate
-        self.max_mutation_rate = max_mutation_rate
-        self.min_crossover_rate = min_crossover_rate
-        self.max_crossover_rate = max_crossover_rate
-        self.elite_size = elite_size
-        self.convergence_threshold = convergence_threshold
+        self.stagnation_limit = int(stagnation_limit)
+        self.min_mutation_rate = float(min_mutation_rate)
+        self.max_mutation_rate = float(max_mutation_rate)
+        self.min_crossover_rate = float(min_crossover_rate)
+        self.max_crossover_rate = float(max_crossover_rate)
+        self.elite_size = int(elite_size)
+        self.convergence_threshold = float(convergence_threshold)
         self.stagnation_counter = 0
-        self.best_fitness = -np.inf
+        self.best_fitness = -float('inf')
         self.diversity_history = []
         self.generation_history = []
         logger.debug(f"Initialized AdaptiveCallback with: stagnation_limit={stagnation_limit}, "
@@ -37,7 +37,7 @@ class AdaptiveCallback(Callback):
     def _get_current_best(self, algorithm):
         """Get current best fitness value."""
         if algorithm.opt is None or len(algorithm.pop) == 0:
-            return -np.inf
+            return -float('inf')
         pop_F = np.array([ind.F[0] for ind in algorithm.pop])
         return -float(np.min(pop_F))  # Negative since we're minimizing
         
@@ -56,7 +56,7 @@ class AdaptiveCallback(Callback):
     def _check_improvement(self, current_best):
         """Check if there's an improvement in best fitness."""
         if current_best > self.best_fitness + self.convergence_threshold:
-            self.best_fitness = current_best
+            self.best_fitness = float(current_best)
             self.stagnation_counter = 0
             return True
         self.stagnation_counter += 1
@@ -64,33 +64,33 @@ class AdaptiveCallback(Callback):
     
     def _adapt_parameters(self, algorithm, diversity):
         """Adapt algorithm parameters based on search progress."""
-        old_mutation = algorithm.mating.mutation.prob
-        old_crossover = algorithm.mating.crossover.prob
-        old_pop_size = algorithm.pop_size
+        old_mutation = float(algorithm.mating.mutation.prob)
+        old_crossover = float(algorithm.mating.crossover.prob)
+        old_pop_size = int(algorithm.pop_size)
         
         # Adapt population size based on stagnation
         if self.stagnation_counter > self.stagnation_limit:
-            new_pop_size = min(int(algorithm.pop_size * 1.5), 500)
+            new_pop_size = min(int(old_pop_size * 1.5), 500)
             if new_pop_size != old_pop_size:
                 algorithm.pop_size = new_pop_size
                 logger.info(f"Adapting population size: {old_pop_size} -> {new_pop_size}")
                 self.stagnation_counter = 0
         
         # Adapt operator rates based on diversity
-        avg_diversity = np.mean(self.diversity_history[-3:]) if len(self.diversity_history) > 2 else diversity
+        avg_diversity = float(np.mean(self.diversity_history[-3:]) if len(self.diversity_history) > 2 else diversity)
         
         if diversity < avg_diversity:
             # Low diversity - increase exploration
-            new_mutation = min(old_mutation * 1.2, self.max_mutation_rate)
-            new_crossover = max(old_crossover * 0.9, self.min_crossover_rate)
+            new_mutation = min(float(old_mutation * 1.2), float(self.max_mutation_rate))
+            new_crossover = max(float(old_crossover * 0.9), float(self.min_crossover_rate))
         else:
             # High diversity - increase exploitation
-            new_mutation = max(old_mutation * 0.8, self.min_mutation_rate)
-            new_crossover = min(old_crossover * 1.1, self.max_crossover_rate)
+            new_mutation = max(float(old_mutation * 0.8), float(self.min_mutation_rate))
+            new_crossover = min(float(old_crossover * 1.1), float(self.max_crossover_rate))
         
         if new_mutation != old_mutation or new_crossover != old_crossover:
-            algorithm.mating.mutation.prob = new_mutation
-            algorithm.mating.crossover.prob = new_crossover
+            algorithm.mating.mutation.prob = float(new_mutation)
+            algorithm.mating.crossover.prob = float(new_crossover)
             logger.debug(f"Adapting operators: mutation {old_mutation:.3f}->{new_mutation:.3f}, "
                         f"crossover {old_crossover:.3f}->{new_crossover:.3f}")
     
@@ -101,14 +101,14 @@ class AdaptiveCallback(Callback):
             diversity = self.calculate_diversity(algorithm.pop)
             
             # Store history
-            self.diversity_history.append(diversity)
+            self.diversity_history.append(float(diversity))
             self.generation_history.append({
-                'generation': algorithm.n_gen,
-                'best_fitness': current_best,
-                'diversity': diversity,
-                'pop_size': algorithm.pop_size,
-                'mutation_rate': algorithm.mating.mutation.prob,
-                'crossover_rate': algorithm.mating.crossover.prob
+                'generation': int(algorithm.n_gen),
+                'best_fitness': float(current_best),
+                'diversity': float(diversity),
+                'pop_size': int(algorithm.pop_size),
+                'mutation_rate': float(algorithm.mating.mutation.prob),
+                'crossover_rate': float(algorithm.mating.crossover.prob)
             })
             
             # Log progress
@@ -121,7 +121,7 @@ class AdaptiveCallback(Callback):
             self._adapt_parameters(algorithm, diversity)
             
         except Exception as e:
-            logger.error(f"Error in adaptive callback: {e}")
+            logger.error(f"Error in adaptive callback: {str(e)}")
 
 class AdaptiveGeneticAlgorithmSolver(BaseSolver):
     """Adaptive Genetic Algorithm solver implementation."""
@@ -131,20 +131,20 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         super().__init__(config, problem_params)
         self.solver_specific = self.solver_config.get('solver_specific', {})
         
-        # Initialize solver-specific parameters with defaults
-        self.pop_size = self.solver_specific.get('population_size', 100)
-        self.n_gen = self.solver_specific.get('n_generations', 200)
-        self.mutation_rate = self.solver_specific.get('initial_mutation_rate', 0.1)
-        self.crossover_rate = self.solver_specific.get('initial_crossover_rate', 0.8)
-        self.tournament_size = self.solver_specific.get('tournament_size', 2)
+        # Initialize solver parameters with defaults
+        self.pop_size = int(self.solver_specific.get('population_size', 100))
+        self.n_gen = int(self.solver_specific.get('n_generations', 200))
+        self.tournament_size = int(self.solver_specific.get('tournament_size', 2))
+        self.mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
+        self.crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.8))
         
         # Initialize adaptive parameters
-        self.min_mutation_rate = self.solver_specific.get('min_mutation_rate', 0.01)
-        self.max_mutation_rate = self.solver_specific.get('max_mutation_rate', 0.5)
-        self.min_crossover_rate = self.solver_specific.get('min_crossover_rate', 0.5)
-        self.max_crossover_rate = self.solver_specific.get('max_crossover_rate', 0.95)
-        self.stagnation_limit = self.solver_specific.get('stagnation_limit', 10)
-        self.convergence_threshold = self.solver_specific.get('convergence_threshold', 1e-6)
+        self.min_mutation_rate = float(self.solver_specific.get('min_mutation_rate', 0.01))
+        self.max_mutation_rate = float(self.solver_specific.get('max_mutation_rate', 0.5))
+        self.min_crossover_rate = float(self.solver_specific.get('min_crossover_rate', 0.5))
+        self.max_crossover_rate = float(self.solver_specific.get('max_crossover_rate', 0.95))
+        self.stagnation_limit = int(self.solver_specific.get('stagnation_limit', 10))
+        self.convergence_threshold = float(self.solver_specific.get('convergence_threshold', 1e-6))
         
         logger.debug(f"Initialized {self.name} with parameters: "
                     f"pop_size={self.pop_size}, n_gen={self.n_gen}, "
@@ -158,19 +158,15 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             
             # Create problem instance
             problem = RocketStageProblem(
+                solver=self,
                 n_var=len(initial_guess),
-                bounds=bounds,
-                G0=self.G0,
-                ISP=self.ISP,
-                EPSILON=self.EPSILON,
-                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                config=self.config
+                bounds=bounds
             )
             
             # Initialize algorithm
             algorithm = GA(
                 pop_size=self.pop_size,
-                sampling=initial_guess,
+                sampling=np.array(initial_guess).reshape(1, -1),
                 selection=TournamentSelection(func_comp=tournament_comp),
                 crossover=SBX(prob=self.crossover_rate, eta=20),
                 mutation=PM(prob=self.mutation_rate, eta=20),
