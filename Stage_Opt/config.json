@@ -25,7 +25,7 @@
             "max_workers": 4,
             "timeout": 1000
         },
-        "parallel_solver_timeout": 1000,
+        "parallel_solver_timeout": 60,
         "max_processes": 4,
         "cache_size": 1000,
         "solvers": {
@@ -38,15 +38,24 @@
             },
             "ga": {
                 "solver_specific": {
-                    "population_size": 100,
-                    "n_generations": 200,
+                    "population_size": 200,
+                    "n_generations": 100,
                     "mutation": {
                         "eta": 20,
-                        "prob": 0.1
+                        "prob": 0.2
                     },
                     "crossover": {
                         "eta": 15,
                         "prob": 0.8
+                    },
+                    "tournament_size": 4,
+                    "elite_size": 2,
+                    "adaptive": {
+                        "diversity_threshold": 0.1,
+                        "stagnation_threshold": 10,
+                        "mutation_boost": 2.0,
+                        "population_boost": 1.5,
+                        "tournament_reduction": 0.5
                     }
                 }
             },
