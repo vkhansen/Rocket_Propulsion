@@ -1,6 +1,7 @@
 """Adaptive Genetic Algorithm Solver implementation."""
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+import time
+from typing import Dict, List, Tuple
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.problem import Problem
 from pymoo.optimize import minimize
@@ -8,7 +9,6 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.termination import get_termination
-from pymoo.util.display import display
 from scipy.spatial.distance import pdist
 
 from ...utils.config import logger
@@ -19,12 +19,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     """Adaptive Genetic Algorithm solver implementation."""
     
     def __init__(self, config: Dict, problem_params: Dict):
-        """Initialize the adaptive GA solver.
-        
-        Args:
-            config: Dictionary containing solver configuration
-            problem_params: Dictionary containing problem parameters
-        """
+        """Initialize the adaptive GA solver."""
         super().__init__(config, problem_params)
         
         # Initialize adaptive parameters
@@ -42,15 +37,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         self.constraint_violation_history = []
         
     def create_problem(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> Problem:
-        """Create optimization problem instance.
-        
-        Args:
-            initial_guess: Initial solution vector
-            bounds: List of (min, max) bounds for each variable
-            
-        Returns:
-            PyMOO Problem instance
-        """
+        """Create optimization problem instance."""
         n_var = len(initial_guess)
         xl = np.array([b[0] for b in bounds])
         xu = np.array([b[1] for b in bounds])
@@ -66,15 +53,8 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             cache=self.cache
         )
         
-    def setup_algorithm(self, problem: Problem) -> GA:
-        """Setup the GA algorithm with current parameters.
-        
-        Args:
-            problem: PyMOO Problem instance
-            
-        Returns:
-            Configured GA algorithm
-        """
+    def setup_algorithm(self) -> GA:
+        """Setup the GA algorithm with current parameters."""
         return GA(
             pop_size=self.pop_size,
             sampling=FloatRandomSampling(),
@@ -84,14 +64,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         )
         
     def calculate_diversity(self, pop) -> float:
-        """Calculate population diversity using pairwise distances.
-        
-        Args:
-            pop: Population of solutions
-            
-        Returns:
-            float: Diversity measure
-        """
+        """Calculate population diversity using pairwise distances."""
         try:
             if len(pop) < 2:
                 return 0.0
@@ -102,11 +75,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             return 0.0
             
     def update_parameters(self, algorithm):
-        """Update algorithm parameters based on progress.
-        
-        Args:
-            algorithm: Current GA algorithm instance
-        """
+        """Update algorithm parameters based on progress."""
         try:
             # Get current best fitness
             current_best = algorithm.opt.get("F")[0]
@@ -149,23 +118,15 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             logger.error(f"Error updating parameters: {str(e)}")
             
     def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> Dict:
-        """Solve the optimization problem using adaptive GA.
-        
-        Args:
-            initial_guess: Initial solution vector
-            bounds: List of (min, max) bounds for each variable
-            
-        Returns:
-            Dictionary containing optimization results
-        """
+        """Solve the optimization problem using adaptive GA."""
         try:
             logger.info("Starting Adaptive GA optimization...")
             
             # Create problem instance
             problem = self.create_problem(initial_guess, bounds)
             
-            # Setup algorithm with adaptive callback
-            algorithm = self.setup_algorithm(problem)
+            # Setup algorithm
+            algorithm = self.setup_algorithm()
             
             # Setup termination
             termination = get_termination("n_gen", self.n_gen)
