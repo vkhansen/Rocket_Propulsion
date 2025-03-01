@@ -4,73 +4,89 @@ import json
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
+from datetime import datetime
 
-# Create output directory if it doesn't exist
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Constants
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config.json')
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'output')
 
-# Configure logging
-def setup_logging():
+def load_config():
+    """Load configuration from config.json.
+    
+    Returns:
+        dict: Configuration dictionary
+    """
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger = setup_logging()
+        logger.error(f"Failed to load config: {str(e)}")
+        return {}
+
+def setup_logging(solver_name=None):
     """Set up logging configuration with multiple handlers and formats."""
-    # Create formatters
-    detailed_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
-    )
-    console_formatter = logging.Formatter(
-        '%(levelname)s - %(message)s'
-    )
+    # Create output directory if it doesn't exist
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # Console handler - for basic output
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(console_formatter)
+    # Create unique logger for this solver instance
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    if solver_name:
+        log_name = f"{solver_name}_{timestamp}"
+        logger = logging.getLogger(log_name)
+    else:
+        log_name = "optimization"
+        logger = logging.getLogger("optimization")
     
-    # Debug file handler - for detailed debug information
-    debug_handler = RotatingFileHandler(
-        os.path.join(OUTPUT_DIR, "debug.log"),
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5,
-        mode='w'
-    )
-    debug_handler.setLevel(logging.DEBUG)
-    debug_handler.setFormatter(detailed_formatter)
-    
-    # Optimization file handler - for optimization-specific info
-    opt_handler = RotatingFileHandler(
-        os.path.join(OUTPUT_DIR, "optimization.log"),
-        maxBytes=5*1024*1024,  # 5MB
-        backupCount=3,
-        mode='w'
-    )
-    opt_handler.setLevel(logging.INFO)
-    opt_handler.setFormatter(detailed_formatter)
-    
-    # Error file handler - for warnings and errors
-    error_handler = RotatingFileHandler(
-        os.path.join(OUTPUT_DIR, "error.log"),
-        maxBytes=5*1024*1024,  # 5MB
-        backupCount=3,
-        mode='w'
-    )
-    error_handler.setLevel(logging.WARNING)
-    error_handler.setFormatter(detailed_formatter)
-    
-    # Configure root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)  # Capture all levels
-    
-    # Remove any existing handlers
-    root_logger.handlers = []
-    
-    # Add all handlers
-    root_logger.addHandler(console_handler)
-    root_logger.addHandler(debug_handler)
-    root_logger.addHandler(opt_handler)
-    root_logger.addHandler(error_handler)
+    # Only add handlers if logger doesn't have any
+    if not logger.handlers:
+        logger.setLevel(logging.INFO)
+        
+        # Create log file name
+        log_file = os.path.join(OUTPUT_DIR, f"{log_name}_{timestamp}.log")
+        
+        # File handler
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+        
+    return logger
 
 # Initialize logging
-setup_logging()
-logger = logging.getLogger(__name__)
+logger = setup_logging()
+logger.setLevel(logging.DEBUG)  # Capture all levels
+
+# Console handler - for basic output
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# Debug file handler - for detailed debug information
+debug_handler = RotatingFileHandler(
+    os.path.join(OUTPUT_DIR, "debug.log"),
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5,
+    mode='w'
+)
+debug_handler.setLevel(logging.DEBUG)
+detailed_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
+debug_handler.setFormatter(detailed_formatter)
+logger.addHandler(debug_handler)
+
+# Error file handler - for warnings and errors
+error_handler = RotatingFileHandler(
+    os.path.join(OUTPUT_DIR, "error.log"),
+    maxBytes=5*1024*1024,  # 5MB
+    backupCount=3,
+    mode='w'
+)
+error_handler.setLevel(logging.WARNING)
+error_handler.setFormatter(detailed_formatter)
+logger.addHandler(error_handler)
 
 # Default configuration
 CONFIG = {
@@ -128,24 +144,15 @@ CONFIG = {
     }
 }
 
-def load_config():
-    """Load configuration from config.json."""
-    try:
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json")
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-        return config
-    except Exception as e:
-        logger.error(f"Error loading config: {e}")
-        raise
+# Load configuration
+config = load_config()
 
 # Try to load user configuration
 try:
-    user_config = load_config()
     # Update configuration with user settings
-    for key in user_config:
+    for key in config:
         if key in CONFIG["optimization"]:
-            CONFIG["optimization"][key].update(user_config[key])
+            CONFIG["optimization"][key].update(config[key])
 except Exception as e:
     logger.warning(f"Error loading user configuration: {e}")
 

@@ -23,9 +23,9 @@
         },
         "parallel": {
             "max_workers": 4,
-            "timeout": 30
+            "timeout": 1000
         },
-        "parallel_solver_timeout": 30,
+        "parallel_solver_timeout": 1000,
         "max_processes": 4,
         "cache_size": 1000,
         "solvers": {

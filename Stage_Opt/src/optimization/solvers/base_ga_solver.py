@@ -6,7 +6,7 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.operators.selection.tournament import TournamentSelection, compare
 from pymoo.optimize import minimize
-from ...utils.config import logger
+from ...utils.config import logger, setup_logging
 from .base_solver import BaseSolver
 from .pymoo_problem import RocketStageProblem
 
@@ -27,7 +27,8 @@ class BaseGASolver(BaseSolver):
         self.eta_crossover = float(self.solver_specific.get('eta_crossover', 30))  # Added SBX parameter
         self.eta_mutation = float(self.solver_specific.get('eta_mutation', 30))  # Added PM parameter
         
-        logger.debug(f"Initialized {self.name} with parameters: "
+        self.logger = setup_logging(self.__class__.__name__)
+        self.logger.debug(f"Initialized {self.name} with parameters: "
                     f"pop_size={self.pop_size}, n_generations={self.n_generations}, "
                     f"mutation_rate={self.mutation_rate}, crossover_rate={self.crossover_rate}")
 
