@@ -26,6 +26,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
         self.improvement_threshold = float(self.solver_specific.get('improvement_threshold', 0.01))
         self.adaptation_interval = int(self.solver_specific.get('adaptation_interval', 10))
         
+        # Get solver parameters from config
+        self.initial_pop_size = int(self.solver_specific.get('initial_pop_size', 100))
+        self.max_generations = int(self.solver_specific.get('max_generations', 100))
+        self.initial_mutation_rate = float(self.solver_specific.get('initial_mutation_rate', 0.1))
+        self.initial_crossover_rate = float(self.solver_specific.get('initial_crossover_rate', 0.9))
+        
         logger.debug(f"Initialized {self.name} with parameters: "
                     f"min_pop_size={self.min_pop_size}, max_pop_size={self.max_pop_size}, "
                     f"min_gen={self.min_gen}, max_gen={self.max_gen}")
@@ -61,6 +67,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             
             # Setup problem
             n_var = len(initial_guess)
+            bounds = np.array(bounds)  # Convert bounds to numpy array
             problem = RocketStageProblem(
                 solver=self,
                 n_var=n_var,
@@ -69,10 +76,10 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             
             # Setup algorithm
             algorithm = GA(
-                pop_size=self.min_pop_size,
+                pop_size=self.initial_pop_size,
                 sampling=FloatRandomSampling(),
-                crossover=SBX(prob=0.9, eta=30),
-                mutation=PM(prob=0.1, eta=30),
+                crossover=SBX(prob=self.initial_crossover_rate, eta=30),
+                mutation=PM(prob=self.initial_mutation_rate, eta=30),
                 eliminate_duplicates=True,
                 selection=tournament_comp
             )
@@ -91,6 +98,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             res = minimize(
                 problem,
                 algorithm,
+                ('n_gen', self.max_generations),
                 seed=1,
                 callback=callback,
                 verbose=False

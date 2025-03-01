@@ -35,14 +35,15 @@ class RocketStageProblem(Problem):
         Args:
             solver: Solver instance containing problem parameters
             n_var: Number of variables (stages)
-            bounds: Variable bounds
+            bounds: Variable bounds as numpy array with shape (n_var, 2)
         """
+        bounds = np.array(bounds)  # Convert to numpy array if not already
         super().__init__(
             n_var=n_var,
             n_obj=1,
             n_constr=0,
-            xl=bounds[:, 0],
-            xu=bounds[:, 1]
+            xl=bounds[:, 0],  # Lower bounds
+            xu=bounds[:, 1]   # Upper bounds
         )
         self.solver = solver
         

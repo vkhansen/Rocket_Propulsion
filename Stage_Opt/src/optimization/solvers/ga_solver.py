@@ -20,18 +20,25 @@ class GeneticAlgorithmSolver(BaseSolver):
             
             # Setup problem
             n_var = len(initial_guess)
+            bounds = np.array(bounds)  # Convert bounds to numpy array
             problem = RocketStageProblem(
                 solver=self,
                 n_var=n_var,
                 bounds=bounds
             )
             
+            # Get solver parameters from config
+            pop_size = int(self.solver_specific.get('pop_size', 100))
+            n_gen = int(self.solver_specific.get('n_generations', 100))
+            crossover_prob = float(self.solver_specific.get('crossover_prob', 0.9))
+            mutation_prob = float(self.solver_specific.get('mutation_prob', 0.1))
+            
             # Setup algorithm
             algorithm = GA(
-                pop_size=50,
+                pop_size=pop_size,
                 sampling=FloatRandomSampling(),
-                crossover=SBX(prob=0.9, eta=30),
-                mutation=PM(prob=0.1, eta=30),
+                crossover=SBX(prob=crossover_prob, eta=30),
+                mutation=PM(prob=mutation_prob, eta=30),
                 eliminate_duplicates=True,
                 selection=tournament_comp
             )
@@ -40,6 +47,7 @@ class GeneticAlgorithmSolver(BaseSolver):
             res = minimize(
                 problem,
                 algorithm,
+                ('n_gen', n_gen),
                 seed=1,
                 verbose=False
             )
