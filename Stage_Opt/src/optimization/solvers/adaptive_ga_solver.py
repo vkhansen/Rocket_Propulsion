@@ -43,13 +43,13 @@ class AdaptiveCallback(Callback):
         
     def calculate_diversity(self, pop):
         """Calculate population diversity."""
-        X = pop.get("X")
+        X = np.array([ind.X for ind in pop])  # Get decision variables as numpy array
         return np.mean(np.std(X, axis=0))
         
     def notify(self, algorithm):
         """Adapt parameters based on optimization progress."""
-        # Get current best fitness
-        current_best = -float(algorithm.opt.get("F")[0])
+        # Get current best fitness (negative since we're minimizing)
+        current_best = -float(algorithm.opt.F[0])
         
         # Calculate diversity
         diversity = self.calculate_diversity(algorithm.pop)
