@@ -9,7 +9,7 @@ def payload_fraction_objective(dv, G0, ISP, EPSILON):
         logger.debug(f"Evaluating payload fraction objective with dv={dv}")
         
         # Calculate mass ratios and payload fraction
-        mass_ratios = calculate_mass_ratios(dv, ISP, EPSILON, G0)
+        stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
         payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
         
         return -payload_fraction  # Negative for minimization
@@ -37,13 +37,8 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
         ISP = np.asarray(ISP, dtype=float)
         EPSILON = np.asarray(EPSILON, dtype=float)
         
-        # Calculate stage ratios
-        stage_ratios = np.exp(dv / (G0 * ISP))
-        
-        # Calculate mass ratios
-        mass_ratios = np.zeros_like(stage_ratios)
-        for i in range(len(stage_ratios)):
-            mass_ratios[i] = stage_ratios[i] / (1.0 - EPSILON[i] * (1.0 - stage_ratios[i]))
+        # Calculate stage ratios and mass ratios using physics module
+        stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
         
         # Calculate payload fraction
         payload_fraction = 1.0
@@ -55,9 +50,23 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V):
         dv_violation = abs(total_dv - TOTAL_DELTA_V)
         negative_violation = np.sum(np.abs(np.minimum(dv, 0)))
         
-        # Apply penalties
-        penalty_coefficient = 1e3
+        # Apply much stronger penalties
+        penalty_coefficient = 1e6  # Increased from 1e3 to 1e6
         penalty = dv_violation + negative_violation
+        
+        # Add physical constraint penalties
+        physical_penalty = 0.0
+        min_stage_ratio = 0.1  # Minimum allowable stage ratio
+        max_stage_ratio = 0.9  # Maximum allowable stage ratio
+        
+        # Penalize stage ratios outside physical bounds
+        for ratio in stage_ratios:
+            if ratio < min_stage_ratio or ratio > max_stage_ratio:
+                physical_penalty += 1.0
+                
+        # Add strong penalty for unrealistic stage ratios
+        penalty += physical_penalty * penalty_coefficient
+        
         result = float(payload_fraction) - penalty_coefficient * penalty
         
         return -result  # Negative because we want to maximize payload fraction
