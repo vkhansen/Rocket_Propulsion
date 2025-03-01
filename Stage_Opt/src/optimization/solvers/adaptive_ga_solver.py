@@ -6,7 +6,7 @@ from pymoo.core.callback import Callback
 from pymoo.core.problem import Problem
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
-from pymoo.operators.selection.tournament import compare, TournamentSelection
+from pymoo.operators.selection.tournament import TournamentSelection
 from pymoo.optimize import minimize
 from .base_solver import BaseSolver
 from ...utils.config import logger
@@ -144,12 +144,32 @@ class AdaptiveGeneticAlgorithmSolver(BaseSolver):
             # Initialize problem
             problem = RocketStageProblem(self, len(initial_guess), bounds)
             
+            def tournament_comp(pop, P, **kwargs):
+                """Tournament selection comparison function."""
+                S = np.full(P.shape[0], np.nan)
+                
+                for i in range(P.shape[0]):
+                    a, b = P[i, 0], P[i, 1]
+                    
+                    # Get objective values (first objective for single-objective)
+                    a_cv = pop[a].get("CV")[0] if pop[a].get("CV") is not None else 0
+                    b_cv = pop[b].get("CV")[0] if pop[b].get("CV") is not None else 0
+                    
+                    # If both feasible or both infeasible
+                    if (a_cv <= 0 and b_cv <= 0) or (a_cv > 0 and b_cv > 0):
+                        S[i] = a if pop[a].get("F")[0] < pop[b].get("F")[0] else b
+                    # If one is feasible and other is not
+                    else:
+                        S[i] = a if a_cv <= 0 else b
+                        
+                return S
+            
             # Initialize algorithm with specific operators
             algorithm = GA(
                 pop_size=pop_size,
                 selection=TournamentSelection(
                     pressure=tournament_size,
-                    func_comp=compare
+                    func_comp=tournament_comp
                 ),
                 crossover=SBX(
                     prob=crossover_prob,
