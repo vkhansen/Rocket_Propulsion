@@ -263,33 +263,32 @@ class DifferentialEvolutionSolver(BaseSolver):
     def solve(self, initial_guess, bounds):
         """Solve using enhanced Differential Evolution."""
         try:
-            logger.info("Starting Differential Evolution optimization...")
+            # Record start time
             start_time = time.time()
             
-            # Run DE with enhanced parameters
+            # Run optimization
             result = self.optimize()
-            
             duration = time.time() - start_time
             
-            # Process results
+            # Return processed results with timing
             return self.process_results(
-                x=result.x,
-                success=result.success,
-                message=result.message,
-                n_iterations=result.n_iterations,
-                n_function_evals=result.n_function_evals,
+                x=result['x'] if isinstance(result, dict) else result,
+                success=result['success'] if isinstance(result, dict) else result.success,
+                message=result['message'] if isinstance(result, dict) else result.message,
+                n_iterations=result['n_iterations'] if isinstance(result, dict) else result.n_iterations,
+                n_function_evals=result['n_function_evals'] if isinstance(result, dict) else result.n_function_evals,
                 time=duration
             )
             
         except Exception as e:
-            logger.error(f"DE optimization failed: {str(e)}")
+            logger.error(f"DE solver failed: {str(e)}")
             return self.process_results(
                 x=initial_guess,
                 success=False,
                 message=str(e),
                 n_iterations=0,
                 n_function_evals=0,
-                time=time.time() - start_time
+                time=0.0
             )
             
     def get_violation(self, x):
