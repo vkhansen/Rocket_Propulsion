@@ -9,15 +9,15 @@ class ParticleSwarmOptimizer(BaseSolver):
     """PSO solver implementation."""
     
     def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, 
-                 n_particles=50, maxiter=100, w=0.6, c1=1.0, c2=1.0):
+                 n_particles=100, maxiter=200, w=0.7, c1=1.5, c2=1.5):
         """Initialize PSO solver with problem parameters and PSO-specific settings."""
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
-        self.n_particles = n_particles
-        self.maxiter = maxiter
-        self.w = w  # Inertia weight
-        self.c1 = c1  # Cognitive parameter
-        self.c2 = c2  # Social parameter
-        self.n_stages = len(bounds)  # Number of stages
+        self.n_particles = n_particles  # Increased for better coverage
+        self.maxiter = maxiter  # More iterations for convergence
+        self.w = w  # Higher inertia for exploration
+        self.c1 = c1  # Stronger cognitive component
+        self.c2 = c2  # Stronger social component
+        self.n_stages = len(bounds)
         
     def project_to_feasible(self, x):
         """Project solution to feasible space with high precision."""
@@ -54,36 +54,70 @@ class ParticleSwarmOptimizer(BaseSolver):
         
     def initialize_swarm(self):
         """Initialize particle swarm with feasible solutions."""
+        try:
+            from scipy.stats import qmc
+            
+            # Use Latin Hypercube Sampling for better coverage
+            sampler = qmc.LatinHypercube(d=self.n_stages)
+            samples = sampler.random(n=self.n_particles)
+            
+            positions = np.zeros((self.n_particles, self.n_stages))
+            velocities = np.zeros((self.n_particles, self.n_stages))
+            
+            for i in range(self.n_particles):
+                # Scale samples to bounds
+                for j in range(self.n_stages):
+                    lower, upper = self.bounds[j]
+                    positions[i,j] = samples[i,j] * (upper - lower) + lower
+                
+                # Project to feasible space using base class method
+                positions[i] = super().project_to_feasible(positions[i])
+                
+                # Initialize velocities based on problem scale
+                for j in range(self.n_stages):
+                    lower, upper = self.bounds[j]
+                    range_j = upper - lower
+                    velocities[i,j] = np.random.uniform(-0.2, 0.2) * range_j
+                    
+            return positions, velocities
+            
+        except Exception as e:
+            logger.warning(f"LHS initialization failed: {str(e)}, using uniform random")
+            return self._uniform_random_init()
+            
+    def _uniform_random_init(self):
+        """Fallback uniform random initialization."""
         positions = np.zeros((self.n_particles, self.n_stages))
         velocities = np.zeros((self.n_particles, self.n_stages))
         
         for i in range(self.n_particles):
-            # Generate random fractions that sum to 1
-            fractions = np.random.random(self.n_stages)
-            fractions /= np.sum(fractions)
+            # Generate random position
+            for j in range(self.n_stages):
+                lower, upper = self.bounds[j]
+                positions[i,j] = np.random.uniform(lower, upper)
             
-            # Scale by total ΔV and project to feasible space
-            positions[i] = self.project_to_feasible(fractions * self.TOTAL_DELTA_V)
+            # Project to feasible space
+            positions[i] = super().project_to_feasible(positions[i])
             
-            # Initialize velocities as small random values
+            # Initialize velocities
             for j in range(self.n_stages):
                 lower, upper = self.bounds[j]
                 range_j = upper - lower
-                velocities[i,j] = np.random.uniform(-0.1, 0.1) * range_j
+                velocities[i,j] = np.random.uniform(-0.2, 0.2) * range_j
                 
         return positions, velocities
         
     def update_velocity(self, velocity, position, p_best, g_best):
-        """Update particle velocity with damping for stability."""
+        """Update particle velocity with improved stability."""
         r1, r2 = np.random.random(2)
         
-        # Calculate new velocity with reduced cognitive/social terms
+        # Calculate new velocity with balanced exploration/exploitation
         new_velocity = (self.w * velocity + 
-                       0.5 * self.c1 * r1 * (p_best - position) +  # Reduced cognitive
-                       0.5 * self.c2 * r2 * (g_best - position))   # Reduced social
+                       self.c1 * r1 * (p_best - position) +  # Cognitive
+                       self.c2 * r2 * (g_best - position))   # Social
         
-        # Apply stronger velocity damping for stability
-        max_velocity = 0.05 * self.TOTAL_DELTA_V  # Reduced to 5% of total ΔV
+        # Apply velocity clamping
+        max_velocity = 0.2 * self.TOTAL_DELTA_V  # Increased to 20% of total ΔV
         new_velocity = np.clip(new_velocity, -max_velocity, max_velocity)
         
         return new_velocity
@@ -114,18 +148,8 @@ class ParticleSwarmOptimizer(BaseSolver):
             logger.info("Starting PSO optimization...")
             start_time = time.time()
             
-            # Initialize particles with feasible solutions
-            positions = np.zeros((self.n_particles, self.n_stages))
-            velocities = np.zeros_like(positions)
-            
-            # Generate feasible initial population
-            for i in range(self.n_particles):
-                positions[i] = self.project_to_feasible(
-                    np.random.uniform(low=[b[0] for b in bounds], 
-                                    high=[b[1] for b in bounds], 
-                                    size=self.n_stages)
-                )
-                velocities[i] = np.random.uniform(-0.1, 0.1, self.n_stages)
+            # Initialize swarm
+            positions, velocities = self.initialize_swarm()
             
             # Initialize personal and global best
             p_best_pos = positions.copy()
@@ -133,79 +157,88 @@ class ParticleSwarmOptimizer(BaseSolver):
             g_best_pos = positions[0].copy()
             g_best_score = float('inf')
             
-            # Main optimization loop
+            # Track best solution
+            best_feasible_pos = None
+            best_feasible_score = float('inf')
             best_violation = float('inf')
-            best_x = None
+            stall_count = 0
             
             for iteration in range(self.maxiter):
+                improved = False
+                
                 # Update each particle
                 for i in range(self.n_particles):
                     # Project current position
-                    curr_pos = self.project_to_feasible(positions[i])
+                    curr_pos = super().project_to_feasible(positions[i])
                     positions[i] = curr_pos
                     
-                    # Evaluate objective
-                    score = objective_with_penalty(
-                        dv=curr_pos,
-                        G0=self.G0,
-                        ISP=self.ISP,
-                        EPSILON=self.EPSILON,
-                        TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                        return_tuple=False
-                    )
-                    _, violation = self.check_constraints(curr_pos)
+                    # Evaluate with components
+                    obj, dv_const, phys_const = self.evaluate_solution(curr_pos, return_components=True)
+                    total_violation = dv_const + phys_const
+                    score = obj + total_violation
                     
-                    # Update personal best
-                    if violation < 1e-8 and score < p_best_scores[i]:
+                    # Update personal best if better score and feasible
+                    if score < p_best_scores[i]:
                         p_best_pos[i] = curr_pos.copy()
                         p_best_scores[i] = score
+                        improved = True
                         
-                        # Update global best
+                        # Update global best if this is the best so far
                         if score < g_best_score:
                             g_best_pos = curr_pos.copy()
                             g_best_score = score
                     
-                    # Track best solution
-                    if violation < best_violation:
-                        best_violation = violation
-                        best_x = curr_pos.copy()
+                    # Track best feasible solution
+                    if total_violation <= self.feasibility_threshold:
+                        if obj < best_feasible_score:
+                            best_feasible_pos = curr_pos.copy()
+                            best_feasible_score = obj
+                            improved = True
+                    elif total_violation < best_violation:
+                        best_violation = total_violation
                     
-                    # Update velocity with reduced cognitive/social terms
+                    # Update velocity and position
                     velocities[i] = self.update_velocity(
-                        velocities[i], positions[i], 
+                        velocities[i], positions[i],
                         p_best_pos[i], g_best_pos
                     )
-                    
-                    # Update position
                     positions[i] += velocities[i]
                     
-                    # Project to feasible space
-                    positions[i] = self.project_to_feasible(positions[i])
+                # Update stall count
+                if not improved:
+                    stall_count += 1
+                else:
+                    stall_count = 0
+                    
+                # Early stopping if stalled
+                if stall_count >= 30:  # Increased from previous value
+                    break
             
             execution_time = time.time() - start_time
             
-            # Return best solution found
-            if best_violation < 1e-4:
+            # Return best feasible solution if found
+            if best_feasible_pos is not None:
                 return self.process_results(
-                    x=best_x,
+                    x=best_feasible_pos,
                     success=True,
                     message="Optimization successful",
-                    n_iterations=self.maxiter,
-                    n_function_evals=self.maxiter * self.n_particles,
+                    n_iterations=iteration + 1,
+                    n_function_evals=(iteration + 1) * self.n_particles,
                     time=execution_time
                 )
             else:
+                # Return best solution found with violation info
                 return self.process_results(
-                    x=initial_guess,
+                    x=g_best_pos,
                     success=False,
-                    message=f"Failed to find feasible solution (violation={best_violation:.2e})",
-                    n_iterations=self.maxiter,
-                    n_function_evals=self.maxiter * self.n_particles,
+                    message=f"Solution violates constraints (violation={best_violation:.2e})",
+                    n_iterations=iteration + 1,
+                    n_function_evals=(iteration + 1) * self.n_particles,
                     time=execution_time
                 )
                 
         except Exception as e:
-            logger.error(f"Error in PSO solver: {str(e)}")
+            logger.error(f"PSO optimization failed: {str(e)}")
             return self.process_results(
                 x=initial_guess,
                 success=False,

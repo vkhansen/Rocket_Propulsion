@@ -16,15 +16,16 @@ class DifferentialEvolutionSolver(BaseSolver):
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         
         # DE-specific parameters with tuned values
-        self.population_size = 30  # Increased for better coverage
-        self.mutation_min = 0.3  # Lower bound for mutation
-        self.mutation_max = 0.7  # Upper bound for mutation
+        self.population_size = 50  # Increased for better coverage
+        self.mutation_min = 0.2  # Lower bound for mutation
+        self.mutation_max = 0.8  # Upper bound for mutation
         self.recombination = 0.9  # Higher recombination for better mixing
         self.strategy = 'best1bin'  # More exploitative strategy
         self.max_iterations = 2000  # Increased iterations for convergence
         self.tol = 1e-6  # Strict tolerance
         self.atol = 1e-6  # Absolute tolerance
-        self.update_nlast = 10  # Check last N generations for convergence
+        self.update_nlast = 20  # Check last N generations for convergence
+        self.stall_generations = 50  # Increased stall limit
         
         # Adaptive parameters
         self.adaptive_penalty = True
@@ -113,6 +114,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             while iteration < self.max_iterations:
                 # Store previous best for convergence check
                 prev_best = best_score
+                improved = False
                 
                 # Evolve population
                 for i in range(self.population_size):
@@ -120,14 +122,14 @@ class DifferentialEvolutionSolver(BaseSolver):
                     idxs = [idx for idx in range(self.population_size) if idx != i]
                     a, b, c = population[np.random.choice(idxs, 3, replace=False)]
                     
-                    # Create trial vector
+                    # Create trial vector with wider mutation range
                     mutation = np.random.uniform(self.mutation_min, self.mutation_max)
                     if self.strategy == 'best1bin':
                         mutant = population[best_idx] + mutation * (b - c)
                     else:
                         mutant = a + mutation * (b - c)
                     
-                    # Crossover
+                    # Crossover with higher probability
                     cross_points = np.random.rand(self.n_stages) < self.recombination
                     if not np.any(cross_points):
                         cross_points[np.random.randint(0, self.n_stages)] = True
@@ -141,6 +143,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                     if trial_score <= scores[i]:
                         population[i] = trial
                         scores[i] = trial_score
+                        improved = True
                         
                         # Update best if needed
                         if trial_score < best_score:
@@ -153,13 +156,13 @@ class DifferentialEvolutionSolver(BaseSolver):
                         break
                 history.append(best_score)
                 
-                # Update stall count
-                if abs(best_score - prev_best) < self.atol:
+                # Update stall count with improvement tracking
+                if not improved or abs(best_score - prev_best) < self.atol:
                     stall_count += 1
                 else:
                     stall_count = 0
                     
-                if stall_count >= 20:  # Early stopping if stalled
+                if stall_count >= self.stall_generations:
                     break
                     
                 iteration += 1
