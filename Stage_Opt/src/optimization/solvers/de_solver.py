@@ -1,4 +1,4 @@
-"""Differential Evolution solver implementation."""
+"""Differential Evolution solver implementation with enhanced constraint handling."""
 import time
 import numpy as np
 from scipy.optimize import differential_evolution, minimize
@@ -7,11 +7,11 @@ from .base_solver import BaseSolver
 from ..objective import objective_with_penalty
 
 class DifferentialEvolutionSolver(BaseSolver):
-    """Differential Evolution solver implementation."""
+    """Differential Evolution solver implementation with enhanced constraint handling."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None, strategy='best1bin', maxiter=1000, 
-                 popsize=15, tol=0.01, mutation=(0.5, 1), recombination=0.7):
-        """Initialize DE solver with parameters."""
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None, strategy='best1bin', maxiter=2000, 
+                 popsize=30, tol=1e-8, mutation=(0.3, 0.7), recombination=0.9):
+        """Initialize DE solver with optimized parameters."""
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.strategy = strategy
         self.maxiter = maxiter
@@ -20,6 +20,9 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.mutation = mutation
         self.recombination = recombination
         self.n_stages = len(bounds)
+        self.best_solution = None
+        self.best_fitness = float('-inf')
+        self.best_violation = float('inf')
         
     def project_to_feasible(self, x):
         """Project solution to feasible space with high precision."""
@@ -29,161 +32,133 @@ class DifferentialEvolutionSolver(BaseSolver):
         for i in range(self.n_stages):
             lower, upper = self.bounds[i]
             x_proj[i] = np.clip(x_proj[i], lower, upper)
-        
-        # Iterative projection to handle numerical precision
-        max_iterations = 10
-        for _ in range(max_iterations):
-            # Normalize to total ΔV
-            total = np.sum(x_proj)
-            if total > 0:
-                x_proj *= self.TOTAL_DELTA_V / total
-                
-                # Verify constraint
-                error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
-                if error <= 1e-10:  # Strict convergence check
-                    break
-                    
-                # Distribute remaining error proportionally
-                adjustment = (self.TOTAL_DELTA_V - np.sum(x_proj)) / self.n_stages
-                x_proj += adjustment
-                
-                # Re-check bounds after adjustment
-                for i in range(self.n_stages):
-                    lower, upper = self.bounds[i]
-                    x_proj[i] = np.clip(x_proj[i], lower, upper)
-        
+            
+        # Scale to ensure sum equals 1.0 with high precision
+        total = np.sum(x_proj)
+        if abs(total - 1.0) > 1e-10:  # Tighter tolerance
+            x_proj /= total
+            
         return x_proj
-        
-    def custom_init(self):
-        """Generate initial population that satisfies constraints."""
-        population = np.zeros((self.popsize * self.n_stages, self.n_stages))
-        
-        for i in range(self.popsize * self.n_stages):
-            # Generate random fractions that sum to 1
-            fractions = np.random.random(self.n_stages)
-            fractions /= np.sum(fractions)
+
+    def polish_solution(self, x, violation):
+        """Polish promising solutions using L-BFGS-B."""
+        if violation > 0.01:  # Only polish low-violation solutions
+            return x, self.objective(x)
             
-            # Scale by total ΔV and project to feasible space
-            population[i] = self.project_to_feasible(fractions * self.TOTAL_DELTA_V)
-            
-        return population
+        scales = np.linspace(0.98, 1.02, 5)  # Try multiple scaling factors
+        best_x = x
+        best_obj = self.objective(x)
         
-    def objective(self, x):
-        """Objective function for DE optimization."""
-        # Project solution to feasible space
-        x_proj = self.project_to_feasible(x)
-        
-        # Check constraints
-        is_feasible, violation = self.check_constraints(x_proj)
-        if not is_feasible:
-            return float('inf')  # Return worst possible fitness for infeasible solutions
-        
-        return -objective_with_penalty(  # Negative because DE minimizes
-            dv=x_proj,
-            G0=self.G0,
-            ISP=self.ISP,
-            EPSILON=self.EPSILON,
-            TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-            return_tuple=False
-        )
-        
+        for scale in scales:
+            try:
+                result = minimize(
+                    self.objective,
+                    x * scale,
+                    method='L-BFGS-B',
+                    bounds=self.bounds,
+                    options={'ftol': 1e-10, 'maxiter': 100}
+                )
+                if result.success and result.fun < best_obj:
+                    best_x = result.x
+                    best_obj = result.fun
+            except:
+                continue
+                
+        return best_x, best_obj
+
     def solve(self, initial_guess, bounds):
-        """Solve using Differential Evolution."""
+        """Solve using enhanced Differential Evolution."""
         try:
             logger.info("Starting Differential Evolution optimization...")
             start_time = time.time()
             
             # Generate feasible initial population
-            init_pop = self.custom_init()
+            population = np.zeros((self.popsize, self.n_stages))
+            for i in range(self.popsize):
+                # Start with uniform random values
+                x = np.random.uniform(low=[b[0] for b in bounds], 
+                                    high=[b[1] for b in bounds], 
+                                    size=self.n_stages)
+                # Project to feasible space
+                population[i] = self.project_to_feasible(x)
             
+            # Run DE with enhanced parameters
             result = differential_evolution(
                 self.objective,
                 bounds=bounds,
                 strategy=self.strategy,
                 maxiter=self.maxiter,
                 popsize=self.popsize,
-                tol=1e-8,  # Tighter tolerance
-                mutation=(0.3, 0.8),  # Reduced mutation range for stability
-                recombination=0.9,  # Increased recombination
-                init='random',
+                tol=self.tol,
+                mutation=self.mutation,
+                recombination=self.recombination,
+                init=population,
+                updating='immediate',  # Immediate updating for better convergence
+                workers=1,  # Sequential for better reproducibility
                 disp=False,
-                workers=1,
-                updating='deferred',
-                polish=True,  # Enable polishing step
-                seed=42
+                polish=False  # We'll do custom polishing
             )
             
-            execution_time = time.time() - start_time
+            # Polish the solution if promising
+            final_x, final_obj = self.polish_solution(result.x, self.get_violation(result.x))
             
-            # Project final solution with L-BFGS-B
-            x_final = result.x
-            best_violation = float('inf')
-            best_x = None
+            # Track best solution
+            if final_obj < result.fun:
+                result.x = final_x
+                result.fun = final_obj
             
-            # Try multiple projections with different scalings
-            for scale in [1.0, 0.99, 1.01]:
-                x_try = self.project_to_feasible(scale * x_final)
-                _, violation = self.check_constraints(x_try)
-                if violation < best_violation:
-                    best_violation = violation
-                    best_x = x_try
-                    
-                    # If we found a good enough solution, stop trying
-                    if violation < 1e-8:
-                        break
+            duration = time.time() - start_time
+            logger.info(f"DE optimization completed in {duration:.2f} seconds")
             
-            # One final L-BFGS-B polish if needed
-            if best_violation > 1e-8:
-                def final_objective(x):
-                    return self.objective(x)
-                    
-                def total_constraint(x):
-                    return np.sum(x) - self.TOTAL_DELTA_V
-                    
-                constraints = {'type': 'eq', 'fun': total_constraint}
-                
-                polish_result = minimize(
-                    final_objective,
-                    best_x,
-                    method='L-BFGS-B',
-                    bounds=bounds,
-                    constraints=constraints,
-                    options={'ftol': 1e-12, 'maxiter': 100}
-                )
-                
-                if polish_result.success:
-                    x_try = polish_result.x
-                    _, violation = self.check_constraints(x_try)
-                    if violation < best_violation:
-                        best_violation = violation
-                        best_x = x_try
-            
-            if best_violation < 1e-4:  # Only accept if we found a feasible solution
-                return self.process_results(
-                    x=best_x,
-                    success=True,
-                    message="Optimization successful",
-                    n_iterations=result.nit if hasattr(result, 'nit') else self.maxiter,
-                    n_function_evals=result.nfev if hasattr(result, 'nfev') else 0,
-                    time=execution_time
-                )
-            else:
-                return self.process_results(
-                    x=initial_guess,
-                    success=False,
-                    message=f"Failed to find feasible solution (violation={best_violation:.2e})",
-                    n_iterations=result.nit if hasattr(result, 'nit') else self.maxiter,
-                    n_function_evals=result.nfev if hasattr(result, 'nfev') else 0,
-                    time=execution_time
-                )
+            return {
+                'x': result.x,
+                'fun': result.fun,
+                'success': result.success,
+                'message': result.message,
+                'nfev': result.nfev,
+                'time': duration
+            }
             
         except Exception as e:
-            logger.error(f"Error in Differential Evolution solver: {str(e)}")
-            return self.process_results(
-                x=initial_guess,
-                success=False,
-                message=str(e),
-                n_iterations=0,
-                n_function_evals=0,
-                time=0.0
+            logger.error(f"DE optimization failed: {str(e)}")
+            return {
+                'x': initial_guess,
+                'fun': float('inf'),
+                'success': False,
+                'message': str(e),
+                'nfev': 0,
+                'time': time.time() - start_time
+            }
+            
+    def get_violation(self, x):
+        """Calculate constraint violation."""
+        total = np.sum(x)
+        violation = abs(total - 1.0)
+        
+        # Check bound constraints
+        for i, (lower, upper) in enumerate(self.bounds):
+            if x[i] < lower:
+                violation += abs(x[i] - lower)
+            elif x[i] > upper:
+                violation += abs(x[i] - upper)
+                
+        return violation
+
+    def objective(self, x):
+        """Objective function with enhanced constraint handling."""
+        violation = self.get_violation(x)
+        
+        if violation > 0.1:  # Major violation
+            return 100.0 * violation
+        elif violation > 0:  # Minor violation
+            return 10.0 * violation
+            
+        # Calculate payload fraction
+        try:
+            result = objective_with_penalty(
+                x, self.G0, self.ISP, self.EPSILON,
+                self.TOTAL_DELTA_V, self.bounds
             )
+            return result
+        except:
+            return float('inf')

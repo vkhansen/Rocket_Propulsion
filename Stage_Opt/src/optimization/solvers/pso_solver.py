@@ -17,6 +17,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.w = w  # Inertia weight
         self.c1 = c1  # Cognitive parameter
         self.c2 = c2  # Social parameter
+        self.n_stages = len(bounds)  # Number of stages
         
     def project_to_feasible(self, x):
         """Project solution to feasible space with high precision."""

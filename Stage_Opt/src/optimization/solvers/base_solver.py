@@ -29,12 +29,13 @@ class BaseSolver(ABC):
         self.TOTAL_DELTA_V = float(TOTAL_DELTA_V)
         self.bounds = bounds
         self.config = config
+        self.n_stages = len(bounds)  # Number of stages
+        self.name = self.__class__.__name__
+        
+        logger.debug(f"Initialized {self.name} with {self.n_stages} stages")
         
         # Initialize cache
         self.cache = OptimizationCache()
-        
-        # Initialize name
-        self.name = self.__class__.__name__
         
     def calculate_stage_ratios(self, x: np.ndarray):
         """Calculate stage ratios for a solution.
