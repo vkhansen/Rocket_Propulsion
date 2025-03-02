@@ -19,22 +19,24 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.c2 = c2
         self.n_stages = len(bounds)
         self.w_min = 0.4
-        self.feasibility_threshold = 1e-8  # Even tighter feasibility check
+        self.precision_threshold = 1e-6
+        self.max_projection_iterations = 10
         
-    def iterative_projection(self, x, max_iter=10, tol=1e-10):
-        """Iteratively project solution until constraints are satisfied."""
-        x_proj = x.copy()
-        for _ in range(max_iter):
+    def iterative_projection(self, x):
+        """Project solution to feasible space using iterative refinement."""
+        x_proj = np.array(x, dtype=np.float64)
+        
+        for _ in range(self.max_projection_iterations):
             # First ensure bounds constraints
             for i in range(self.n_stages):
                 lower, upper = self.bounds[i]
                 x_proj[i] = np.clip(x_proj[i], lower, upper)
             
-            # Check total ΔV constraint
+            # Check total ΔV constraint using relative error
             total = np.sum(x_proj)
-            error = abs(total - self.TOTAL_DELTA_V)
+            rel_error = abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
             
-            if error <= tol:
+            if rel_error <= self.precision_threshold:
                 break
                 
             # Scale to match total ΔV
@@ -47,43 +49,13 @@ class ParticleSwarmOptimizer(BaseSolver):
                 
             # Distribute any remaining error proportionally
             remaining = self.TOTAL_DELTA_V - np.sum(x_proj)
-            if abs(remaining) > tol:
-                adjustment = remaining / self.n_stages
-                x_proj += adjustment
+            if abs(remaining) / self.TOTAL_DELTA_V > self.precision_threshold:
+                # Scale adjustment by stage values
+                total_stage_values = np.sum(x_proj)
+                if total_stage_values > 0:
+                    adjustments = (remaining * x_proj) / total_stage_values
+                    x_proj += adjustments
                 
-        return x_proj
-        
-    def project_to_feasible(self, x):
-        """Project solution to feasible space with high precision."""
-        x_proj = np.array(x, dtype=np.float64)  # Higher precision
-        
-        # First ensure bounds constraints
-        for i in range(self.n_stages):
-            lower, upper = self.bounds[i]
-            x_proj[i] = np.clip(x_proj[i], lower, upper)
-        
-        # Iterative projection to handle numerical precision
-        max_iterations = 10
-        for _ in range(max_iterations):
-            # Normalize to total ΔV
-            total = np.sum(x_proj)
-            if total > 0:
-                x_proj *= self.TOTAL_DELTA_V / total
-                
-                # Verify constraint
-                error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
-                if error <= 1e-10:  # Strict convergence check
-                    break
-                    
-                # Distribute remaining error proportionally
-                adjustment = (self.TOTAL_DELTA_V - np.sum(x_proj)) / self.n_stages
-                x_proj += adjustment
-                
-                # Re-check bounds after adjustment
-                for i in range(self.n_stages):
-                    lower, upper = self.bounds[i]
-                    x_proj[i] = np.clip(x_proj[i], lower, upper)
-        
         return x_proj
         
     def initialize_swarm(self):
@@ -98,18 +70,20 @@ class ParticleSwarmOptimizer(BaseSolver):
             positions = np.zeros((self.n_particles, self.n_stages))
             velocities = np.zeros((self.n_particles, self.n_stages))
             
-            # Scale to ensure total ΔV constraint
-            scale_factor = self.TOTAL_DELTA_V / self.n_stages
-            
+            # Scale samples to stage-specific ranges
             for i in range(self.n_particles):
-                # Initial distribution proportional to total ΔV
-                positions[i] = samples[i] * scale_factor
+                for j in range(self.n_stages):
+                    lower, upper = self.bounds[j]
+                    positions[i,j] = lower + samples[i,j] * (upper - lower)
                 
-                # Ensure sum equals total ΔV and constraints are satisfied
+                # Project to feasible space
                 positions[i] = self.iterative_projection(positions[i])
                 
-                # Initialize velocities conservatively
-                velocities[i] = np.random.uniform(-0.05, 0.05, self.n_stages) * scale_factor
+                # Initialize velocities relative to stage ranges
+                for j in range(self.n_stages):
+                    lower, upper = self.bounds[j]
+                    range_j = upper - lower
+                    velocities[i,j] = np.random.uniform(-0.1, 0.1) * range_j
                     
             return positions, velocities
             
@@ -129,13 +103,13 @@ class ParticleSwarmOptimizer(BaseSolver):
                 positions[i,j] = np.random.uniform(lower, upper)
             
             # Project to feasible space
-            positions[i] = super().project_to_feasible(positions[i])
+            positions[i] = self.iterative_projection(positions[i])
             
-            # Initialize velocities
+            # Initialize velocities relative to stage ranges
             for j in range(self.n_stages):
                 lower, upper = self.bounds[j]
                 range_j = upper - lower
-                velocities[i,j] = np.random.uniform(-0.2, 0.2) * range_j
+                velocities[i,j] = np.random.uniform(-0.1, 0.1) * range_j
                 
         return positions, velocities
         
@@ -146,18 +120,28 @@ class ParticleSwarmOptimizer(BaseSolver):
         # Adaptive inertia weight
         w = self.w - (self.w - self.w_min) * (iteration / self.maxiter)
         
-        # Calculate new velocity with balanced exploration/exploitation
-        new_velocity = (w * velocity + 
-                       self.c1 * r1 * (p_best - position) +  # Cognitive
-                       self.c2 * r2 * (g_best - position))   # Social
+        # Calculate cognitive and social components
+        cognitive = self.c1 * r1 * (p_best - position)
+        social = self.c2 * r2 * (g_best - position)
         
-        # Apply velocity clamping
-        max_velocity = 0.1 * self.TOTAL_DELTA_V  # More conservative velocity limit
-        new_velocity = np.clip(new_velocity, -max_velocity, max_velocity)
+        # Scale velocity components by stage ranges
+        new_velocity = np.zeros_like(velocity)
+        for j in range(self.n_stages):
+            lower, upper = self.bounds[j]
+            range_j = upper - lower
+            
+            # Apply stage-specific velocity updates
+            new_velocity[j] = (w * velocity[j] + 
+                             cognitive[j] * range_j * 0.1 +
+                             social[j] * range_j * 0.1)
+            
+            # Velocity clamping relative to stage range
+            max_velocity = 0.2 * range_j
+            new_velocity[j] = np.clip(new_velocity[j], -max_velocity, max_velocity)
         
         return new_velocity
         
-    def check_constraints(self, x):
+    def check_feasibility(self, x):
         """Check if solution satisfies constraints."""
         is_feasible = True
         violation = 0
@@ -171,7 +155,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         # Check total ΔV constraint
         total = np.sum(x)
-        if np.abs(total - self.TOTAL_DELTA_V) > 1e-10:
+        if np.abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V > self.precision_threshold:
             is_feasible = False
             violation += 1
         
@@ -199,63 +183,44 @@ class ParticleSwarmOptimizer(BaseSolver):
             stall_count = 0
             
             for iteration in range(self.maxiter):
-                improved = False
-                
-                # Update each particle
+                # Evaluate all particles
                 for i in range(self.n_particles):
-                    # Update velocity and position with iterative projection
+                    # Project position to feasible space
+                    positions[i] = self.iterative_projection(positions[i])
+                    
+                    # Check feasibility and evaluate
+                    is_feasible, violation = self.check_feasibility(positions[i])
+                    score = self.evaluate_solution(positions[i])[0]
+                    
+                    # Update personal best
+                    if score < p_best_scores[i]:
+                        if is_feasible or violation < best_violation:
+                            p_best_pos[i] = positions[i].copy()
+                            p_best_scores[i] = score
+                            
+                            # Update global best if better feasible solution found
+                            if is_feasible and score < best_feasible_score:
+                                best_feasible_pos = positions[i].copy()
+                                best_feasible_score = score
+                                g_best_pos = positions[i].copy()
+                                g_best_score = score
+                                stall_count = 0
+                            elif not is_feasible and violation < best_violation:
+                                best_violation = violation
+                                
+                # Update velocities and positions
+                for i in range(self.n_particles):
                     velocities[i] = self.update_velocity(
                         velocities[i], positions[i], p_best_pos[i], g_best_pos, iteration
                     )
-                    positions[i] = positions[i] + velocities[i]
-                    positions[i] = self.iterative_projection(positions[i])
+                    positions[i] += velocities[i]
                     
-                    # Evaluate with components
-                    obj, dv_const, phys_const = self.evaluate_solution(positions[i], return_components=True)
-                    total_violation = dv_const + phys_const
+                # Check convergence
+                stall_count += 1
+                if stall_count >= 30:  # No improvement in 30 iterations
+                    break
                     
-                    # Adaptive penalty scaling
-                    penalty = 100.0 if total_violation > 0.1 else 10.0
-                    score = obj + penalty * total_violation
-                    
-                    # Update personal best if better score or more feasible
-                    if score < p_best_scores[i] or (
-                        total_violation < self.feasibility_threshold and 
-                        obj < best_feasible_score
-                    ):
-                        p_best_pos[i] = positions[i].copy()
-                        p_best_scores[i] = score
-                        improved = True
-                        
-                        # Update global best if this is the best so far
-                        if score < g_best_score:
-                            g_best_pos = positions[i].copy()
-                            g_best_score = score
-                    
-                    # Track best feasible solution
-                    if total_violation <= self.feasibility_threshold:
-                        if obj < best_feasible_score:
-                            best_feasible_pos = positions[i].copy()
-                            best_feasible_score = obj
-                            improved = True
-                            stall_count = 0
-                    elif total_violation < best_violation:
-                        best_violation = total_violation
-                
-                # Early stopping if no improvement
-                if not improved:
-                    stall_count += 1
-                    if stall_count >= 50:
-                        logger.info(f"Stopping early due to stall at iteration {iteration}")
-                        break
-                else:
-                    stall_count = 0
-                
-                if iteration % 20 == 0:
-                    logger.info(f"Iteration {iteration}: Best score = {best_feasible_score:.6f}, "
-                              f"Violation = {best_violation:.6f}")
-            
-            # Return results
+            # Return best feasible solution found
             if best_feasible_pos is not None:
                 return {
                     'x': best_feasible_pos,
