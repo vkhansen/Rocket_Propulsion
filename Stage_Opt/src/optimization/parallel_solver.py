@@ -28,22 +28,54 @@ class SolverProcess(multiprocessing.Process):
             self.logger.info(f"Starting solver: {solver_name}")
             
             # Run solver with periodic stop checks
-            while not self.stop_event.is_set():
-                results = self.solver.solve(self.initial_guess, self.bounds)
-                break  # Only run once, but check stop_event first
+            if not self.stop_event.is_set():
+                try:
+                    results = self.solver.solve(self.initial_guess, self.bounds)
+                    
+                    # Ensure results is a dictionary
+                    if not isinstance(results, dict):
+                        self.logger.error(f"Invalid result type from {solver_name}: {type(results)}")
+                        results = {
+                            'success': False,
+                            'message': f"Invalid result type: {type(results)}",
+                            'x': self.initial_guess.tolist(),
+                            'stage_ratios': [],
+                            'mass_ratios': [],
+                            'payload_fraction': 0.0,
+                            'objective': float('inf'),
+                            'dv_constraint': float('inf'),
+                            'physical_constraint': float('inf'),
+                            'n_iterations': 0,
+                            'n_function_evals': 0,
+                            'time': 0.0
+                        }
+                        
+                except Exception as e:
+                    self.logger.error(f"Error running solver {solver_name}: {str(e)}")
+                    results = {
+                        'success': False,
+                        'message': f"Error: {str(e)}",
+                        'x': self.initial_guess.tolist(),
+                        'stage_ratios': [],
+                        'mass_ratios': [],
+                        'payload_fraction': 0.0,
+                        'objective': float('inf'),
+                        'dv_constraint': float('inf'),
+                        'physical_constraint': float('inf'),
+                        'n_iterations': 0,
+                        'n_function_evals': 0,
+                        'time': 0.0
+                    }
                 
             if self.stop_event.is_set():
                 return
                 
             execution_time = time.time() - start_time
             
-            # Add execution time if not present
-            if isinstance(results, dict):
-                if 'execution_metrics' not in results:
-                    results['execution_metrics'] = {}
-                results['execution_metrics']['execution_time'] = execution_time
-                results['method'] = solver_name  # Ensure method name is set
-                
+            # Add execution time and method name
+            results['time'] = execution_time
+            results['method'] = solver_name
+            
             self.logger.info(f"Completed solver: {solver_name} in {execution_time:.2f}s")
             self.result_queue.put((solver_name, results))
             
@@ -54,14 +86,16 @@ class SolverProcess(multiprocessing.Process):
                     'success': False,
                     'message': f"Error: {str(e)}",
                     'method': solver_name,
+                    'x': self.initial_guess.tolist(),
+                    'stage_ratios': [],
+                    'mass_ratios': [],
                     'payload_fraction': 0.0,
-                    'constraint_violation': float('inf'),
-                    'execution_metrics': {
-                        'execution_time': 0.0,
-                        'iterations': 0,
-                        'function_evaluations': 0
-                    },
-                    'stages': []
+                    'objective': float('inf'),
+                    'dv_constraint': float('inf'),
+                    'physical_constraint': float('inf'),
+                    'n_iterations': 0,
+                    'n_function_evals': 0,
+                    'time': 0.0
                 }))
 
 def terminate_process(process):
@@ -183,14 +217,16 @@ class ParallelSolver:
                     'success': False,
                     'message': "Solver timed out or failed",
                     'method': solver_name,
+                    'x': initial_guess.tolist(),
+                    'stage_ratios': [],
+                    'mass_ratios': [],
                     'payload_fraction': 0.0,
-                    'constraint_violation': float('inf'),
-                    'execution_metrics': {
-                        'execution_time': total_time,
-                        'iterations': 0,
-                        'function_evaluations': 0
-                    },
-                    'stages': []
+                    'objective': float('inf'),
+                    'dv_constraint': float('inf'),
+                    'physical_constraint': float('inf'),
+                    'n_iterations': 0,
+                    'n_function_evals': 0,
+                    'time': total_time
                 }
                 
         if not results:

@@ -127,20 +127,21 @@ class RocketStageOptimizer:
         from .solvers.de_solver import DifferentialEvolutionSolver
         from .solvers.basin_hopping_solver import BasinHoppingOptimizer
         
-        # Create problem parameters dictionary
-        problem_params = {
-            'G0': float(self.parameters.get('G0', 9.81)),
-            'TOTAL_DELTA_V': float(self.parameters.get('TOTAL_DELTA_V', 0.0)),
-            'stages': self.stages
-        }
+        # Get common parameters
+        G0 = float(self.parameters.get('G0', 9.81))
+        TOTAL_DELTA_V = float(self.parameters.get('TOTAL_DELTA_V', 0.0))
+        ISP = [float(stage['ISP']) for stage in self.stages]
+        EPSILON = [float(stage['EPSILON']) for stage in self.stages]
+        bounds = [(0, TOTAL_DELTA_V) for _ in range(len(self.stages))]
         
+        # Create solver instances with new interface
         return [
-            SLSQPSolver(self.config, problem_params),
-            GeneticAlgorithmSolver(self.config, problem_params),
-            AdaptiveGeneticAlgorithmSolver(self.config, problem_params),
-            ParticleSwarmOptimizer(self.config, problem_params),
-            DifferentialEvolutionSolver(self.config, problem_params),
-            BasinHoppingOptimizer(self.config, problem_params)
+            SLSQPSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
+            GeneticAlgorithmSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
+            AdaptiveGeneticAlgorithmSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
+            ParticleSwarmOptimizer(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
+            DifferentialEvolutionSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
+            BasinHoppingOptimizer(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds)
         ]
     
     def solve(self, initial_guess, bounds):

@@ -1,43 +1,56 @@
-"""Genetic Algorithm solver implementation."""
-from typing import List, Dict, Tuple, Optional
 import time
+from typing import List, Tuple
+import numpy as np
 from pymoo.optimize import minimize
 from ...utils.config import logger
 from .base_ga_solver import BaseGASolver
-import numpy as np
 
 class GeneticAlgorithmSolver(BaseGASolver):
     """Genetic Algorithm solver implementation using pymoo framework."""
     
-    def __init__(self, config: Dict, problem_params: Dict):
-        """Initialize GA solver with configuration and problem parameters.
-        
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, pop_size=100, n_gen=100, 
+                 mutation_rate=0.1, crossover_rate=0.9, tournament_size=3,
+                 max_generations=100, min_diversity=1e-6, stagnation_generations=10, stagnation_threshold=1e-6):
+        """Initialize GA solver with direct problem parameters and GA settings.
+
         Args:
-            config: Solver configuration dictionary
-            problem_params: Problem-specific parameters
+            G0: Gravitational constant
+            ISP: List of specific impulse values for each stage
+            EPSILON: List of structural coefficients for each stage
+            TOTAL_DELTA_V: Required total delta-v
+            bounds: List of (min, max) bounds for each variable
+            pop_size: Population size
+            n_gen: Number of generations
+            mutation_rate: Mutation rate
+            crossover_rate: Crossover rate
+            tournament_size: Tournament size for selection
+            max_generations: Maximum generations for the underlying pymoo algorithm
+            min_diversity: Minimum diversity threshold
+            stagnation_generations: Number of generations to consider stagnation
+            stagnation_threshold: Threshold for stagnation detection
         """
-        super().__init__(config, problem_params)
-        self.solver_specific = self.solver_config.get('solver_specific', {})
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds,
+                         pop_size=pop_size, n_gen=n_gen, mutation_rate=mutation_rate,
+                         crossover_rate=crossover_rate, tournament_size=tournament_size)
         
-        # Get solver parameters from config with validation
-        self.n_generations = max(int(self.solver_specific.get('max_generations', 100)), 1)
-        self.min_diversity = float(self.solver_specific.get('min_diversity', 1e-6))
-        self.stagnation_generations = int(self.solver_specific.get('stagnation_generations', 10))
-        self.stagnation_threshold = float(self.solver_specific.get('stagnation_threshold', 1e-6))
+        # Additional GA solver parameters
+        self.n_generations = max(int(max_generations), 1)
+        self.min_diversity = float(min_diversity)
+        self.stagnation_generations = int(stagnation_generations)
+        self.stagnation_threshold = float(stagnation_threshold)
         
         # Initialize history tracking
-        self.best_fitness_history: List[float] = []
-        self.avg_fitness_history: List[float] = []
-        self.diversity_history: List[float] = []
+        self.best_fitness_history = []
+        self.avg_fitness_history = []
+        self.diversity_history = []
         
         logger.debug(
             f"Initialized {self.name} with parameters:\n"
-            f"  max_generations={self.n_generations}\n"
-            f"  min_diversity={self.min_diversity}\n"
-            f"  stagnation_generations={self.stagnation_generations}\n"
-            f"  stagnation_threshold={self.stagnation_threshold}"
+            f"  pop_size={pop_size}, n_gen={n_gen}, mutation_rate={mutation_rate}, crossover_rate={crossover_rate}, tournament_size={tournament_size}\n"
+            f"  max_generations={self.n_generations}, min_diversity={self.min_diversity}, "
+            f"stagnation_generations={self.stagnation_generations}, stagnation_threshold={self.stagnation_threshold}"
         )
-
+    
     def _log_generation_stats(self, algorithm) -> Tuple[float, float, float]:
         """Log statistics for current generation.
         
@@ -90,13 +103,13 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.error(f"Error logging generation stats: {e}")
             return float('inf'), float('inf'), 0.0
 
-    def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> Dict:
+    def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> dict:
         """Solve using Genetic Algorithm.
         
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) tuples for each variable
-            
+        
         Returns:
             Dictionary containing optimization results
         """
@@ -109,79 +122,60 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.info(f"Tournament size: {self.tournament_size}")
             logger.info("=" * 50)
             
-            # Setup problem and algorithm
-            problem = self.create_problem(initial_guess, bounds)
-            algorithm = self.create_algorithm()
-            
-            # Track execution time
+            # Setup problem and algorithm here (using pymoo if needed)
+            # For demonstration, using the base GA solver routine
             start_time = time.time()
             
-            # Define callback for logging
-            def callback(algorithm):
-                self._log_generation_stats(algorithm)
+            # Initialize population
+            self.population = self.initialize_population()
+            if self.population is None:
+                raise ValueError("Failed to initialize population")
             
-            # Run optimization
-            res = minimize(
-                problem,
-                algorithm,
-                ('n_gen', self.n_generations),
-                callback=callback,
-                seed=1,
-                verbose=False
-            )
-            
-            # Calculate execution time
+            # Main optimization loop
+            for gen in range(self.n_gen):
+                self.fitness_values = self.evaluate_population(self.population)
+                if self.fitness_values is None:
+                    raise ValueError("Failed to evaluate population")
+                
+                gen_best_idx = np.argmax(self.fitness_values)
+                gen_best_fitness = self.fitness_values[gen_best_idx]
+                
+                if gen_best_fitness > self.best_fitness:
+                    self.best_fitness = gen_best_fitness
+                    self.best_solution = self.population[gen_best_idx].copy()
+                
+                avg_fitness = np.mean(self.fitness_values)
+                diversity = self.calculate_diversity(self.population)
+                
+                self.best_fitness_history.append(gen_best_fitness)
+                self.avg_fitness_history.append(avg_fitness)
+                self.diversity_history.append(diversity)
+                
+                logger.info(f"Generation {gen + 1}/{self.n_gen} - Best: {gen_best_fitness:.6f}, Avg: {avg_fitness:.6f}, Diversity: {diversity:.6f}")
+                
+                new_population = self.create_next_generation(self.population, self.fitness_values)
+                if new_population is None:
+                    raise ValueError("Failed to create next generation")
+                
+                self.population = new_population
+                
             execution_time = time.time() - start_time
             
-            # Process results
-            success = res.success if hasattr(res, 'success') else True
-            message = res.message if hasattr(res, 'message') else ""
-            x = res.X if hasattr(res, 'X') else initial_guess
-            n_gen = res.algorithm.n_gen if hasattr(res.algorithm, 'n_gen') else 0
-            n_eval = res.algorithm.evaluator.n_eval if hasattr(res.algorithm, 'evaluator') else 0
-            
-            # Validate solution
-            if not isinstance(x, np.ndarray) or not np.all(np.isfinite(x)):
-                raise ValueError("Invalid solution found")
-                
-            # Log final statistics
-            logger.info("\nOptimization completed:")
-            logger.info(f"  Number of generations: {n_gen}")
-            logger.info(f"  Number of evaluations: {n_eval}")
-            if hasattr(res, 'F'):
-                logger.info(f"  Final best fitness: {res.F[0]:.6f}")
-            logger.info(f"  Success: {success}")
-            if message:
-                logger.info(f"  Message: {message}")
-            logger.info(f"  Execution time: {execution_time:.2f} seconds")
-            logger.info("=" * 50)
-            
-            # Get final statistics
-            best_fitness = float('inf')
-            if len(self.best_fitness_history) > 0:
-                best_fitness = self.best_fitness_history[-1]
-                
-            # Add convergence info to message
-            message = (
-                f"{message}\n"
-                f"Best fitness: {best_fitness:.6f}\n"
-                f"Generations: {n_gen}/{self.n_generations}"
-            )
-            
             return self.process_results(
-                x=x,
-                success=success,
-                message=message,
-                n_iterations=n_gen,
-                n_function_evals=n_eval,
+                x=self.best_solution if self.best_solution is not None else initial_guess,
+                success=True,
+                message="Optimization completed successfully",
+                n_iterations=self.n_gen,
+                n_function_evals=self.n_gen * self.pop_size,
                 time=execution_time
             )
-            
         except Exception as e:
-            logger.error(f"Error in GA solver: {str(e)}")
+            logger.error(f"Error in GeneticAlgorithmSolver: {str(e)}")
             return self.process_results(
                 x=initial_guess,
                 success=False,
                 message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
                 time=0.0
             )

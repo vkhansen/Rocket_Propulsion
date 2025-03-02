@@ -1,6 +1,6 @@
 """Base solver class for optimization."""
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, List, Tuple
 import numpy as np
 
 from ...utils.config import logger
@@ -11,25 +11,22 @@ from ..objective import objective_with_penalty
 class BaseSolver(ABC):
     """Base class for all optimization solvers."""
     
-    def __init__(self, config: Dict, problem_params: Dict):
-        """Initialize solver with configuration and problem parameters.
+    def __init__(self, G0: float, ISP: List[float], EPSILON: List[float], 
+                 TOTAL_DELTA_V: float, bounds: List[Tuple[float, float]]):
+        """Initialize solver with problem parameters.
         
         Args:
-            config: Dictionary containing solver configuration
-            problem_params: Dictionary containing problem parameters
+            G0: Gravitational constant
+            ISP: List of specific impulse values for each stage
+            EPSILON: List of structural coefficients for each stage
+            TOTAL_DELTA_V: Required total delta-v
+            bounds: List of (min, max) bounds for each variable
         """
-        self.config = config if isinstance(config, dict) else {}
-        self.solver_config = self.config.get('optimization', {}).get('solver', {})
-        
-        # Problem parameters - ensure all values are Python floats
-        if not isinstance(problem_params, dict):
-            problem_params = {}
-            
-        self.G0 = float(problem_params.get('G0', 9.81))
-        stages = problem_params.get('stages', [])
-        self.ISP = np.array([float(stage.get('ISP', 0.0)) for stage in stages])
-        self.EPSILON = np.array([float(stage.get('EPSILON', 0.0)) for stage in stages])
-        self.TOTAL_DELTA_V = float(problem_params.get('TOTAL_DELTA_V', 0.0))
+        self.G0 = float(G0)
+        self.ISP = np.array(ISP, dtype=float)
+        self.EPSILON = np.array(EPSILON, dtype=float)
+        self.TOTAL_DELTA_V = float(TOTAL_DELTA_V)
+        self.bounds = bounds
         
         # Initialize cache
         self.cache = OptimizationCache()

@@ -1,26 +1,17 @@
 """Adaptive Genetic Algorithm Solver implementation."""
 import numpy as np
-import time
 from typing import Dict, List, Tuple
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.core.problem import Problem
-from pymoo.optimize import minimize
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.mutation.pm import PM
-from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.termination import get_termination
-from scipy.spatial.distance import pdist
-
-from ...utils.config import logger
-from .base_ga_solver import BaseGASolver
-from ..pymoo_problem import RocketStageProblem
+from src.utils.config import logger
+from src.optimization.solvers.base_ga_solver import BaseGASolver
 
 class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     """Adaptive Genetic Algorithm solver implementation."""
     
-    def __init__(self, config: Dict, problem_params: Dict):
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, 
+                 pop_size=100, n_gen=100, mutation_rate=0.1, crossover_rate=0.9, tournament_size=3):
         """Initialize the adaptive GA solver."""
-        super().__init__(config, problem_params)
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, 
+                        pop_size, n_gen, mutation_rate, crossover_rate, tournament_size)
         
         # Initialize adaptive parameters
         self.min_pop_size = 50
@@ -31,145 +22,89 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         self.max_crossover_rate = 1.0
         
         # Initialize tracking variables
-        self.best_fitness = float('inf')
         self.generations_without_improvement = 0
         self.diversity_history = []
-        self.constraint_violation_history = []
         
-    def create_problem(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> Problem:
-        """Create optimization problem instance."""
-        n_var = len(initial_guess)
-        bounds = np.array(bounds)  # Convert to numpy array
-        
-        return RocketStageProblem(
-            solver=self,
-            n_var=n_var,
-            bounds=bounds
-        )
-        
-    def setup_algorithm(self) -> GA:
-        """Setup the GA algorithm with current parameters."""
-        return GA(
-            pop_size=self.pop_size,
-            sampling=FloatRandomSampling(),
-            crossover=SBX(prob=self.crossover_rate),
-            mutation=PM(prob=self.mutation_rate),
-            eliminate_duplicates=True
-        )
-        
-    def calculate_diversity(self, pop) -> float:
-        """Calculate population diversity using pairwise distances."""
-        try:
-            if len(pop) < 2:
-                return 0.0
-            distances = pdist(pop.get("X"))
-            return float(np.mean(distances))
-        except Exception as e:
-            logger.error(f"Error calculating diversity: {str(e)}")
-            return 0.0
-            
-    def update_parameters(self, algorithm):
+    def update_parameters(self):
         """Update algorithm parameters based on progress."""
         try:
-            # Get current best fitness and handle None case
-            opt = algorithm.opt
-            if opt is None or not hasattr(opt, "get"):
-                logger.warning("No optimal solution found yet")
+            if self.population is None or self.fitness_values is None:
                 return
                 
-            F = opt.get("F")
-            if F is None or len(F) == 0:
-                logger.warning("No fitness values available")
-                return
-                
-            current_best = F[0]
-            
-            # Calculate diversity with proper error handling
-            if algorithm.pop is None:
-                logger.warning("Population is None")
-                return
-                
-            diversity = self.calculate_diversity(algorithm.pop)
+            # Calculate diversity
+            diversity = self.calculate_diversity(self.population)
             self.diversity_history.append(diversity)
             
-            # Calculate mean constraint violation with proper error handling
-            violations = algorithm.pop.get("CV")
-            mean_violation = float(np.mean(violations)) if violations is not None else 0.0
-            self.constraint_violation_history.append(mean_violation)
-            
-            # Check for improvement
-            if current_best < self.best_fitness:
-                self.best_fitness = current_best
-                self.generations_without_improvement = 0
-            else:
-                self.generations_without_improvement += 1
-            
-            # Adjust parameters based on progress
+            # Check for improvement and update parameters
             if self.generations_without_improvement > 10:
                 # Increase exploration
-                self.mutation_rate = min(self.max_mutation_rate, 
-                                      self.mutation_rate * 1.5)
-                self.pop_size = min(self.max_pop_size, 
-                                  int(self.pop_size * 1.2))
+                self.mutation_rate = min(self.max_mutation_rate, self.mutation_rate * 1.5)
+                self.pop_size = min(self.max_pop_size, int(self.pop_size * 1.2))
             else:
                 # Reduce exploration
-                self.mutation_rate = max(self.min_mutation_rate, 
-                                      self.mutation_rate * 0.9)
-                self.pop_size = max(self.min_pop_size, 
-                                  int(self.pop_size * 0.9))
-            
-            # Update algorithm parameters
-            algorithm.pop_size = self.pop_size
-            algorithm.mutation.prob = self.mutation_rate
-            
+                self.mutation_rate = max(self.min_mutation_rate, self.mutation_rate * 0.9)
+                self.pop_size = max(self.min_pop_size, int(self.pop_size * 0.9))
+                
         except Exception as e:
             logger.error(f"Error updating parameters: {str(e)}")
             
-    def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> Dict:
-        """Solve the optimization problem using adaptive GA."""
+    def optimize(self):
+        """Run adaptive genetic algorithm optimization."""
         try:
-            logger.info("Starting Adaptive GA optimization...")
-            
-            # Create problem instance
-            problem = self.create_problem(initial_guess, bounds)
-            
-            # Setup algorithm
-            algorithm = self.setup_algorithm()
-            
-            # Setup termination
-            termination = get_termination("n_gen", self.n_generations)
-            
-            # Run optimization
-            start_time = time.time()
-            
-            result = minimize(
-                problem,
-                algorithm,
-                termination,
-                seed=42,
-                save_history=True,
-                verbose=True
-            )
-            
-            execution_time = time.time() - start_time
-            
-            # Process results
-            return self.process_results(
-                x=result.X,
-                success=result.success,
-                message=result.message,
-                n_iterations=result.algorithm.n_gen,
-                n_function_evals=result.algorithm.evaluator.n_eval,
-                time=execution_time
-            )
+            # Initialize population
+            self.population = self.initialize_population()
+            if self.population is None:
+                raise ValueError("Failed to initialize population")
+                
+            # Main optimization loop
+            for gen in range(self.n_gen):
+                try:
+                    # Evaluate population
+                    self.fitness_values = self.evaluate_population(self.population)
+                    if self.fitness_values is None:
+                        raise ValueError("Failed to evaluate population")
+                    
+                    # Update best solution
+                    gen_best_idx = np.argmax(self.fitness_values)
+                    gen_best_fitness = self.fitness_values[gen_best_idx]
+                    
+                    if gen_best_fitness > self.best_fitness:
+                        self.best_fitness = gen_best_fitness
+                        self.best_solution = self.population[gen_best_idx].copy()
+                        self.generations_without_improvement = 0
+                    else:
+                        self.generations_without_improvement += 1
+                    
+                    # Calculate statistics
+                    avg_fitness = np.mean(self.fitness_values)
+                    diversity = self.calculate_diversity(self.population)
+                    improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100 if self.best_fitness != 0 else 0
+                    
+                    # Log progress
+                    logger.info(f"Generation {gen + 1}/{self.n_gen}:")
+                    logger.info(f"  Best Fitness: {gen_best_fitness:.6f}")
+                    logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
+                    logger.info(f"  Population Diversity: {diversity:.6f}")
+                    logger.info(f"  Improvement: {improvement:+.2f}%")
+                    
+                    # Update adaptive parameters
+                    self.update_parameters()
+                    
+                    # Create next generation with new parameters
+                    new_population = self.create_next_generation(self.population, self.fitness_values)
+                    if new_population is None:
+                        raise ValueError("Failed to create next generation")
+                        
+                    self.population = new_population
+                    
+                except Exception as e:
+                    logger.error(f"Error in generation {gen + 1}: {str(e)}")
+                    if gen == 0:  # If error in first generation, abort
+                        raise
+                    continue  # Otherwise try to continue with next generation
+                    
+            return self.best_solution, self.best_fitness
             
         except Exception as e:
             logger.error(f"Error in Adaptive GA optimization: {str(e)}")
-            return self.process_results(
-                x=initial_guess,
-                success=False,
-                message=str(e),
-                n_iterations=0,
-                n_function_evals=0,
-                time=0.0
-            )
+            return None, None

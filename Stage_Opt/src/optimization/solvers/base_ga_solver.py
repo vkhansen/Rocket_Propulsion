@@ -1,196 +1,339 @@
-"""Base Genetic Algorithm solver implementation."""
+"""Base genetic algorithm solver implementation."""
 import numpy as np
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.operators.mutation.pm import PM
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.sampling.rnd import FloatRandomSampling
-from pymoo.operators.selection.tournament import TournamentSelection, compare
-from pymoo.optimize import minimize
-from ...utils.config import logger, setup_logging
-from ..cache import OptimizationCache
-from .base_solver import BaseSolver
-from ..pymoo_problem import RocketStageProblem
+import time
+from src.utils.config import logger
+from src.optimization.solvers.base_solver import BaseSolver
+from src.optimization.objective import objective_with_penalty
 
 class BaseGASolver(BaseSolver):
-    """Base class for GA-based solvers."""
-    
-    def __init__(self, config, problem_params):
-        """Initialize base GA solver."""
-        super().__init__(config, problem_params)
-        self.solver_specific = self.solver_config.get('solver_specific', {})
-        
-        # Common GA parameters with consistent naming
-        self.pop_size = int(self.solver_specific.get('pop_size', 100))
-        self.n_generations = int(self.solver_specific.get('n_generations', 100))
-        self.mutation_rate = float(self.solver_specific.get('mutation_rate', 0.1))
-        self.crossover_rate = float(self.solver_specific.get('crossover_rate', 0.9))
-        self.tournament_size = int(self.solver_specific.get('tournament_size', 3))
-        self.eta_crossover = float(self.solver_specific.get('eta_crossover', 30))
-        self.eta_mutation = float(self.solver_specific.get('eta_mutation', 30))
-        
-        # Add timeout parameter
-        self.max_time = float(self.solver_specific.get('max_time', 3600))  # Default 1 hour
-        
-        self.logger = setup_logging(self.__class__.__name__)
-        self.logger.info(f"Initialized {self.name} with parameters:")
-        self.logger.info(f"  Population Size: {self.pop_size}")
-        self.logger.info(f"  Generations: {self.n_generations}")
-        self.logger.info(f"  Mutation Rate: {self.mutation_rate}")
-        self.logger.info(f"  Crossover Rate: {self.crossover_rate}")
-        self.logger.info(f"  Tournament Size: {self.tournament_size}")
-        self.logger.info(f"  Max Time: {self.max_time} seconds")
+    """Base genetic algorithm solver for stage optimization."""
 
-    def create_tournament_selection(self):
-        """Create tournament selection operator with comparison function."""
-        def tournament_comp(pop, P, **kwargs):
-            """Tournament selection comparator."""
-            n_tournaments = P.shape[0]
-            S = np.zeros(n_tournaments, dtype=int)
-            
-            for i in range(n_tournaments):
-                tournament = P[i]
-                candidates = []
-                for idx in tournament:
-                    # Handle None cases and missing attributes
-                    if pop[idx] is None or not hasattr(pop[idx], "get"):
-                        continue
-                        
-                    F = pop[idx].get("F")
-                    if F is None or len(F) == 0:
-                        continue
-                        
-                    f = F[0]
-                    
-                    # Handle constraint violations
-                    G = pop[idx].get("G")
-                    cv = np.sum(np.maximum(G, 0)) if G is not None else float('inf')
-                    candidates.append((idx, f, cv))
-                
-                if not candidates:  # If no valid candidates
-                    S[i] = tournament[0]  # Take first individual
-                    continue
-                    
-                # Sort by constraint violation first, then by fitness
-                candidates.sort(key=lambda x: (x[2], x[1]))
-                S[i] = candidates[0][0]  # Select the best candidate
-            
-            return S
-
-        return TournamentSelection(
-            pressure=self.tournament_size,
-            func_comp=tournament_comp
-        )
-
-    def create_algorithm(self, pop_size=None):
-        """Create GA algorithm with specified parameters."""
-        if pop_size is None:
-            pop_size = self.pop_size
-            
-        algorithm = GA(
-            pop_size=pop_size,
-            sampling=FloatRandomSampling(),
-            crossover=SBX(prob=self.crossover_rate, eta=self.eta_crossover),
-            mutation=PM(prob=self.mutation_rate, eta=self.eta_mutation),
-            selection=self.create_tournament_selection(),
-            eliminate_duplicates=True
-        )
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, pop_size=100, n_gen=100,
+                 mutation_rate=0.1, crossover_rate=0.9, tournament_size=3):
+        """Initialize solver with GA parameters."""
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        self.pop_size = pop_size
+        self.n_gen = n_gen
+        self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
+        self.tournament_size = tournament_size
+        self.best_fitness = float('-inf')
+        self.best_solution = None
+        self.population = None
+        self.fitness_values = None
         
-        # Add callback for monitoring
-        def callback(algorithm):
-            try:
-                gen = algorithm.n_gen
-                pop = algorithm.pop
-                
-                if gen % 10 == 0:  # Log every 10 generations
-                    if pop is None:
-                        self.logger.warning("Population is None")
-                        return
-                        
-                    # Count valid solutions with proper error handling
-                    valid_solutions = 0
-                    for ind in pop:
-                        if ind is None or not hasattr(ind, "get"):
-                            continue
-                        G = ind.get("G")
-                        if G is not None and np.all(G <= 0):
-                            valid_solutions += 1
-                            
-                    best_cv = float('inf')
-                    best_f = float('inf')
-                    
-                    for ind in pop:
-                        if ind is None or not hasattr(ind, "get"):
-                            continue
-                            
-                        G = ind.get("G")
-                        F = ind.get("F")
-                        
-                        if G is not None:
-                            cv = np.sum(np.maximum(G, 0))
-                        else:
-                            cv = float('inf')
-                            
-                        if F is not None and len(F) > 0:
-                            f = F[0]
-                        else:
-                            continue
-                            
-                        if cv < best_cv or (cv == best_cv and f < best_f):
-                            best_cv = cv
-                            best_f = f
-                    
-                    self.logger.info(f"Generation {gen}:")
-                    self.logger.info(f"  Valid Solutions: {valid_solutions}/{len(pop)}")
-                    self.logger.info(f"  Best CV: {best_cv:.6f}")
-                    self.logger.info(f"  Best F: {best_f:.6f}")
-                    
-            except Exception as e:
-                self.logger.error(f"Error in callback: {str(e)}")
-        
-        algorithm.callback = callback
-        return algorithm
-
-    def create_problem(self, initial_guess, bounds):
-        """Create optimization problem."""
-        n_var = len(initial_guess)
-        bounds = np.array(bounds)
-        return RocketStageProblem(
-            solver=self,
-            n_var=n_var,
-            bounds=bounds
-        )
-
-    def solve(self, initial_guess, bounds):
-        """Base solve method with improved error handling and logging."""
+    def initialize_population(self):
+        """Initialize random population within bounds."""
         try:
-            self.logger.info("Starting optimization")
-            self.logger.info(f"Initial guess: {initial_guess}")
-            self.logger.info(f"Bounds: {bounds}")
-            
-            problem = self.create_problem(initial_guess, bounds)
-            algorithm = self.create_algorithm()
-            
-            result = minimize(
-                problem,
-                algorithm,
-                termination=('n_gen', self.n_generations),
-                seed=42,  # For reproducibility
-                verbose=False,  # We handle our own logging
-                save_history=True
-            )
-            
-            if result.success:
-                self.logger.info("Optimization completed successfully")
-                self.logger.info(f"Best solution X: {result.X}")
-                self.logger.info(f"Best fitness F: {result.F[0]}")
-                if hasattr(result, 'G'):
-                    self.logger.info(f"Constraint violations G: {result.G}")
-            else:
-                self.logger.error("Optimization failed")
-                self.logger.error(f"Termination message: {result.message}")
-            
-            return result
+            n_vars = len(self.bounds)
+            population = np.zeros((self.pop_size, n_vars))
+            for i in range(n_vars):
+                lower, upper = self.bounds[i]
+                population[:, i] = np.random.uniform(lower, upper, self.pop_size)
+            return population
+        except Exception as e:
+            logger.error(f"Error initializing population: {str(e)}")
+            return None
+
+    def evaluate_population(self, population):
+        """Evaluate fitness for entire population."""
+        try:
+            if population is None:
+                return None
+                
+            fitness_values = np.zeros(len(population))
+            for i, individual in enumerate(population):
+                try:
+                    fitness = objective_with_penalty(
+                        dv=individual,
+                        G0=self.G0,
+                        ISP=self.ISP,
+                        EPSILON=self.EPSILON,
+                        TOTAL_DELTA_V=self.TOTAL_DELTA_V
+                    )
+                    fitness_values[i] = fitness if fitness is not None else float('-inf')
+                except Exception as e:
+                    logger.error(f"Error evaluating individual {i}: {str(e)}")
+                    fitness_values[i] = float('-inf')
+                    
+            return fitness_values
             
         except Exception as e:
-            self.logger.error(f"Critical error in solve method: {str(e)}", exc_info=True)
-            raise
+            logger.error(f"Error evaluating population: {str(e)}")
+            return None
+
+    def tournament_selection(self, population, fitness_values):
+        """Select parent using tournament selection."""
+        try:
+            if population is None or fitness_values is None:
+                return None
+                
+            tournament_indices = np.random.randint(0, len(population), self.tournament_size)
+            tournament_fitness = fitness_values[tournament_indices]
+            
+            # Handle NaN or inf values
+            valid_mask = np.isfinite(tournament_fitness)
+            if not np.any(valid_mask):
+                return population[np.random.choice(len(population))]
+                
+            winner_idx = tournament_indices[np.argmax(tournament_fitness[valid_mask])]
+            return population[winner_idx].copy()
+            
+        except Exception as e:
+            logger.error(f"Error in tournament selection: {str(e)}")
+            if population is not None and len(population) > 0:
+                return population[np.random.randint(0, len(population))].copy()
+            return None
+
+    def crossover(self, parent1, parent2):
+        """Perform crossover between parents."""
+        try:
+            if parent1 is None or parent2 is None:
+                return None, None
+                
+            if np.random.random() > self.crossover_rate:
+                return parent1.copy(), parent2.copy()
+                
+            # Single point crossover
+            point = np.random.randint(1, len(parent1))
+            child1 = np.concatenate([parent1[:point], parent2[point:]])
+            child2 = np.concatenate([parent2[:point], parent1[point:]])
+            
+            return child1, child2
+            
+        except Exception as e:
+            logger.error(f"Error in crossover: {str(e)}")
+            return None, None
+
+    def mutate(self, individual):
+        """Perform mutation on individual."""
+        try:
+            if individual is None:
+                return None
+                
+            mutated = individual.copy()
+            for i in range(len(mutated)):
+                if np.random.random() < self.mutation_rate:
+                    lower, upper = self.bounds[i]
+                    mutated[i] = np.random.uniform(lower, upper)
+            return mutated
+            
+        except Exception as e:
+            logger.error(f"Error in mutation: {str(e)}")
+            return None
+
+    def create_next_generation(self, population, fitness_values):
+        """Create next generation through selection, crossover and mutation."""
+        try:
+            if population is None or fitness_values is None:
+                return None
+                
+            new_population = np.zeros_like(population)
+            
+            # Elitism - preserve best individual
+            best_idx = np.argmax(fitness_values)
+            new_population[0] = population[best_idx].copy()
+            
+            # Create rest of new population
+            for i in range(1, len(population), 2):
+                try:
+                    # Select parents
+                    parent1 = self.tournament_selection(population, fitness_values)
+                    parent2 = self.tournament_selection(population, fitness_values)
+                    
+                    if parent1 is None or parent2 is None:
+                        # Use random selection as fallback
+                        idx1, idx2 = np.random.choice(len(population), 2, replace=False)
+                        parent1, parent2 = population[idx1].copy(), population[idx2].copy()
+                    
+                    # Crossover
+                    child1, child2 = self.crossover(parent1, parent2)
+                    
+                    if child1 is None or child2 is None:
+                        child1, child2 = parent1.copy(), parent2.copy()
+                    
+                    # Mutation
+                    child1 = self.mutate(child1)
+                    child2 = self.mutate(child2)
+                    
+                    if child1 is None:
+                        child1 = parent1.copy()
+                    if child2 is None:
+                        child2 = parent2.copy()
+                    
+                    # Add to new population
+                    if i < len(population):
+                        new_population[i] = child1
+                    if i + 1 < len(population):
+                        new_population[i + 1] = child2
+                        
+                except Exception as e:
+                    logger.error(f"Error creating individuals {i}/{i+1}: {str(e)}")
+                    if i < len(population):
+                        new_population[i] = population[i].copy()
+                    if i + 1 < len(population):
+                        new_population[i + 1] = population[i + 1].copy()
+            
+            return new_population
+            
+        except Exception as e:
+            logger.error(f"Error creating next generation: {str(e)}")
+            return None
+
+    def calculate_diversity(self, population):
+        """Calculate population diversity."""
+        try:
+            if population is None or len(population) < 2:
+                return 0.0
+                
+            # Calculate mean and std of population
+            pop_mean = np.mean(population, axis=0)
+            pop_std = np.std(population, axis=0)
+            
+            # Normalize by bounds range
+            bounds_range = np.array([upper - lower for lower, upper in self.bounds])
+            normalized_std = np.mean(pop_std / bounds_range)
+            
+            return float(normalized_std)
+            
+        except Exception as e:
+            logger.error(f"Error calculating diversity: {str(e)}")
+            return 0.0
+
+    def optimize(self):
+        """Run genetic algorithm optimization."""
+        try:
+            # Initialize population
+            self.population = self.initialize_population()
+            if self.population is None:
+                raise ValueError("Failed to initialize population")
+                
+            # Main optimization loop
+            for gen in range(self.n_gen):
+                try:
+                    # Evaluate population
+                    self.fitness_values = self.evaluate_population(self.population)
+                    if self.fitness_values is None:
+                        raise ValueError("Failed to evaluate population")
+                    
+                    # Update best solution
+                    gen_best_idx = np.argmax(self.fitness_values)
+                    gen_best_fitness = self.fitness_values[gen_best_idx]
+                    
+                    if gen_best_fitness > self.best_fitness:
+                        self.best_fitness = gen_best_fitness
+                        self.best_solution = self.population[gen_best_idx].copy()
+                    
+                    # Calculate statistics
+                    avg_fitness = np.mean(self.fitness_values)
+                    diversity = self.calculate_diversity(self.population)
+                    improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100 if self.best_fitness != 0 else 0
+                    
+                    # Log progress
+                    logger.info(f"Generation {gen + 1}/{self.n_gen}:")
+                    logger.info(f"  Best Fitness: {gen_best_fitness:.6f}")
+                    logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
+                    logger.info(f"  Population Diversity: {diversity:.6f}")
+                    logger.info(f"  Improvement: {improvement:+.2f}%")
+                    
+                    # Create next generation
+                    new_population = self.create_next_generation(self.population, self.fitness_values)
+                    if new_population is None:
+                        raise ValueError("Failed to create next generation")
+                        
+                    self.population = new_population
+                    
+                except Exception as e:
+                    logger.error(f"Error in generation {gen + 1}: {str(e)}")
+                    if gen == 0:  # If error in first generation, abort
+                        raise
+                    continue  # Otherwise try to continue with next generation
+                    
+            return self.best_solution, self.best_fitness
+            
+        except Exception as e:
+            logger.error(f"Error in GA solver: {str(e)}")
+            return None, None
+
+    def solve(self, initial_guess, bounds):
+        """Run genetic algorithm optimization."""
+        try:
+            start_time = time.time()
+            
+            # Initialize population
+            self.population = self.initialize_population()
+            if self.population is None:
+                raise ValueError("Failed to initialize population")
+                
+            # Main optimization loop
+            for gen in range(self.n_gen):
+                try:
+                    # Evaluate population
+                    self.fitness_values = self.evaluate_population(self.population)
+                    if self.fitness_values is None:
+                        raise ValueError("Failed to evaluate population")
+                    
+                    # Update best solution
+                    gen_best_idx = np.argmax(self.fitness_values)
+                    gen_best_fitness = self.fitness_values[gen_best_idx]
+                    
+                    if gen_best_fitness > self.best_fitness:
+                        self.best_fitness = gen_best_fitness
+                        self.best_solution = self.population[gen_best_idx].copy()
+                    
+                    # Calculate statistics
+                    avg_fitness = np.mean(self.fitness_values)
+                    diversity = self.calculate_diversity(self.population)
+                    improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100 if self.best_fitness != 0 else 0
+                    
+                    # Log progress
+                    logger.info(f"Generation {gen + 1}/{self.n_gen}:")
+                    logger.info(f"  Best Fitness: {gen_best_fitness:.6f}")
+                    logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
+                    logger.info(f"  Population Diversity: {diversity:.6f}")
+                    logger.info(f"  Improvement: {improvement:+.2f}%")
+                    
+                    # Create next generation
+                    new_population = self.create_next_generation(self.population, self.fitness_values)
+                    if new_population is None:
+                        raise ValueError("Failed to create next generation")
+                        
+                    self.population = new_population
+                    
+                except Exception as e:
+                    logger.error(f"Error in generation {gen + 1}: {str(e)}")
+                    if gen == 0:  # If error in first generation, abort
+                        raise
+                    continue  # Otherwise try to continue with next generation
+                    
+            execution_time = time.time() - start_time
+            
+            if self.best_solution is None:
+                return self.process_results(
+                    x=initial_guess,
+                    success=False,
+                    message="No valid solution found",
+                    n_iterations=self.n_gen,
+                    n_function_evals=self.n_gen * self.pop_size,
+                    time=execution_time
+                )
+                
+            return self.process_results(
+                x=self.best_solution,
+                success=True,
+                message="Optimization completed successfully",
+                n_iterations=self.n_gen,
+                n_function_evals=self.n_gen * self.pop_size,
+                time=execution_time
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in GA solver: {str(e)}")
+            return self.process_results(
+                x=initial_guess,
+                success=False,
+                message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
+                time=0.0
+            )

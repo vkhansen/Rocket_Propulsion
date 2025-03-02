@@ -4,14 +4,16 @@ from scipy.optimize import minimize
 from ...utils.config import logger
 from .base_solver import BaseSolver
 from ..objective import objective_with_penalty
+import time
 
 class SLSQPSolver(BaseSolver):
     """SLSQP solver implementation."""
     
-    def __init__(self, config, problem_params):
-        """Initialize SLSQP solver."""
-        super().__init__(config, problem_params)
-        self.solver_specific = self.solver_config.get('solver_specific', {})
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, max_iterations=100, ftol=1e-6):
+        """Initialize SLSQP solver with problem parameters."""
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        self.max_iterations = max_iterations
+        self.ftol = ftol
         
     def objective(self, x):
         """Objective function for optimization."""
@@ -29,30 +31,29 @@ class SLSQPSolver(BaseSolver):
         try:
             logger.info("Starting SLSQP optimization...")
             
-            # Get solver parameters
-            maxiter = self.solver_specific.get('max_iterations', 100)
-            ftol = self.solver_specific.get('ftol', 1e-6)
-            
             # Run optimization
+            start_time = time.time()
             result = minimize(
                 self.objective,
                 x0=initial_guess,
                 method='SLSQP',
                 bounds=bounds,
                 options={
-                    'maxiter': maxiter,
-                    'ftol': ftol,
+                    'maxiter': self.max_iterations,
+                    'ftol': self.ftol,
                     'disp': False
                 }
             )
             
+            execution_time = time.time() - start_time
+            
             return self.process_results(
                 x=result.x,
                 success=result.success,
-                message=result.message if not result.success else "",
+                message=result.message,
                 n_iterations=result.nit,
                 n_function_evals=result.nfev,
-                time=0.0  # Time not tracked by scipy
+                time=execution_time
             )
             
         except Exception as e:
