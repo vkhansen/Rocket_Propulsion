@@ -31,7 +31,39 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.adaptive_penalty = True
         self.penalty_factor = 10.0
         self.penalty_growth = 5.0  # More aggressive penalty growth
-        self.feasibility_threshold = 1e-6  # Tighter feasibility check
+        self.feasibility_threshold = 1e-8  # Tighter feasibility check
+        
+    def iterative_projection(self, x, max_iter=10, tol=1e-10):
+        """Iteratively project solution until constraints are satisfied."""
+        x_proj = x.copy()
+        for _ in range(max_iter):
+            # First ensure bounds constraints
+            for i in range(self.n_stages):
+                lower, upper = self.bounds[i]
+                x_proj[i] = np.clip(x_proj[i], lower, upper)
+            
+            # Check total ΔV constraint
+            total = np.sum(x_proj)
+            error = abs(total - self.TOTAL_DELTA_V)
+            
+            if error <= tol:
+                break
+                
+            # Scale to match total ΔV
+            x_proj *= self.TOTAL_DELTA_V / total
+            
+            # Re-check bounds after scaling
+            for i in range(self.n_stages):
+                lower, upper = self.bounds[i]
+                x_proj[i] = np.clip(x_proj[i], lower, upper)
+                
+            # Distribute any remaining error proportionally
+            remaining = self.TOTAL_DELTA_V - np.sum(x_proj)
+            if abs(remaining) > tol:
+                adjustment = remaining / self.n_stages
+                x_proj += adjustment
+                
+        return x_proj
 
     def evaluate_population(self, population):
         """Evaluate population with adaptive penalties."""
@@ -85,11 +117,8 @@ class DifferentialEvolutionSolver(BaseSolver):
                 # Initial distribution proportional to total ΔV
                 population[i] = samples[i] * scale_factor
                 
-                # Ensure sum equals total ΔV
-                population[i] = population[i] / np.sum(population[i]) * self.TOTAL_DELTA_V
-                
-                # Project to feasible space
-                population[i] = super().project_to_feasible(population[i])
+                # Ensure sum equals total ΔV and constraints are satisfied
+                population[i] = self.iterative_projection(population[i])
                 
             return population
             
@@ -105,8 +134,7 @@ class DifferentialEvolutionSolver(BaseSolver):
         for i in range(self.population_size):
             # Initialize around equal distribution
             population[i] = np.random.normal(scale_factor, scale_factor * 0.1, self.n_stages)
-            population[i] = population[i] / np.sum(population[i]) * self.TOTAL_DELTA_V
-            population[i] = super().project_to_feasible(population[i])
+            population[i] = self.iterative_projection(population[i])
             
         return population
 
@@ -156,8 +184,8 @@ class DifferentialEvolutionSolver(BaseSolver):
                         cross_points[np.random.randint(0, self.n_stages)] = True
                     trial = np.where(cross_points, mutant, population[i])
                     
-                    # Project to feasible space
-                    trial = super().project_to_feasible(trial)
+                    # Iterative projection to feasible space
+                    trial = self.iterative_projection(trial)
                     
                     # Selection with feasibility tracking
                     trial_obj, dv_const, phys_const = self.evaluate_solution(trial, return_components=True)
