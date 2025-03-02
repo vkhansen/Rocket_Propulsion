@@ -2,8 +2,9 @@
 import time
 import numpy as np
 from typing import Dict, List, Tuple
-from ...utils.config import logger
+from ...utils.config import logger as global_logger
 from .base_solver import BaseSolver
+from .solver_logging import setup_solver_logger
 
 class DifferentialEvolutionSolver(BaseSolver):
     """Differential Evolution solver implementation."""
@@ -20,43 +21,36 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.mutation_max = float(mutation_max)
         self.crossover_prob = float(crossover_prob)
         
+        # Setup dedicated logger
+        self.logger = setup_solver_logger("DE")
+
     def initialize_population(self):
         """Initialize population with balanced stage allocations."""
+        self.logger.debug("Initializing DE population...")
+        
         population = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
         # Increase alpha for more uniform distribution
         alpha = np.ones(self.n_stages) * 15.0  # Increased from 5.0 to encourage more even distribution
         
         # Minimum fraction of total delta-v per stage based on equal distribution
         min_stage_fraction = 1.0 / self.n_stages  # Equal distribution baseline
+        self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
         
         for i in range(self.population_size):
             # Generate balanced proportions using Dirichlet
             props = np.random.dirichlet(alpha)
             
             # Ensure minimum stage allocation
+            retry_count = 0
             while np.any(props < min_stage_fraction):
                 props = np.random.dirichlet(alpha)
+                retry_count += 1
+                if retry_count % 10 == 0:
+                    self.logger.debug(f"Retrying initialization {retry_count} times for individual {i}")
             
             population[i] = props * self.TOTAL_DELTA_V
-            
-            # Enforce first stage constraints (15-80% of total)
-            first_stage_min = 0.15 * self.TOTAL_DELTA_V
-            first_stage_max = 0.80 * self.TOTAL_DELTA_V
-            if population[i, 0] < first_stage_min:
-                excess = first_stage_min - population[i, 0]
-                population[i, 0] = first_stage_min
-                # Redistribute excess proportionally to other stages
-                remaining_props = population[i, 1:] / population[i, 1:].sum()
-                population[i, 1:] -= excess * remaining_props
-            elif population[i, 0] > first_stage_max:
-                excess = population[i, 0] - first_stage_max
-                population[i, 0] = first_stage_max
-                # Redistribute excess proportionally to other stages
-                remaining_props = population[i, 1:] / population[i, 1:].sum()
-                population[i, 1:] += excess * remaining_props
-            
-            # Project to feasible space while preserving proportions
-            population[i] = self.iterative_projection(population[i])
+            if i < 3:  # Log first few individuals
+                self.logger.debug(f"Initial position {i}: {population[i]}")
         
         return population
 
@@ -135,7 +129,7 @@ class DifferentialEvolutionSolver(BaseSolver):
     def solve(self, initial_guess, bounds):
         """Solve using Differential Evolution."""
         try:
-            logger.info("Starting DE optimization...")
+            self.logger.info("Starting DE optimization...")
             start_time = time.time()
             
             # Initialize population using balanced distribution
@@ -153,10 +147,18 @@ class DifferentialEvolutionSolver(BaseSolver):
             stall_count = 0
             for generation in range(self.max_iterations):
                 improved = False
+                stage_means = np.mean(population, axis=0)
+                stage_stds = np.std(population, axis=0)
+                self.logger.debug(f"\nGeneration {generation + 1}:")
+                self.logger.debug(f"Stage means: {stage_means}")
+                self.logger.debug(f"Stage stddevs: {stage_stds}")
+                self.logger.debug(f"Current best fitness: {best_fitness:.6f}")
+                self.logger.debug(f"Current best solution: {best_solution}")
                 
                 # Adaptive mutation rate
                 progress = generation / self.max_iterations
                 F = self.mutation_min + (self.mutation_max - self.mutation_min) * (1 - progress)**2
+                self.logger.debug(f"Mutation rate F: {F:.4f}")
                 
                 # Evolution loop
                 for i in range(self.population_size):
@@ -164,16 +166,30 @@ class DifferentialEvolutionSolver(BaseSolver):
                     mutant = self.mutation(population, i, F)
                     trial = self.crossover(population[i], mutant)
                     
+                    # Log trial vector details for debugging
+                    if i < 2:  # Log first few trials
+                        self.logger.debug(f"Trial {i} details:")
+                        self.logger.debug(f"Parent: {population[i]}")
+                        self.logger.debug(f"Mutant: {mutant}")
+                        self.logger.debug(f"Trial: {trial}")
+                    
                     # Evaluate trial vector
                     trial_fitness = self.evaluate_solution(trial)
                     
                     # Selection
                     if trial_fitness <= fitness[i]:
+                        if i < 2:  # Log successful replacements for first few individuals
+                            self.logger.debug(f"Trial {i} accepted:")
+                            self.logger.debug(f"Old fitness: {fitness[i]:.6f}")
+                            self.logger.debug(f"New fitness: {trial_fitness:.6f}")
                         population[i] = trial
                         fitness[i] = trial_fitness
                         
                         # Update best solution
                         if trial_fitness < best_fitness:
+                            self.logger.debug(f"New best solution found:")
+                            self.logger.debug(f"Old best: {best_solution} (fitness: {best_fitness:.6f})")
+                            self.logger.debug(f"New best: {trial} (fitness: {trial_fitness:.6f})")
                             best_solution = trial.copy()
                             best_fitness = trial_fitness
                             improved = True
@@ -182,13 +198,13 @@ class DifferentialEvolutionSolver(BaseSolver):
                 if not improved:
                     stall_count += 1
                     if stall_count >= self.stall_limit:
-                        logger.info(f"DE converged after {generation + 1} generations")
+                        self.logger.info(f"DE converged after {generation + 1} generations")
                         break
                 
                 # Log progress periodically
                 if (generation + 1) % 10 == 0:
-                    logger.info(f"DE generation {generation + 1}/{self.max_iterations}, "
-                              f"best fitness: {best_fitness:.6f}")
+                    self.logger.info(f"DE generation {generation + 1}/{self.max_iterations}, "
+                                  f"best fitness: {best_fitness:.6f}")
             
             execution_time = time.time() - start_time
             return self.process_results(
@@ -201,7 +217,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             )
             
         except Exception as e:
-            logger.error(f"Error in DE optimization: {str(e)}")
+            self.logger.error(f"Error in DE optimization: {str(e)}")
             return self.process_results(
                 initial_guess,
                 success=False,

@@ -2,8 +2,9 @@
 import time
 import numpy as np
 from typing import Dict, List, Tuple
-from ...utils.config import logger
+from ...utils.config import logger as global_logger
 from .base_solver import BaseSolver
+from .solver_logging import setup_solver_logger
 
 class ParticleSwarmOptimizer(BaseSolver):
     """PSO solver implementation."""
@@ -20,8 +21,13 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.c1 = float(c1)  # Cognitive parameter
         self.c2 = float(c2)  # Social parameter
         
+        # Setup dedicated logger
+        self.logger = setup_solver_logger("PSO")
+
     def initialize_swarm(self):
         """Initialize particle swarm with positions and velocities."""
+        self.logger.debug("Initializing PSO swarm...")
+        
         # Initialize positions using Dirichlet distribution for better balance
         positions = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
         # Increase alpha for more uniform distribution
@@ -29,35 +35,23 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         # Minimum fraction of total delta-v per stage based on equal distribution
         min_stage_fraction = 1.0 / self.n_stages  # Equal distribution baseline
+        self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
         
         for i in range(self.population_size):
             # Generate balanced proportions using Dirichlet
             props = np.random.dirichlet(alpha)
             
             # Ensure minimum stage allocation
+            retry_count = 0
             while np.any(props < min_stage_fraction):
                 props = np.random.dirichlet(alpha)
+                retry_count += 1
+                if retry_count % 10 == 0:
+                    self.logger.debug(f"Retrying initialization {retry_count} times for particle {i}")
             
             positions[i] = props * self.TOTAL_DELTA_V
-            
-            # Enforce first stage constraints (15-80% of total)
-            first_stage_min = 0.15 * self.TOTAL_DELTA_V
-            first_stage_max = 0.80 * self.TOTAL_DELTA_V
-            if positions[i, 0] < first_stage_min:
-                excess = first_stage_min - positions[i, 0]
-                positions[i, 0] = first_stage_min
-                # Redistribute excess proportionally to other stages
-                remaining_props = positions[i, 1:] / positions[i, 1:].sum()
-                positions[i, 1:] -= excess * remaining_props
-            elif positions[i, 0] > first_stage_max:
-                excess = positions[i, 0] - first_stage_max
-                positions[i, 0] = first_stage_max
-                # Redistribute excess proportionally to other stages
-                remaining_props = positions[i, 1:] / positions[i, 1:].sum()
-                positions[i, 1:] += excess * remaining_props
-            
-            # Project to feasible space while preserving proportions
-            positions[i] = self.iterative_projection(positions[i])
+            if i < 3:  # Log first few particles
+                self.logger.debug(f"Initial position {i}: {positions[i]}")
         
         # Initialize velocities with smaller scale for better stability
         velocities = np.zeros_like(positions)
@@ -117,7 +111,7 @@ class ParticleSwarmOptimizer(BaseSolver):
     def solve(self, initial_guess, bounds):
         """Solve using Particle Swarm Optimization."""
         try:
-            logger.info("Starting PSO optimization...")
+            self.logger.info("Starting PSO optimization...")
             start_time = time.time()
             
             # Initialize swarm
@@ -132,6 +126,13 @@ class ParticleSwarmOptimizer(BaseSolver):
             stall_count = 0
             for iteration in range(self.max_iterations):
                 improved = False
+                stage_means = np.mean(positions, axis=0)
+                stage_stds = np.std(positions, axis=0)
+                self.logger.debug(f"\nIteration {iteration + 1}:")
+                self.logger.debug(f"Stage means: {stage_means}")
+                self.logger.debug(f"Stage stddevs: {stage_stds}")
+                self.logger.debug(f"Current best score: {g_best_score:.6f}")
+                self.logger.debug(f"Current best position: {g_best_pos}")
                 
                 # Evaluate all particles
                 for i in range(self.population_size):
@@ -148,6 +149,8 @@ class ParticleSwarmOptimizer(BaseSolver):
                     # Check and rebalance if any stage exceeds limit
                     max_stage = np.max(new_position)
                     if max_stage > max_stage_dv:
+                        self.logger.debug(f"Rebalancing particle {i} - Stage exceeds limit:")
+                        self.logger.debug(f"Before rebalance: {new_position}")
                         excess = max_stage - max_stage_dv
                         max_idx = np.argmax(new_position)
                         new_position[max_idx] = max_stage_dv
@@ -161,10 +164,9 @@ class ParticleSwarmOptimizer(BaseSolver):
                         else:
                             # If other stages have near-zero sum, distribute equally
                             props = np.ones(len(other_stages)) / len(other_stages)
+                            self.logger.debug("Using equal redistribution due to near-zero sum")
                         new_position[other_stages] += excess * props
-                        
-                        # Re-project to ensure constraints
-                        new_position = self.iterative_projection(new_position)
+                        self.logger.debug(f"After rebalance: {new_position}")
                     
                     # Update position and evaluate
                     positions[i] = new_position
@@ -177,6 +179,9 @@ class ParticleSwarmOptimizer(BaseSolver):
                         
                         # Update global best
                         if score < g_best_score:
+                            self.logger.debug(f"New best solution found:")
+                            self.logger.debug(f"Old best: {g_best_pos} (score: {g_best_score:.6f})")
+                            self.logger.debug(f"New best: {positions[i]} (score: {score:.6f})")
                             g_best_score = score
                             g_best_pos = positions[i].copy()
                             improved = True
@@ -191,13 +196,13 @@ class ParticleSwarmOptimizer(BaseSolver):
                 if not improved:
                     stall_count += 1
                     if stall_count >= self.stall_limit:
-                        logger.info(f"PSO converged after {iteration + 1} iterations")
+                        self.logger.info(f"PSO converged after {iteration + 1} iterations")
                         break
                 
                 # Log progress periodically
                 if (iteration + 1) % 10 == 0:
-                    logger.info(f"PSO iteration {iteration + 1}/{self.max_iterations}, "
-                              f"best score: {g_best_score:.6f}")
+                    self.logger.info(f"PSO iteration {iteration + 1}/{self.max_iterations}, "
+                                  f"best score: {g_best_score:.6f}")
             
             execution_time = time.time() - start_time
             return self.process_results(
@@ -210,7 +215,7 @@ class ParticleSwarmOptimizer(BaseSolver):
             )
             
         except Exception as e:
-            logger.error(f"Error in PSO optimization: {str(e)}")
+            self.logger.error(f"Error in PSO optimization: {str(e)}")
             return self.process_results(
                 initial_guess,
                 success=False,
