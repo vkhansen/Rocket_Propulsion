@@ -71,14 +71,28 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     def update_parameters(self, algorithm):
         """Update algorithm parameters based on progress."""
         try:
-            # Get current best fitness
-            current_best = algorithm.opt.get("F")[0]
+            # Get current best fitness and handle None case
+            opt = algorithm.opt
+            if opt is None or not hasattr(opt, "get"):
+                logger.warning("No optimal solution found yet")
+                return
+                
+            F = opt.get("F")
+            if F is None or len(F) == 0:
+                logger.warning("No fitness values available")
+                return
+                
+            current_best = F[0]
             
-            # Calculate diversity
+            # Calculate diversity with proper error handling
+            if algorithm.pop is None:
+                logger.warning("Population is None")
+                return
+                
             diversity = self.calculate_diversity(algorithm.pop)
             self.diversity_history.append(diversity)
             
-            # Calculate mean constraint violation
+            # Calculate mean constraint violation with proper error handling
             violations = algorithm.pop.get("CV")
             mean_violation = float(np.mean(violations)) if violations is not None else 0.0
             self.constraint_violation_history.append(mean_violation)

@@ -37,23 +37,6 @@ class BaseSolver(ABC):
         # Initialize name
         self.name = self.__class__.__name__
         
-    def objective_with_penalty(self, x):
-        """Calculate objective value and constraints.
-        
-        Args:
-            x: Input vector (delta-v values)
-            
-        Returns:
-            tuple: (objective_value, dv_constraint, physical_constraint)
-        """
-        return objective_with_penalty(
-            dv=x,
-            G0=self.G0,
-            ISP=self.ISP,
-            EPSILON=self.EPSILON,
-            TOTAL_DELTA_V=self.TOTAL_DELTA_V
-        )
-        
     def calculate_stage_ratios(self, x: np.ndarray):
         """Calculate stage ratios for a solution.
         
@@ -89,8 +72,15 @@ class BaseSolver(ABC):
             Total constraint violation value
         """
         try:
-            # Calculate constraint violations
-            _, dv_constraint, physical_constraint = self.objective_with_penalty(x)
+            # Calculate constraint violations using main objective function
+            _, dv_constraint, physical_constraint = objective_with_penalty(
+                dv=x,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON,
+                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                return_tuple=True
+            )
             return float(abs(dv_constraint) + abs(physical_constraint))
             
         except Exception as e:
@@ -123,8 +113,15 @@ class BaseSolver(ABC):
             stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
             payload_fraction = calculate_payload_fraction(mass_ratios, self.EPSILON)
             
-            # Calculate constraint violations
-            _, dv_constraint, physical_constraint = self.objective_with_penalty(x)
+            # Calculate objective and constraints using main objective function
+            objective_value, dv_constraint, physical_constraint = objective_with_penalty(
+                dv=x,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON,
+                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                return_tuple=True
+            )
             
             return {
                 'solver': self.name,
@@ -134,6 +131,7 @@ class BaseSolver(ABC):
                 'stage_ratios': stage_ratios.tolist(),
                 'mass_ratios': mass_ratios.tolist(),
                 'payload_fraction': float(payload_fraction),
+                'objective': float(objective_value),
                 'dv_constraint': float(dv_constraint),
                 'physical_constraint': float(physical_constraint),
                 'n_iterations': n_iterations,
@@ -151,6 +149,7 @@ class BaseSolver(ABC):
                 'stage_ratios': [],
                 'mass_ratios': [],
                 'payload_fraction': 0.0,
+                'objective': float('inf'),
                 'dv_constraint': float('inf'),
                 'physical_constraint': float('inf'),
                 'n_iterations': n_iterations,

@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T15:00:49.734042",
+    "timestamp": "2025-03-02T15:18:04.373875",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -59,13 +59,13 @@
     },
     "results": {
         "SLSQPSolver": {
-            "success": false,
-            "message": "The user-provided objective function must return a scalar value.",
-            "payload_fraction": 0.07194710595390245,
+            "success": true,
+            "message": "",
+            "payload_fraction": 0.07194710598427516,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 9,
+                "function_evaluations": 44,
                 "execution_time": 0.0
             },
             "stages": []
@@ -94,22 +94,10 @@
             },
             "stages": []
         },
-        "BasinHoppingOptimizer": {
-            "success": false,
-            "message": "The user-provided objective function must return a scalar value.",
-            "payload_fraction": 0.07194710595390245,
-            "constraint_violation": Infinity,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.0
-            },
-            "stages": []
-        },
         "ParticleSwarmOptimizer": {
             "success": true,
             "message": "PSO optimization completed",
-            "payload_fraction": 0.08072705076935627,
+            "payload_fraction": 0.12263182258429393,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 100,
@@ -118,14 +106,26 @@
             },
             "stages": []
         },
-        "DifferentialEvolutionSolver": {
-            "success": false,
-            "message": "func(x, *args) must return a scalar value",
-            "payload_fraction": 0.07194710595390245,
+        "BasinHoppingOptimizer": {
+            "success": true,
+            "message": "['requested number of basinhopping iterations completed successfully']",
+            "payload_fraction": 0.07195259344923191,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
+                "iterations": 100,
+                "function_evaluations": 3922,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "DifferentialEvolutionSolver": {
+            "success": true,
+            "message": "Optimization terminated successfully.",
+            "payload_fraction": 0.08072197007355288,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 58,
+                "function_evaluations": 1969,
                 "execution_time": 0.0
             },
             "stages": []
