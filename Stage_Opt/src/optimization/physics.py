@@ -63,12 +63,11 @@ def calculate_mass_ratios(stage_ratios, EPSILON):
         logger.error(f"Error calculating mass ratios: {str(e)}")
         return np.ones_like(stage_ratios)
 
-def calculate_payload_fraction(mass_ratios, EPSILON):
+def calculate_payload_fraction(mass_ratios):
     """Calculate payload fraction from mass ratios.
     
     Args:
         mass_ratios (np.ndarray): Mass ratios (μ) for each stage
-        EPSILON (np.ndarray): Structural coefficients for each stage
         
     Returns:
         float: Payload fraction

@@ -108,7 +108,7 @@ class BaseSolver(ABC):
             
             # Calculate ratios and payload fraction
             stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
-            payload_fraction = calculate_payload_fraction(mass_ratios, self.EPSILON)
+            payload_fraction = calculate_payload_fraction(mass_ratios)
             
             # Calculate objective and constraints using main objective function
             objective_value, dv_constraint, physical_constraint = objective_with_penalty(

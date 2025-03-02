@@ -2,10 +2,10 @@
 import numpy as np
 from typing import Tuple, Dict, Union
 from .physics import calculate_stage_ratios, calculate_payload_fraction
-from ..utils.config import logger
 from .parallel_solver import ParallelSolver
+from ..utils.config import logger
 
-def calculate_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.ndarray) -> float:
+def payload_fraction_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.ndarray) -> float:
     """Calculate the objective value (negative payload fraction).
     
     Args:
@@ -19,11 +19,91 @@ def calculate_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.
     """
     try:
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
-        payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
         return float(-payload_fraction)  # Negative for minimization
     except Exception as e:
         logger.error(f"Error in objective calculation: {str(e)}")
         return 1e6  # Large penalty for failed calculations
+
+def enforce_stage_constraints(dv_array, total_dv_required, config=None):
+    """Enforce stage constraints and return constraint violation value.
+    
+    Args:
+        dv_array: Array of stage delta-v values
+        total_dv_required: Required total delta-v
+        config: Configuration dictionary containing constraints
+        
+    Returns:
+        float: Constraint violation value (0 if all constraints satisfied)
+    """
+    if config is None:
+        config = {}
+    
+    # Get constraint parameters from config
+    constraints = config.get('constraints', {})
+    total_dv_constraint = constraints.get('total_dv', {})
+    tolerance = total_dv_constraint.get('tolerance', 1e-6)
+    
+    # Calculate total delta-v constraint violation
+    total_dv = np.sum(dv_array)
+    dv_violation = abs(total_dv - total_dv_required)
+    
+    # Get stage fraction constraints
+    stage_fractions = constraints.get('stage_fractions', {})
+    first_stage = stage_fractions.get('first_stage', {})
+    other_stages = stage_fractions.get('other_stages', {})
+    
+    # Default constraints if not specified
+    min_fraction_first = first_stage.get('min_fraction', 0.15)
+    max_fraction_first = first_stage.get('max_fraction', 0.80)
+    min_fraction_other = other_stages.get('min_fraction', 0.01)
+    max_fraction_other = other_stages.get('max_fraction', 1.0)
+    
+    # Calculate stage fractions
+    stage_fractions = dv_array / total_dv if total_dv > 0 else np.zeros_like(dv_array)
+    
+    # Check first stage constraints
+    if len(stage_fractions) > 0:
+        if stage_fractions[0] < min_fraction_first:
+            return abs(stage_fractions[0] - min_fraction_first) + dv_violation
+        if stage_fractions[0] > max_fraction_first:
+            return abs(stage_fractions[0] - max_fraction_first) + dv_violation
+    
+    # Check other stage constraints
+    for fraction in stage_fractions[1:]:
+        if fraction < min_fraction_other:
+            return abs(fraction - min_fraction_other) + dv_violation
+        if fraction > max_fraction_other:
+            return abs(fraction - max_fraction_other) + dv_violation
+    
+    # If we reach here, only return total DV violation
+    return dv_violation
+
+def calculate_mass_ratios(stage_ratios, EPSILON):
+    """Calculate mass ratios from stage ratios.
+    
+    Args:
+        stage_ratios (np.ndarray): Stage ratios (λ = mf/m0) for each stage
+        EPSILON (np.ndarray): Structural coefficients for each stage
+        
+    Returns:
+        np.ndarray: Mass ratios (μ) for each stage
+    """
+    try:
+        # Convert inputs to numpy arrays
+        stage_ratios = np.asarray(stage_ratios, dtype=float)
+        EPSILON = np.asarray(EPSILON, dtype=float)
+        
+        # Calculate mass ratios using corrected formula for mf/m0
+        mass_ratios = np.zeros_like(stage_ratios)
+        for i in range(len(stage_ratios)):
+            mass_ratios[i] = 1.0 / (stage_ratios[i] * (1.0 - EPSILON[i]) + EPSILON[i])
+            
+        return mass_ratios
+        
+    except Exception as e:
+        logger.error(f"Error calculating mass ratios: {str(e)}")
+        return np.ones_like(stage_ratios)
 
 def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=False) -> Union[float, Tuple[float, float, float]]:
     """Calculate objective value with penalties for constraint violations.
@@ -51,7 +131,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
         
         # Calculate payload fraction
-        payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
         objective = -payload_fraction  # Negative for minimization
         
         # Calculate constraint violations with relative scaling

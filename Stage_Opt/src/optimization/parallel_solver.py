@@ -1,235 +1,98 @@
-"""Parallel solver implementation."""
+"""Parallel solver implementation for rocket stage optimization."""
 import concurrent.futures
-import multiprocessing
-import numpy as np
 import time
 import psutil
-import os
-from ..utils.config import setup_logging, load_config
-
-class SolverProcess(multiprocessing.Process):
-    """Process class for running solvers with proper termination."""
-    
-    def __init__(self, solver, initial_guess, bounds):
-        super().__init__()
-        self.solver = solver
-        self.initial_guess = np.array(initial_guess, dtype=float)  # Ensure numpy array
-        self.bounds = bounds
-        self.result_queue = multiprocessing.Queue()
-        self.stop_event = multiprocessing.Event()
-        self.daemon = True  # Ensure process is terminated when parent exits
-        self.logger = setup_logging(solver.__class__.__name__)
-        
-    def run(self):
-        try:
-            solver_name = self.solver.__class__.__name__
-            start_time = time.time()
-            
-            self.logger.info(f"Starting solver: {solver_name}")
-            
-            # Run solver with periodic stop checks
-            if not self.stop_event.is_set():
-                try:
-                    results = self.solver.solve(self.initial_guess, self.bounds)
-                    
-                    # Ensure results is a dictionary
-                    if not isinstance(results, dict):
-                        self.logger.error(f"Invalid result type from {solver_name}: {type(results)}")
-                        results = {
-                            'success': False,
-                            'message': f"Invalid result type: {type(results)}",
-                            'x': self.initial_guess.tolist(),
-                            'stage_ratios': [],
-                            'mass_ratios': [],
-                            'payload_fraction': 0.0,
-                            'objective': float('inf'),
-                            'dv_constraint': float('inf'),
-                            'physical_constraint': float('inf'),
-                            'n_iterations': 0,
-                            'n_function_evals': 0,
-                            'time': 0.0
-                        }
-                        
-                except Exception as e:
-                    self.logger.error(f"Error running solver {solver_name}: {str(e)}")
-                    results = {
-                        'success': False,
-                        'message': f"Error: {str(e)}",
-                        'x': self.initial_guess.tolist(),
-                        'stage_ratios': [],
-                        'mass_ratios': [],
-                        'payload_fraction': 0.0,
-                        'objective': float('inf'),
-                        'dv_constraint': float('inf'),
-                        'physical_constraint': float('inf'),
-                        'n_iterations': 0,
-                        'n_function_evals': 0,
-                        'time': 0.0
-                    }
-                
-            if self.stop_event.is_set():
-                return
-                
-            execution_time = time.time() - start_time
-            
-            # Add execution time and method name
-            results['time'] = execution_time
-            results['method'] = solver_name
-            
-            self.logger.info(f"Completed solver: {solver_name} in {execution_time:.2f}s")
-            self.result_queue.put((solver_name, results))
-            
-        except Exception as e:
-            if not self.stop_event.is_set():  # Only log error if not stopped
-                self.logger.error(f"Error in solver {solver_name}: {str(e)}")
-                self.result_queue.put((solver_name, {
-                    'success': False,
-                    'message': f"Error: {str(e)}",
-                    'method': solver_name,
-                    'x': self.initial_guess.tolist(),
-                    'stage_ratios': [],
-                    'mass_ratios': [],
-                    'payload_fraction': 0.0,
-                    'objective': float('inf'),
-                    'dv_constraint': float('inf'),
-                    'physical_constraint': float('inf'),
-                    'n_iterations': 0,
-                    'n_function_evals': 0,
-                    'time': 0.0
-                }))
-
-def terminate_process(process):
-    """Safely terminate a process and its children."""
-    try:
-        # First try graceful shutdown
-        process.stop_event.set()
-        process.join(timeout=0.5)  # Give it half a second to stop gracefully
-        
-        if process.is_alive():
-            # Force terminate if still running
-            try:
-                parent = psutil.Process(process.pid)
-                children = parent.children(recursive=True)
-                for child in children:
-                    try:
-                        child.terminate()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        pass
-                parent.terminate()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-                
-            # Ensure process is terminated
-            process.terminate()
-            process.join(timeout=0.5)
-            
-            # Force kill if still alive
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=0.5)
-    except:
-        pass
+from typing import List, Dict, Any
+from ..utils.config import logger
 
 class ParallelSolver:
-    """Parallel solver that runs multiple optimization algorithms."""
+    """Manages parallel execution of multiple optimization solvers."""
     
-    def __init__(self, config=None):
+    def __init__(self, config: Dict[str, Any]):
         """Initialize parallel solver.
         
         Args:
-            config: Optional configuration dictionary
+            config: Configuration dictionary with keys:
+                - max_workers: Maximum number of parallel workers (default: CPU count)
+                - timeout: Total timeout in seconds (default: 3600)
+                - solver_timeout: Per-solver timeout in seconds (default: 600)
         """
-        self.config = config or {}
-        self.logger = setup_logging("ParallelSolver")
+        self.config = config
+        self.max_workers = config.get('max_workers', psutil.cpu_count())
+        self.timeout = config.get('timeout', 3600)  # 1 hour total timeout
+        self.solver_timeout = config.get('solver_timeout', 600)  # 10 minutes per solver
         
-        # Load configuration
-        global_config = load_config()
-        opt_config = global_config.get('optimization', {})
-        
-        # Set timeout from config or default
-        self.timeout = float(opt_config.get('parallel_solver_timeout', 30))
-        
-        self.logger.info(f"Initialized parallel solver with {self.timeout}s timeout")
-        
-    def solve(self, solvers, initial_guess, bounds):
-        """Run solvers in parallel.
+    def solve(self, solvers: List, initial_guess, bounds) -> Dict[str, Any]:
+        """Run multiple solvers in parallel.
         
         Args:
             solvers: List of solver instances
-            initial_guess: Initial solution guess
-            bounds: Solution bounds
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) bounds for each variable
             
         Returns:
-            dict: Dictionary mapping solver names to their results
+            dict: Results from all solvers that completed successfully
         """
-        self.logger.info(f"Starting parallel optimization with {len(solvers)} solvers")
-        start_time = time.time()
-        
-        # Convert initial guess to numpy array
-        initial_guess = np.array(initial_guess, dtype=float)
-        
-        # Create processes
-        processes = []
-        for solver in solvers:
-            process = SolverProcess(solver, initial_guess, bounds)
-            processes.append(process)
+        try:
+            logger.info(f"Starting parallel optimization with {len(solvers)} solvers")
+            start_time = time.time()
             
-        # Start processes
-        for process in processes:
-            process.start()
-            
-        # Wait for results or timeout
-        results = {}  # Map solver names to results
-        remaining_time = self.timeout
-        
-        while remaining_time > 0 and any(p.is_alive() for p in processes):
-            # Check for results
-            for process in processes:
-                try:
-                    while not process.result_queue.empty():
-                        solver_name, result = process.result_queue.get_nowait()
-                        # Ensure result is properly formatted
-                        if isinstance(result, dict):
-                            result['method'] = solver_name
-                            results[solver_name] = result
-                except Exception as e:
-                    self.logger.error(f"Error getting results: {str(e)}")
+            # Create tasks for each solver
+            tasks = []
+            with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                for solver in solvers:
+                    solver_name = solver.__class__.__name__
+                    logger.debug(f"Submitting {solver_name}")
                     
-            # Update remaining time
-            elapsed_time = time.time() - start_time
-            remaining_time = self.timeout - elapsed_time
-            
-            # Small sleep to prevent busy waiting
-            time.sleep(0.1)
-            
-        # Terminate any remaining processes
-        for process in processes:
-            if process.is_alive():
-                self.logger.warning(f"Terminating {process.solver.__class__.__name__} due to timeout")
-                terminate_process(process)
+                    # Submit task with timeout
+                    future = executor.submit(
+                        self._run_solver,
+                        solver,
+                        initial_guess,
+                        bounds
+                    )
+                    tasks.append((solver_name, future))
                 
-        # Create default results for solvers that didn't complete
-        total_time = time.time() - start_time
-        for process in processes:
-            solver_name = process.solver.__class__.__name__
-            if solver_name not in results:
-                results[solver_name] = {
-                    'success': False,
-                    'message': "Solver timed out or failed",
-                    'method': solver_name,
-                    'x': initial_guess.tolist(),
-                    'stage_ratios': [],
-                    'mass_ratios': [],
-                    'payload_fraction': 0.0,
-                    'objective': float('inf'),
-                    'dv_constraint': float('inf'),
-                    'physical_constraint': float('inf'),
-                    'n_iterations': 0,
-                    'n_function_evals': 0,
-                    'time': total_time
-                }
+                # Collect results with timeout
+                results = {}
+                for solver_name, future in tasks:
+                    try:
+                        result = future.result(timeout=self.solver_timeout)
+                        if result is not None:
+                            results[solver_name] = result
+                            logger.info(f"{solver_name} completed successfully")
+                        else:
+                            logger.warning(f"{solver_name} failed to find valid solution")
+                    except concurrent.futures.TimeoutError:
+                        logger.warning(f"{solver_name} timed out after {self.solver_timeout}s")
+                    except Exception as e:
+                        logger.error(f"Error in {solver_name}: {str(e)}")
                 
-        if not results:
-            self.logger.warning("No results from any solver")
+            # Log summary
+            elapsed = time.time() - start_time
+            logger.info(f"Parallel optimization completed in {elapsed:.2f}s")
+            logger.info(f"Successful solvers: {list(results.keys())}")
             
-        return results
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in parallel optimization: {str(e)}")
+            return {}
+            
+    def _run_solver(self, solver, initial_guess, bounds):
+        """Run a single solver with proper error handling.
+        
+        Args:
+            solver: Solver instance
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) bounds for each variable
+            
+        Returns:
+            dict: Solver results if successful, None otherwise
+        """
+        try:
+            # Run solver and return results
+            return solver.solve(initial_guess, bounds)
+        except Exception as e:
+            logger.error(f"Error in solver {solver.__class__.__name__}: {str(e)}")
+            return None
