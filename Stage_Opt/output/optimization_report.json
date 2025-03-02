@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T18:21:03.893320",
+    "timestamp": "2025-03-02T18:22:56.555008",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -66,7 +66,7 @@
             "execution_metrics": {
                 "iterations": 1,
                 "function_evaluations": 15,
-                "execution_time": 0.002576589584350586
+                "execution_time": 0.00243377685546875
             },
             "stages": [
                 {
@@ -89,90 +89,90 @@
         "GeneticAlgorithmSolver": {
             "success": true,
             "message": "Optimization completed successfully",
-            "payload_fraction": 0.0692684078729712,
+            "payload_fraction": 0.0694445330380407,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 200,
                 "function_evaluations": 20000,
-                "execution_time": 2.886244535446167
+                "execution_time": 2.9571659564971924
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6229.598319455941,
-                    "Lambda": 0.12042224031180448
+                    "delta_v": 5833.255361465562,
+                    "Lambda": 0.13778263634056614
                 },
                 {
                     "stage": 2,
-                    "delta_v": 2866.284371112525,
-                    "Lambda": 0.4339614456049706
+                    "delta_v": 3161.502223611801,
+                    "Lambda": 0.39820784266437864
                 },
                 {
                     "stage": 3,
-                    "delta_v": 204.11730943153535,
-                    "Lambda": 0.949312099038859
+                    "delta_v": 305.24241492263695,
+                    "Lambda": 0.925159996829877
                 }
             ]
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": true,
             "message": "Optimization completed successfully",
-            "payload_fraction": 0.06935841329295543,
+            "payload_fraction": 0.06948731823376583,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 200,
                 "function_evaluations": 20000,
-                "execution_time": 3.087444543838501
+                "execution_time": 3.148820400238037
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6134.091227768276,
-                    "Lambda": 0.12439432082953794
+                    "delta_v": 6033.441154192365,
+                    "Lambda": 0.1287221683336787
                 },
                 {
                     "stage": 2,
-                    "delta_v": 2828.0551123672144,
-                    "Lambda": 0.4388202562669747
+                    "delta_v": 2769.5496714108535,
+                    "Lambda": 0.44636164324101973
                 },
                 {
                     "stage": 3,
-                    "delta_v": 337.85365986450967,
-                    "Lambda": 0.917503117078521
+                    "delta_v": 497.0091743967815,
+                    "Lambda": 0.8810342204997212
                 }
             ]
         },
         "ParticleSwarmOptimizer": {
             "success": true,
             "message": "Optimization successful",
-            "payload_fraction": 0.07615571755166131,
+            "payload_fraction": 0.0816243213608862,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
                 "function_evaluations": 5000,
-                "execution_time": 0.9047045707702637
+                "execution_time": 0.9332785606384277
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4702.914828963252,
-                    "Lambda": 0.20230065811039602
+                    "delta_v": 2426.947609733895,
+                    "Lambda": 0.43838800536434896
                 },
                 {
                     "stage": 2,
-                    "delta_v": 841.0308271025851,
-                    "Lambda": 0.7827448138313142
+                    "delta_v": 4796.124330613333,
+                    "Lambda": 0.2473720976136051
                 },
                 {
                     "stage": 3,
-                    "delta_v": 3756.0543439341623,
-                    "Lambda": 0.3839663373226707
+                    "delta_v": 2076.9280596527724,
+                    "Lambda": 0.5890239132886651
                 }
             ]
         },
         "DifferentialEvolutionSolver": {
             "success": true,
-            "message": "Optimization terminated successfully.",
+            "message": "Optimization completed successfully",
             "payload_fraction": 0.0,
             "constraint_violation": Infinity,
             "execution_metrics": {
@@ -185,28 +185,28 @@
         "BasinHoppingOptimizer": {
             "success": true,
             "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
-            "payload_fraction": 0.07260579074758593,
-            "constraint_violation": 1.8189894035458565e-12,
+            "payload_fraction": 0.07655562297138435,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
                 "function_evaluations": 0,
-                "execution_time": 0.1096947193145752
+                "execution_time": 0.09995532035827637
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 4352.423059396743,
-                    "Lambda": 0.22788665110851147
+                    "delta_v": 3639.8540175053913,
+                    "Lambda": 0.2903165033874611
                 },
                 {
                     "stage": 2,
-                    "delta_v": 4217.732835550567,
-                    "Lambda": 0.2927587924225087
+                    "delta_v": 2646.614236828707,
+                    "Lambda": 0.46263304567131663
                 },
                 {
                     "stage": 3,
-                    "delta_v": 729.8441050526914,
-                    "Lambda": 0.8302778045362901
+                    "delta_v": 3013.5317456659013,
+                    "Lambda": 0.46395187445353486
                 }
             ]
         }

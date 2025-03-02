@@ -119,7 +119,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             
             # Process results
             violation = self.get_violation(result.x)
-            success = violation < 1e-4  # Only mark as success if constraints are satisfied
+            success = violation < 1e-4 and result.fun < float('inf')  # Check both violation and objective
             
             if not success:
                 message = f"Failed to find feasible solution (violation={violation:.2e})"
