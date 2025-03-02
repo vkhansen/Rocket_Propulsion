@@ -25,32 +25,32 @@ class DifferentialEvolutionSolver(BaseSolver):
         """Project solution to feasible space with high precision."""
         x_proj = np.array(x, dtype=np.float64)  # Higher precision
         
-        # Ensure bounds constraints
+        # First ensure bounds constraints
         for i in range(self.n_stages):
             lower, upper = self.bounds[i]
             x_proj[i] = np.clip(x_proj[i], lower, upper)
         
-        # Normalize to total ΔV
-        total = np.sum(x_proj)
-        if total > 0:
-            x_proj *= self.TOTAL_DELTA_V / total
-            
-            # Verify and adjust for exact constraint
-            error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
-            if error > 1e-10:
+        # Iterative projection to handle numerical precision
+        max_iterations = 10
+        for _ in range(max_iterations):
+            # Normalize to total ΔV
+            total = np.sum(x_proj)
+            if total > 0:
+                x_proj *= self.TOTAL_DELTA_V / total
+                
+                # Verify constraint
+                error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
+                if error <= 1e-10:  # Strict convergence check
+                    break
+                    
                 # Distribute remaining error proportionally
                 adjustment = (self.TOTAL_DELTA_V - np.sum(x_proj)) / self.n_stages
                 x_proj += adjustment
                 
-                # Final bounds check after adjustment
+                # Re-check bounds after adjustment
                 for i in range(self.n_stages):
                     lower, upper = self.bounds[i]
                     x_proj[i] = np.clip(x_proj[i], lower, upper)
-                
-                # One final normalization if needed
-                total = np.sum(x_proj)
-                if np.abs(total - self.TOTAL_DELTA_V) > 1e-10:
-                    x_proj *= self.TOTAL_DELTA_V / total
         
         return x_proj
         
@@ -102,26 +102,35 @@ class DifferentialEvolutionSolver(BaseSolver):
                 strategy=self.strategy,
                 maxiter=self.maxiter,
                 popsize=self.popsize,
-                tol=self.tol,
-                mutation=self.mutation,
-                recombination=self.recombination,
-                init='random',  # Using random since we handle constraints in objective
+                tol=1e-8,  # Tighter tolerance
+                mutation=(0.3, 0.8),  # Reduced mutation range for stability
+                recombination=0.9,  # Increased recombination
+                init='random',
                 disp=False,
-                workers=1,  # Required for custom objective with state
-                updating='deferred',  # Better for constrained optimization
-                polish=True,  # Final polishing step
-                seed=42  # For reproducibility
+                workers=1,
+                updating='deferred',
+                polish=True,
+                seed=42
             )
             
             execution_time = time.time() - start_time
             
-            # Project and check final solution
-            x_final = self.project_to_feasible(result.x)
-            is_feasible, violation = self.check_constraints(x_final)
+            # Iterative projection of final solution
+            x_final = result.x
+            best_violation = float('inf')
+            best_x = None
             
-            if is_feasible:
+            # Try multiple projections with different scalings
+            for scale in [1.0, 0.99, 1.01]:
+                x_try = self.project_to_feasible(scale * x_final)
+                _, violation = self.check_constraints(x_try)
+                if violation < best_violation:
+                    best_violation = violation
+                    best_x = x_try
+            
+            if best_violation < 1e-4:  # Only accept if we found a feasible solution
                 return self.process_results(
-                    x=x_final,
+                    x=best_x,
                     success=result.success,
                     message=result.message,
                     n_iterations=result.nit if hasattr(result, 'nit') else self.maxiter,
@@ -132,7 +141,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                 return self.process_results(
                     x=initial_guess,
                     success=False,
-                    message=f"Solution violates constraints (violation={violation:.2e})",
+                    message=f"Failed to find feasible solution (violation={best_violation:.2e})",
                     n_iterations=result.nit if hasattr(result, 'nit') else self.maxiter,
                     n_function_evals=result.nfev if hasattr(result, 'nfev') else 0,
                     time=execution_time

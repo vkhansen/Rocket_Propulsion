@@ -23,32 +23,32 @@ class ParticleSwarmOptimizer(BaseSolver):
         """Project solution to feasible space with high precision."""
         x_proj = np.array(x, dtype=np.float64)  # Higher precision
         
-        # Ensure bounds constraints
+        # First ensure bounds constraints
         for i in range(self.n_stages):
             lower, upper = self.bounds[i]
             x_proj[i] = np.clip(x_proj[i], lower, upper)
         
-        # Normalize to total ΔV
-        total = np.sum(x_proj)
-        if total > 0:
-            x_proj *= self.TOTAL_DELTA_V / total
-            
-            # Verify and adjust for exact constraint
-            error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
-            if error > 1e-10:
+        # Iterative projection to handle numerical precision
+        max_iterations = 10
+        for _ in range(max_iterations):
+            # Normalize to total ΔV
+            total = np.sum(x_proj)
+            if total > 0:
+                x_proj *= self.TOTAL_DELTA_V / total
+                
+                # Verify constraint
+                error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
+                if error <= 1e-10:  # Strict convergence check
+                    break
+                    
                 # Distribute remaining error proportionally
                 adjustment = (self.TOTAL_DELTA_V - np.sum(x_proj)) / self.n_stages
                 x_proj += adjustment
                 
-                # Final bounds check after adjustment
+                # Re-check bounds after adjustment
                 for i in range(self.n_stages):
                     lower, upper = self.bounds[i]
                     x_proj[i] = np.clip(x_proj[i], lower, upper)
-                
-                # One final normalization if needed
-                total = np.sum(x_proj)
-                if np.abs(total - self.TOTAL_DELTA_V) > 1e-10:
-                    x_proj *= self.TOTAL_DELTA_V / total
         
         return x_proj
         
@@ -77,13 +77,13 @@ class ParticleSwarmOptimizer(BaseSolver):
         """Update particle velocity with damping for stability."""
         r1, r2 = np.random.random(2)
         
-        # Calculate new velocity
+        # Calculate new velocity with reduced cognitive/social terms
         new_velocity = (self.w * velocity + 
-                       self.c1 * r1 * (p_best - position) +
-                       self.c2 * r2 * (g_best - position))
+                       0.5 * self.c1 * r1 * (p_best - position) +  # Reduced cognitive
+                       0.5 * self.c2 * r2 * (g_best - position))   # Reduced social
         
-        # Apply velocity damping for stability
-        max_velocity = 0.1 * self.TOTAL_DELTA_V  # Max 10% of total ΔV
+        # Apply stronger velocity damping for stability
+        max_velocity = 0.05 * self.TOTAL_DELTA_V  # Reduced to 5% of total ΔV
         new_velocity = np.clip(new_velocity, -max_velocity, max_velocity)
         
         return new_velocity

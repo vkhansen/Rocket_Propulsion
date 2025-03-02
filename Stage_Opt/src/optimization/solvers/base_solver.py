@@ -155,13 +155,19 @@ class BaseSolver(ABC):
                     stages.append({
                         'stage': i + 1,
                         'delta_v': float(dv),
-                        'Lambda': float(sr),
-                        'mass_ratio': float(mr)
+                        'Lambda': float(sr)
                     })
             
+            # Update success flag based on both optimizer success and constraint feasibility
+            success = success and is_feasible
+            
+            # Update message if constraints are violated
+            if not is_feasible:
+                message = f"Solution violates constraints (violation={constraint_violation:.2e})"
+            
             return {
-                'success': success and is_feasible,
-                'message': message if is_feasible else "Solution violates constraints",
+                'success': success,  # Now properly reflects both optimizer success and feasibility
+                'message': message,
                 'payload_fraction': float(payload_fraction) if is_feasible else 0.0,
                 'constraint_violation': float(constraint_violation),
                 'execution_metrics': {
