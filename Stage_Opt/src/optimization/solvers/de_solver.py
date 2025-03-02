@@ -64,9 +64,11 @@ class DifferentialEvolutionSolver(BaseSolver):
             # Evaluate initial population
             fitness = np.full(self.population_size, float('inf'), dtype=np.float64)
             for i in range(self.population_size):
-                fitness[i] = self.evaluate_solution(population[i])[0]
+                fitness[i] = self.evaluate_solution(population[i])  
                 
             best_idx = np.argmin(fitness)
+            best_solution = population[best_idx].copy()
+            best_fitness = fitness[best_idx]
             
             stall_count = 0
             for generation in range(self.max_iterations):
@@ -82,7 +84,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                     
                     # Evaluate trial vector
                     is_feasible, violation = self.check_feasibility(trial)
-                    trial_fitness = self.evaluate_solution(trial)[0]
+                    trial_fitness = self.evaluate_solution(trial)  
                     
                     # Selection
                     if trial_fitness < fitness[i]:
@@ -92,6 +94,8 @@ class DifferentialEvolutionSolver(BaseSolver):
                         # Update best solution
                         if self.update_best_solution(trial, trial_fitness, is_feasible, violation):
                             improved = True
+                            best_solution = trial.copy()
+                            best_fitness = trial_fitness
                             
                 # Check convergence
                 if not improved:
@@ -101,12 +105,35 @@ class DifferentialEvolutionSolver(BaseSolver):
                 else:
                     stall_count = 0
                     
+            execution_time = time.time() - start_time
+            
             # Return best feasible solution found
             if self.best_feasible is not None:
-                return self.best_feasible, self.best_feasible_score
+                return self.process_results(
+                    x=self.best_feasible,
+                    success=True,
+                    message="DE optimization completed successfully",
+                    n_iterations=generation + 1,
+                    n_function_evals=self.population_size * (generation + 1),
+                    time=execution_time
+                )
             else:
-                return None, float('inf')
+                return self.process_results(
+                    x=best_solution,  
+                    success=False,
+                    message="No feasible solution found",
+                    n_iterations=generation + 1,
+                    n_function_evals=self.population_size * (generation + 1),
+                    time=execution_time
+                )
                 
         except Exception as e:
             logger.error(f"DE optimization failed: {str(e)}")
-            return None, float('inf')
+            return self.process_results(
+                x=initial_guess,
+                success=False,
+                message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
+                time=0.0
+            )

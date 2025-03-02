@@ -2,11 +2,12 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Union
 import numpy as np
+import time
 
 from ...utils.config import logger
 from ..cache import OptimizationCache
 from ..physics import calculate_stage_ratios, calculate_payload_fraction
-from ..objective import enforce_stage_constraints, objective_with_penalty
+from ..objective import objective_with_penalty
 
 class BaseSolver(ABC):
     """Base class for all optimization solvers."""
@@ -51,14 +52,14 @@ class BaseSolver(ABC):
         # Initialize cache
         self.cache = OptimizationCache()
         
-    def evaluate_solution(self, x: np.ndarray) -> Tuple[float, bool]:
+    def evaluate_solution(self, x: np.ndarray) -> float:
         """Evaluate a solution vector.
         
         Args:
             x: Solution vector (delta-v values)
             
         Returns:
-            Tuple of (objective value, is feasible)
+            float: Objective value with penalties
         """
         try:
             # Ensure x is a 1D array
@@ -69,29 +70,23 @@ class BaseSolver(ABC):
             if cached is not None:
                 return cached
             
-            # Calculate stage ratios
-            stage_ratios, mass_ratios = calculate_stage_ratios(
+            # Calculate objective with penalties
+            score = objective_with_penalty(
                 dv=x,
                 G0=self.G0,
                 ISP=self.ISP,
-                EPSILON=self.EPSILON
+                EPSILON=self.EPSILON,
+                TOTAL_DELTA_V=self.TOTAL_DELTA_V
             )
             
-            # Calculate payload fraction
-            payload_fraction = calculate_payload_fraction(stage_ratios)
-            
-            # Check constraints and apply penalties
-            is_feasible, violation = self.check_feasibility(x)
-            objective = objective_with_penalty(payload_fraction, violation)
-            
             # Cache result
-            self.cache.add(tuple(x), (objective, is_feasible))
+            self.cache.add(tuple(x), score)
             
-            return objective, is_feasible
+            return score
             
         except Exception as e:
             logger.error(f"Error evaluating solution: {str(e)}")
-            return float('inf'), False
+            return float('inf')
             
     def check_feasibility(self, x: np.ndarray) -> Tuple[bool, float]:
         """Check if solution satisfies all constraints.
@@ -106,30 +101,20 @@ class BaseSolver(ABC):
             # Ensure x is a 1D array
             x = np.asarray(x, dtype=np.float64).reshape(-1)
             
-            # Check total delta-v constraint
-            total_dv = np.sum(x)
-            rel_error = abs(total_dv - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
-            
-            if rel_error > self.feasibility_threshold:
-                return False, rel_error
-                
-            # Check stage bounds
-            for i, (lower, upper) in enumerate(self.bounds):
-                if x[i] < lower or x[i] > upper:
-                    return False, abs(min(x[i] - lower, x[i] - upper))
-                    
-            # Check stage ratios are valid
-            stage_ratios, _ = calculate_stage_ratios(
+            # Get objective components
+            _, dv_const, phys_const = objective_with_penalty(
                 dv=x,
                 G0=self.G0,
                 ISP=self.ISP,
-                EPSILON=self.EPSILON
+                EPSILON=self.EPSILON,
+                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                return_tuple=True
             )
             
-            if np.any(stage_ratios <= 1.0):
-                return False, np.sum(1.0 - stage_ratios[stage_ratios <= 1.0])
-                
-            return True, 0.0
+            total_violation = dv_const + phys_const
+            is_feasible = total_violation <= self.feasibility_threshold
+            
+            return is_feasible, total_violation
             
         except Exception as e:
             logger.error(f"Error checking feasibility: {str(e)}")
@@ -234,6 +219,90 @@ class BaseSolver(ABC):
             population[i] = self.iterative_projection(population[i])
             
         return population
+        
+    def process_results(self, x: np.ndarray, success: bool = True, message: str = "", 
+                       n_iterations: int = 0, n_function_evals: int = 0, 
+                       time: float = 0.0, constraint_violation: float = None) -> Dict:
+        """Process optimization results into a standardized format.
+        
+        Args:
+            x: Solution vector (delta-v values)
+            success: Whether optimization succeeded
+            message: Status message from optimizer
+            n_iterations: Number of iterations performed
+            n_function_evals: Number of function evaluations
+            time: Execution time in seconds
+            constraint_violation: Optional pre-computed constraint violation
+            
+        Returns:
+            Dictionary containing standardized optimization results
+        """
+        try:
+            # Convert x to numpy array and validate
+            x = np.asarray(x, dtype=np.float64).reshape(-1)
+            if x.size == 0 or not np.all(np.isfinite(x)):
+                raise ValueError("Invalid solution vector")
+            
+            # Calculate ratios and payload fraction
+            stage_ratios, mass_ratios = calculate_stage_ratios(
+                dv=x,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON
+            )
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            
+            # Check if solution is feasible
+            if constraint_violation is None:
+                is_feasible, violation = self.check_feasibility(x)
+            else:
+                violation = constraint_violation
+                is_feasible = violation <= self.feasibility_threshold
+            
+            # Build stages info if solution is feasible
+            stages = []
+            if is_feasible:
+                for i, (dv, mr, sr) in enumerate(zip(x, mass_ratios, stage_ratios)):
+                    stages.append({
+                        'stage': i + 1,
+                        'delta_v': float(dv),
+                        'Lambda': float(sr)
+                    })
+            
+            # Update success flag based on both optimizer success and constraint feasibility
+            success = success and is_feasible
+            
+            # Update message if constraints are violated
+            if not is_feasible:
+                message = f"Solution violates constraints (violation={violation:.2e})"
+            
+            return {
+                'success': success,
+                'message': message,
+                'payload_fraction': float(payload_fraction) if is_feasible else 0.0,
+                'constraint_violation': float(violation),
+                'execution_metrics': {
+                    'iterations': n_iterations,
+                    'function_evaluations': n_function_evals,
+                    'execution_time': time
+                },
+                'stages': stages
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing results: {str(e)}")
+            return {
+                'success': False,
+                'message': f"Failed to process results: {str(e)}",
+                'payload_fraction': 0.0,
+                'constraint_violation': float('inf'),
+                'execution_metrics': {
+                    'iterations': n_iterations,
+                    'function_evaluations': n_function_evals,
+                    'execution_time': time
+                },
+                'stages': []
+            }
         
     @abstractmethod
     def solve(self, initial_guess, bounds):

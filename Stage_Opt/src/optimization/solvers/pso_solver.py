@@ -89,7 +89,7 @@ class ParticleSwarmOptimizer(BaseSolver):
                     
                     # Check feasibility and evaluate
                     is_feasible, violation = self.check_feasibility(positions[i])
-                    score = self.evaluate_solution(positions[i])[0]
+                    score = self.evaluate_solution(positions[i])  # Remove [0] indexing
                     
                     # Update personal best
                     if score < p_best_scores[i]:
@@ -117,12 +117,35 @@ class ParticleSwarmOptimizer(BaseSolver):
                 else:
                     stall_count = 0
                     
+            execution_time = time.time() - start_time
+            
             # Return best feasible solution found
             if self.best_feasible is not None:
-                return self.best_feasible, self.best_feasible_score
+                return self.process_results(
+                    x=self.best_feasible,
+                    success=True,
+                    message="PSO optimization completed successfully",
+                    n_iterations=iteration + 1,
+                    n_function_evals=self.population_size * (iteration + 1),
+                    time=execution_time
+                )
             else:
-                return None, float('inf')
+                return self.process_results(
+                    x=g_best_pos,  # Return best position even if infeasible
+                    success=False,
+                    message="No feasible solution found",
+                    n_iterations=iteration + 1,
+                    n_function_evals=self.population_size * (iteration + 1),
+                    time=execution_time
+                )
                 
         except Exception as e:
             logger.error(f"PSO optimization failed: {str(e)}")
-            return None, float('inf')
+            return self.process_results(
+                x=initial_guess,
+                success=False,
+                message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
+                time=0.0
+            )
