@@ -51,10 +51,25 @@ class BaseGASolver(BaseSolver):
                 tournament = P[i]
                 candidates = []
                 for idx in tournament:
-                    f = pop[idx].get("F")[0]
-                    cv = np.sum(np.maximum(pop[idx].get("G"), 0)) if pop[idx].get("G") is not None else float('inf')
+                    # Handle None cases and missing attributes
+                    if pop[idx] is None or not hasattr(pop[idx], "get"):
+                        continue
+                        
+                    F = pop[idx].get("F")
+                    if F is None or len(F) == 0:
+                        continue
+                        
+                    f = F[0]
+                    
+                    # Handle constraint violations
+                    G = pop[idx].get("G")
+                    cv = np.sum(np.maximum(G, 0)) if G is not None else float('inf')
                     candidates.append((idx, f, cv))
                 
+                if not candidates:  # If no valid candidates
+                    S[i] = tournament[0]  # Take first individual
+                    continue
+                    
                 # Sort by constraint violation first, then by fitness
                 candidates.sort(key=lambda x: (x[2], x[1]))
                 S[i] = candidates[0][0]  # Select the best candidate
@@ -82,25 +97,55 @@ class BaseGASolver(BaseSolver):
         
         # Add callback for monitoring
         def callback(algorithm):
-            gen = algorithm.n_gen
-            pop = algorithm.pop
-            
-            if gen % 10 == 0:  # Log every 10 generations
-                valid_solutions = np.sum(np.all(np.array([ind.get("G") for ind in pop]) <= 0, axis=1))
-                best_cv = float('inf')
-                best_f = float('inf')
+            try:
+                gen = algorithm.n_gen
+                pop = algorithm.pop
                 
-                for ind in pop:
-                    cv = np.sum(np.maximum(ind.get("G"), 0))
-                    f = ind.get("F")[0]
-                    if cv < best_cv or (cv == best_cv and f < best_f):
-                        best_cv = cv
-                        best_f = f
-                
-                self.logger.info(f"Generation {gen}:")
-                self.logger.info(f"  Valid Solutions: {valid_solutions}/{len(pop)}")
-                self.logger.info(f"  Best CV: {best_cv:.6f}")
-                self.logger.info(f"  Best F: {best_f:.6f}")
+                if gen % 10 == 0:  # Log every 10 generations
+                    if pop is None:
+                        self.logger.warning("Population is None")
+                        return
+                        
+                    # Count valid solutions with proper error handling
+                    valid_solutions = 0
+                    for ind in pop:
+                        if ind is None or not hasattr(ind, "get"):
+                            continue
+                        G = ind.get("G")
+                        if G is not None and np.all(G <= 0):
+                            valid_solutions += 1
+                            
+                    best_cv = float('inf')
+                    best_f = float('inf')
+                    
+                    for ind in pop:
+                        if ind is None or not hasattr(ind, "get"):
+                            continue
+                            
+                        G = ind.get("G")
+                        F = ind.get("F")
+                        
+                        if G is not None:
+                            cv = np.sum(np.maximum(G, 0))
+                        else:
+                            cv = float('inf')
+                            
+                        if F is not None and len(F) > 0:
+                            f = F[0]
+                        else:
+                            continue
+                            
+                        if cv < best_cv or (cv == best_cv and f < best_f):
+                            best_cv = cv
+                            best_f = f
+                    
+                    self.logger.info(f"Generation {gen}:")
+                    self.logger.info(f"  Valid Solutions: {valid_solutions}/{len(pop)}")
+                    self.logger.info(f"  Best CV: {best_cv:.6f}")
+                    self.logger.info(f"  Best F: {best_f:.6f}")
+                    
+            except Exception as e:
+                self.logger.error(f"Error in callback: {str(e)}")
         
         algorithm.callback = callback
         return algorithm
