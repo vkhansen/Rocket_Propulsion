@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T17:44:08.025086",
+    "timestamp": "2025-03-02T17:46:01.052629",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -98,15 +98,15 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6245.835236853644,
-                    "Lambda": 0.11975968438593791,
+                    "delta_v": 6245.835214806469,
+                    "Lambda": 0.11975968528310503,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 3054.1647631463566,
-                    "Lambda": 0.410853172918159,
+                    "delta_v": 3054.164785193532,
+                    "Lambda": 0.4108531702799903,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }
@@ -125,15 +125,15 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6245.835216392312,
-                    "Lambda": 0.11975968521857222,
+                    "delta_v": 6245.835205025818,
+                    "Lambda": 0.11975968568110966,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 3054.164783607689,
-                    "Lambda": 0.41085317046975256,
+                    "delta_v": 3054.1647949741828,
+                    "Lambda": 0.41085316910963604,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }
@@ -152,36 +152,24 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6245.83521739611,
-                    "Lambda": 0.11975968517772458,
+                    "delta_v": 6245.8352054939305,
+                    "Lambda": 0.11975968566206076,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 3054.1647826038916,
-                    "Lambda": 0.41085317058986714,
+                    "delta_v": 3054.1647945060718,
+                    "Lambda": 0.41085316916565034,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }
             ]
         },
         "DifferentialEvolutionSolver": {
-            "success": false,
-            "message": "Solution violates constraints",
-            "payload_fraction": 0.0,
-            "constraint_violation": 0.14985033042951584,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.0
-            },
-            "stages": []
-        },
-        "BasinHoppingOptimizer": {
             "success": true,
-            "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
-            "payload_fraction": 0.08326515201664908,
+            "message": "Optimization terminated successfully.",
+            "payload_fraction": 0.06914761156841641,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 0,
@@ -191,15 +179,42 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 2744.7436043654097,
-                    "Lambda": 0.39351559041976947,
+                    "delta_v": 6243.9310673773125,
+                    "Lambda": 0.11983719594731052,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 6555.25639563459,
-                    "Lambda": 0.1481981129336954,
+                    "delta_v": 3056.0689326226866,
+                    "Lambda": 0.4106253828568113,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                }
+            ]
+        },
+        "BasinHoppingOptimizer": {
+            "success": true,
+            "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+            "payload_fraction": 0.08255618984336031,
+            "constraint_violation": 0.0,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 2828.1476099893057,
+                    "Lambda": 0.38251998325406433,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 6471.852390010695,
+                    "Lambda": 0.15184210972729387,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }

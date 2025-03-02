@@ -1,3 +1,4 @@
+"""Differential Evolution solver implementation."""
 import time
 import numpy as np
 from scipy.optimize import differential_evolution
@@ -72,7 +73,17 @@ class DifferentialEvolutionSolver(BaseSolver):
         if total > 0:
             x_scaled *= self.TOTAL_DELTA_V / total
             
-        return objective_with_penalty(
+        # Ensure bounds constraints
+        for i in range(len(self.bounds)):
+            lower, upper = self.bounds[i]
+            x_scaled[i] = np.clip(x_scaled[i], lower, upper)
+            
+        # Final normalization
+        total = np.sum(x_scaled)
+        if total > 0:
+            x_scaled *= self.TOTAL_DELTA_V / total
+            
+        return -objective_with_penalty(  # Negative because DE minimizes
             dv=x_scaled,
             G0=self.G0,
             ISP=self.ISP,
@@ -87,6 +98,9 @@ class DifferentialEvolutionSolver(BaseSolver):
             logger.info("Starting Differential Evolution optimization...")
             start_time = time.time()
             
+            # Generate feasible initial population
+            init_pop = self.custom_init()
+            
             result = differential_evolution(
                 self.objective,
                 bounds=bounds,
@@ -96,15 +110,27 @@ class DifferentialEvolutionSolver(BaseSolver):
                 tol=self.tol,
                 mutation=self.mutation,
                 recombination=self.recombination,
-                init='random',
+                init='random',  # Using random since we handle constraints in objective
                 disp=False,
-                workers=1  # Required for custom objective with state
+                workers=1,  # Required for custom objective with state
+                updating='deferred',  # Better for constrained optimization
+                polish=True  # Final polishing step
             )
             
             execution_time = time.time() - start_time
             
             # Project final solution to feasible space
             x_final = result.x
+            total = np.sum(x_final)
+            if total > 0:
+                x_final *= self.TOTAL_DELTA_V / total
+                
+            # Ensure bounds constraints
+            for i in range(len(self.bounds)):
+                lower, upper = self.bounds[i]
+                x_final[i] = np.clip(x_final[i], lower, upper)
+                
+            # Final normalization
             total = np.sum(x_final)
             if total > 0:
                 x_final *= self.TOTAL_DELTA_V / total
