@@ -33,9 +33,9 @@ class BaseSolver(ABC):
         self.name = self.__class__.__name__
         
         # Constraint parameters
-        self.feasibility_threshold = 1e-4
+        self.feasibility_threshold = 1e-6  # Relative error threshold
         self.precision_threshold = 1e-10
-        self.max_projection_iterations = 10
+        self.max_projection_iterations = 20
         
         # Statistics tracking
         self.n_feasible = 0
@@ -181,7 +181,7 @@ class BaseSolver(ABC):
                 return float('inf')
 
     def check_feasibility(self, x: np.ndarray) -> Tuple[bool, float]:
-        """Check if solution is feasible and get violation amount.
+        """Check if solution is feasible and get violation amount using relative error.
         
         Args:
             x: Solution vector
@@ -189,23 +189,28 @@ class BaseSolver(ABC):
         Returns:
             Tuple of (is_feasible, violation_amount)
         """
-        _, dv_const, phys_const = self.evaluate_solution(x, return_components=True)
-        total_violation = dv_const + phys_const
+        obj, dv_const, phys_const = self.evaluate_solution(x, return_components=True)
+        
+        # Convert to relative error for consistency with objective function
+        total = np.sum(x)
+        dv_violation = abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
+        
+        total_violation = dv_violation + phys_const
         return total_violation <= self.feasibility_threshold, total_violation
 
     def check_constraints(self, x):
-        """Check if solution violates any constraints.
+        """Check if solution violates any constraints using relative error.
         
         Returns:
             tuple: (is_feasible, violation_amount)
             - is_feasible: True if solution satisfies all constraints
             - violation_amount: Amount of constraint violation (0 if feasible)
         """
-        # Check total ΔV constraint
+        # Check total ΔV constraint with relative error
         total_dv = np.sum(x)
         dv_violation = abs(total_dv - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
         
-        # Check bounds constraints
+        # Check bounds constraints with relative scaling
         bounds_violation = 0
         for i, (lower, upper) in enumerate(self.bounds):
             if x[i] < lower:
@@ -214,7 +219,7 @@ class BaseSolver(ABC):
                 bounds_violation += abs(x[i] - upper) / self.TOTAL_DELTA_V
                 
         total_violation = dv_violation + bounds_violation
-        is_feasible = total_violation < 1e-6  # Strict tolerance
+        is_feasible = total_violation < self.feasibility_threshold
         
         return is_feasible, total_violation
 
@@ -252,7 +257,7 @@ class BaseSolver(ABC):
             )
             
             # Check if solution is feasible (constraints satisfied within tolerance)
-            feasibility_threshold = 1e-4  # Threshold for considering constraints satisfied
+            feasibility_threshold = 1e-6  # Threshold for considering constraints satisfied
             is_feasible = constraint_violation <= feasibility_threshold
             
             # Build stages info if solution is feasible
