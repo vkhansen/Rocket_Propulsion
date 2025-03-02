@@ -84,7 +84,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             
             # Run DE with enhanced parameters
             result = differential_evolution(
-                self.objective,
+                func=self.objective,  # Explicitly name the parameter
                 bounds=bounds,
                 strategy=self.strategy,
                 maxiter=self.maxiter,
@@ -92,11 +92,12 @@ class DifferentialEvolutionSolver(BaseSolver):
                 tol=self.tol,
                 mutation=self.mutation,
                 recombination=self.recombination,
-                init=population,
-                updating='immediate',  # Immediate updating for better convergence
-                workers=1,  # Sequential for better reproducibility
+                x0=initial_guess,  # Provide initial guess
+                init='array',  # Use array initialization
+                updating='immediate',
+                workers=-1,  # Use default serial processing
                 disp=False,
-                polish=False  # We'll do custom polishing
+                polish=False
             )
             
             # Polish the solution if promising
@@ -110,11 +111,15 @@ class DifferentialEvolutionSolver(BaseSolver):
             duration = time.time() - start_time
             logger.info(f"DE optimization completed in {duration:.2f} seconds")
             
+            # Process results
+            violation = self.get_violation(result.x)
+            success = violation < 1e-4 and result.success
+            
             return {
                 'x': result.x,
-                'fun': result.fun,
-                'success': result.success,
-                'message': result.message,
+                'fun': result.fun if success else float('inf'),
+                'success': success,
+                'message': result.message if success else f"Failed to find feasible solution (violation={violation:.2e})",
                 'nfev': result.nfev,
                 'time': duration
             }
