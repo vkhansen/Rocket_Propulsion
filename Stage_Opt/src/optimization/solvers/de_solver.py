@@ -71,6 +71,8 @@ class DifferentialEvolutionSolver(BaseSolver):
         result = self.objective(x)
         if isinstance(result, tuple):
             return float(result[0])  # Return just the objective value
+        if result == float('inf') or result > 1e10:  # Handle very large penalties
+            return float('inf')
         return float(result)
         
     def solve(self, initial_guess, bounds):
@@ -119,10 +121,16 @@ class DifferentialEvolutionSolver(BaseSolver):
             
             # Process results
             violation = self.get_violation(result.x)
-            success = violation < 1e-4 and result.fun < float('inf')  # Check both violation and objective
+            obj_value = self._objective_wrapper(result.x)
+            
+            # Check for both constraint satisfaction and valid objective
+            success = (violation < 1e-4 and 
+                      obj_value != float('inf') and 
+                      obj_value < 1e10 and
+                      not np.isnan(obj_value))
             
             if not success:
-                message = f"Failed to find feasible solution (violation={violation:.2e})"
+                message = f"Failed to find feasible solution (violation={violation:.2e}, obj={obj_value:.2e})"
             else:
                 message = "Optimization completed successfully"
             
@@ -130,7 +138,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             
             return {
                 'x': result.x,
-                'fun': result.fun if success else float('inf'),
+                'fun': obj_value if success else float('inf'),
                 'success': success,
                 'message': message,
                 'nfev': result.nfev,
@@ -160,7 +168,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             elif x[i] > upper:
                 violation += abs(x[i] - upper)
                 
-        return violation
+        return violation if violation < 1e10 else float('inf')  # Cap very large violations
 
     def objective(self, x):
         """Objective function with enhanced constraint handling."""
