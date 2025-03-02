@@ -84,6 +84,10 @@ class RocketStageProblem(Problem):
         self.best_feasible = None
         self.constraint_violations = []
         
+        # Initialize constraint thresholds
+        self.feasibility_threshold = 1e-4  # Threshold for considering a solution feasible
+        self.constraint_history = []  # Track constraint violations over time
+        
     def _evaluate(self, x, out, *args, **kwargs):
         """Evaluate objective function with caching.
         
@@ -131,16 +135,18 @@ class RocketStageProblem(Problem):
                     
                     # Update statistics
                     self.total_evals += 1
-                    if dv_constraint <= 0 and physical_constraint <= 0:  # Feasible solution
-                        if -objective < self.best_objective:  # Note: objective is negative for maximization
-                            self.best_objective = -objective
-                            self.best_feasible = x_i.copy()
                     
-                    # Track constraint violations
+                    # Track constraint violations with relative scaling
                     self.constraint_violations.append((dv_constraint, physical_constraint))
                     if len(self.constraint_violations) > 1000:  # Keep last 1000 evaluations
                         self.constraint_violations.pop(0)
-                        
+                    
+                    # Update best feasible solution
+                    if max(dv_constraint, physical_constraint) <= self.feasibility_threshold:
+                        if -objective < self.best_objective:  # Note: objective is negative for maximization
+                            self.best_objective = -objective
+                            self.best_feasible = x_i.copy()
+                            
                 except Exception as e:
                     logger.error(f"Error evaluating individual {i}: {str(e)}")
                     # Penalize this individual
@@ -152,6 +158,12 @@ class RocketStageProblem(Problem):
             out["F"] = F  # Objective values (to be minimized)
             out["G"] = G  # Constraints g(x) <= 0
             
+            # Update constraint history for adaptive handling
+            mean_violations = np.mean(G, axis=0)
+            self.constraint_history.append(mean_violations)
+            if len(self.constraint_history) > 100:  # Keep last 100 generations
+                self.constraint_history.pop(0)
+            
         except Exception as e:
             logger.error(f"Error in evaluation: {str(e)}")
             # Return highly penalized solutions for all individuals
@@ -162,12 +174,24 @@ class RocketStageProblem(Problem):
     def get_constraint_statistics(self):
         """Get statistics about constraint violations."""
         if not self.constraint_violations:
-            return {"dv_mean": 0.0, "dv_max": 0.0, "physical_mean": 0.0, "physical_max": 0.0}
+            return {
+                "dv_mean": 0.0, 
+                "dv_max": 0.0, 
+                "physical_mean": 0.0, 
+                "physical_max": 0.0,
+                "feasible_solutions": 0,
+                "total_evaluations": self.total_evals
+            }
             
         dv_violations, physical_violations = zip(*self.constraint_violations)
+        feasible_count = sum(1 for dv, phys in self.constraint_violations 
+                           if max(dv, phys) <= self.feasibility_threshold)
+        
         return {
-            "dv_mean": np.mean(dv_violations),
-            "dv_max": np.max(dv_violations),
-            "physical_mean": np.mean(physical_violations),
-            "physical_max": np.max(physical_violations)
+            "dv_mean": float(np.mean(dv_violations)),
+            "dv_max": float(np.max(dv_violations)),
+            "physical_mean": float(np.mean(physical_violations)),
+            "physical_max": float(np.max(physical_violations)),
+            "feasible_solutions": feasible_count,
+            "total_evaluations": self.total_evals
         }

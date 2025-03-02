@@ -54,18 +54,27 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
         payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
         objective = -payload_fraction  # Negative for minimization
         
-        # Calculate constraint violations
-        dv_constraint = abs(np.sum(dv) - TOTAL_DELTA_V)
+        # Calculate constraint violations with relative scaling
+        total_dv = np.sum(dv)
+        dv_constraint = abs(total_dv - TOTAL_DELTA_V) / TOTAL_DELTA_V  # Relative error
         
         # Physical constraints on stage ratios (should be between 0 and 1)
-        physical_constraint = np.sum(np.maximum(0, -stage_ratios)) + np.sum(np.maximum(0, stage_ratios - 1))
+        # Scale violations by the magnitude of violation
+        stage_ratio_min_violations = np.maximum(0, -stage_ratios)  # Violations below 0
+        stage_ratio_max_violations = np.maximum(0, stage_ratios - 1)  # Violations above 1
+        
+        # Normalize physical constraints by number of stages
+        physical_constraint = (np.sum(stage_ratio_min_violations) + np.sum(stage_ratio_max_violations)) / len(stage_ratios)
         
         if return_tuple:
             return (objective, dv_constraint, physical_constraint)
         else:
-            # Return penalized scalar objective
-            penalty_factor = 1000.0
-            return objective + penalty_factor * (dv_constraint + physical_constraint)
+            # Return penalized scalar objective with adaptive penalties
+            # Use smaller penalties for small violations to help solvers navigate the space
+            dv_penalty = 100.0 if dv_constraint > 0.1 else 10.0
+            physical_penalty = 100.0 if physical_constraint > 0.1 else 10.0
+            
+            return objective + dv_penalty * dv_constraint + physical_penalty * physical_constraint
         
     except Exception as e:
         logger.error(f"Error in objective calculation: {str(e)}")
