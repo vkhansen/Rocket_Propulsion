@@ -111,6 +111,50 @@ class BaseSolver(ABC):
         
         return is_feasible, total_violation
 
+    def project_to_feasible(self, x):
+        """Project solution to feasible space with high precision."""
+        x_proj = np.array(x, dtype=np.float64)  # Higher precision
+        
+        # First ensure bounds constraints
+        for i in range(len(self.bounds)):
+            lower, upper = self.bounds[i]
+            x_proj[i] = np.clip(x_proj[i], lower, upper)
+            
+        # Normalize to total ΔV with high precision
+        total = np.sum(x_proj)
+        if total > 0:
+            scale = self.TOTAL_DELTA_V / total
+            x_proj *= scale
+            
+            # High precision correction
+            error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
+            if error > 1e-10:
+                # Use L-BFGS-B for final projection
+                from scipy.optimize import minimize
+                
+                def proj_objective(x):
+                    return np.sum((x - x_proj)**2)
+                    
+                def total_constraint(x):
+                    return np.sum(x) - self.TOTAL_DELTA_V
+                    
+                constraints = {'type': 'eq', 'fun': total_constraint}
+                bounds = [(lower, upper) for lower, upper in self.bounds]
+                
+                result = minimize(
+                    proj_objective,
+                    x_proj,
+                    method='L-BFGS-B',
+                    bounds=bounds,
+                    constraints=constraints,
+                    options={'ftol': 1e-12, 'maxiter': 100}
+                )
+                
+                if result.success:
+                    x_proj = result.x
+                    
+        return x_proj
+
     def process_results(self, x: np.ndarray, success: bool = True, message: str = "", 
                        n_iterations: int = 0, n_function_evals: int = 0, 
                        time: float = 0.0) -> Dict:

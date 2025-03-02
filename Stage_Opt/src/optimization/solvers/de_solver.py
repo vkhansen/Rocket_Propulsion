@@ -1,7 +1,7 @@
 """Differential Evolution solver implementation."""
 import time
 import numpy as np
-from scipy.optimize import differential_evolution
+from scipy.optimize import differential_evolution, minimize
 from ...utils.config import logger
 from .base_solver import BaseSolver
 from ..objective import objective_with_penalty
@@ -109,13 +109,13 @@ class DifferentialEvolutionSolver(BaseSolver):
                 disp=False,
                 workers=1,
                 updating='deferred',
-                polish=True,
+                polish=True,  # Enable polishing step
                 seed=42
             )
             
             execution_time = time.time() - start_time
             
-            # Iterative projection of final solution
+            # Project final solution with L-BFGS-B
             x_final = result.x
             best_violation = float('inf')
             best_x = None
@@ -127,12 +127,42 @@ class DifferentialEvolutionSolver(BaseSolver):
                 if violation < best_violation:
                     best_violation = violation
                     best_x = x_try
+                    
+                    # If we found a good enough solution, stop trying
+                    if violation < 1e-8:
+                        break
+            
+            # One final L-BFGS-B polish if needed
+            if best_violation > 1e-8:
+                def final_objective(x):
+                    return self.objective(x)
+                    
+                def total_constraint(x):
+                    return np.sum(x) - self.TOTAL_DELTA_V
+                    
+                constraints = {'type': 'eq', 'fun': total_constraint}
+                
+                polish_result = minimize(
+                    final_objective,
+                    best_x,
+                    method='L-BFGS-B',
+                    bounds=bounds,
+                    constraints=constraints,
+                    options={'ftol': 1e-12, 'maxiter': 100}
+                )
+                
+                if polish_result.success:
+                    x_try = polish_result.x
+                    _, violation = self.check_constraints(x_try)
+                    if violation < best_violation:
+                        best_violation = violation
+                        best_x = x_try
             
             if best_violation < 1e-4:  # Only accept if we found a feasible solution
                 return self.process_results(
                     x=best_x,
-                    success=result.success,
-                    message=result.message,
+                    success=True,
+                    message="Optimization successful",
                     n_iterations=result.nit if hasattr(result, 'nit') else self.maxiter,
                     n_function_evals=result.nfev if hasattr(result, 'nfev') else 0,
                     time=execution_time

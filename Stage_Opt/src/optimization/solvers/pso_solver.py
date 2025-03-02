@@ -8,16 +8,15 @@ from ..objective import objective_with_penalty
 class ParticleSwarmOptimizer(BaseSolver):
     """PSO solver implementation."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None, n_particles=50, n_iterations=100,
-                 w=0.7, c1=2.0, c2=2.0):
-        """Initialize PSO solver with parameters."""
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, 
+                 n_particles=50, maxiter=100, w=0.6, c1=1.0, c2=1.0):
+        """Initialize PSO solver with problem parameters and PSO-specific settings."""
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.n_particles = n_particles
-        self.n_iterations = n_iterations
+        self.maxiter = maxiter
         self.w = w  # Inertia weight
-        self.c1 = c1  # Cognitive weight
-        self.c2 = c2  # Social weight
-        self.n_stages = len(bounds)
+        self.c1 = c1  # Cognitive parameter
+        self.c2 = c2  # Social parameter
         
     def project_to_feasible(self, x):
         """Project solution to feasible space with high precision."""
@@ -108,61 +107,72 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         return is_feasible, violation
         
-    def solve(self, initial_guess=None, bounds=None):
-        """Solve using PSO."""
+    def solve(self, initial_guess, bounds):
+        """Solve using Particle Swarm Optimization."""
         try:
             logger.info("Starting PSO optimization...")
             start_time = time.time()
             
-            # Initialize swarm
-            positions, velocities = self.initialize_swarm()
+            # Initialize particles with feasible solutions
+            positions = np.zeros((self.n_particles, self.n_stages))
+            velocities = np.zeros_like(positions)
             
-            # Initialize personal and global bests
-            p_best_positions = positions.copy()
-            p_best_fitness = np.array([float('-inf')] * self.n_particles)
-            g_best_position = None
-            g_best_fitness = float('-inf')
+            # Generate feasible initial population
+            for i in range(self.n_particles):
+                positions[i] = self.project_to_feasible(
+                    np.random.uniform(low=[b[0] for b in bounds], 
+                                    high=[b[1] for b in bounds], 
+                                    size=self.n_stages)
+                )
+                velocities[i] = np.random.uniform(-0.1, 0.1, self.n_stages)
+            
+            # Initialize personal and global best
+            p_best_pos = positions.copy()
+            p_best_scores = np.array([float('inf')] * self.n_particles)
+            g_best_pos = positions[0].copy()
+            g_best_score = float('inf')
             
             # Main optimization loop
-            for iteration in range(self.n_iterations):
-                # Evaluate all particles
+            best_violation = float('inf')
+            best_x = None
+            
+            for iteration in range(self.maxiter):
+                # Update each particle
                 for i in range(self.n_particles):
-                    # Project position to feasible space
-                    positions[i] = self.project_to_feasible(positions[i])
+                    # Project current position
+                    curr_pos = self.project_to_feasible(positions[i])
+                    positions[i] = curr_pos
                     
-                    # Check constraints
-                    is_feasible, violation = self.check_constraints(positions[i])
-                    if not is_feasible:
-                        continue  # Skip infeasible solutions
-                    
-                    # Evaluate fitness only for feasible solutions
-                    fitness = objective_with_penalty(
-                        dv=positions[i],
+                    # Evaluate objective
+                    score = objective_with_penalty(
+                        dv=curr_pos,
                         G0=self.G0,
                         ISP=self.ISP,
                         EPSILON=self.EPSILON,
                         TOTAL_DELTA_V=self.TOTAL_DELTA_V,
                         return_tuple=False
                     )
+                    _, violation = self.check_constraints(curr_pos)
                     
-                    # Update personal best (only if feasible)
-                    if fitness > p_best_fitness[i]:
-                        p_best_fitness[i] = fitness
-                        p_best_positions[i] = positions[i].copy()
+                    # Update personal best
+                    if violation < 1e-8 and score < p_best_scores[i]:
+                        p_best_pos[i] = curr_pos.copy()
+                        p_best_scores[i] = score
                         
                         # Update global best
-                        if fitness > g_best_fitness:
-                            g_best_fitness = fitness
-                            g_best_position = positions[i].copy()
-                
-                # Update velocities and positions
-                for i in range(self.n_particles):
-                    # Update velocity
+                        if score < g_best_score:
+                            g_best_pos = curr_pos.copy()
+                            g_best_score = score
+                    
+                    # Track best solution
+                    if violation < best_violation:
+                        best_violation = violation
+                        best_x = curr_pos.copy()
+                    
+                    # Update velocity with reduced cognitive/social terms
                     velocities[i] = self.update_velocity(
-                        velocities[i],
-                        positions[i],
-                        p_best_positions[i],
-                        g_best_position if g_best_position is not None else positions[i]
+                        velocities[i], positions[i], 
+                        p_best_pos[i], g_best_pos
                     )
                     
                     # Update position
@@ -173,30 +183,25 @@ class ParticleSwarmOptimizer(BaseSolver):
             
             execution_time = time.time() - start_time
             
-            # Final check of best solution
-            if g_best_position is not None:
-                g_best_position = self.project_to_feasible(g_best_position)
-                is_feasible, violation = self.check_constraints(g_best_position)
-                
-                if is_feasible:
-                    return self.process_results(
-                        x=g_best_position,
-                        success=True,
-                        message="Optimization completed successfully",
-                        n_iterations=self.n_iterations,
-                        n_function_evals=self.n_iterations * self.n_particles,
-                        time=execution_time
-                    )
-            
-            # If we get here, no feasible solution was found
-            return self.process_results(
-                x=initial_guess,
-                success=False,
-                message="Failed to find feasible solution",
-                n_iterations=self.n_iterations,
-                n_function_evals=self.n_iterations * self.n_particles,
-                time=execution_time
-            )
+            # Return best solution found
+            if best_violation < 1e-4:
+                return self.process_results(
+                    x=best_x,
+                    success=True,
+                    message="Optimization successful",
+                    n_iterations=self.maxiter,
+                    n_function_evals=self.maxiter * self.n_particles,
+                    time=execution_time
+                )
+            else:
+                return self.process_results(
+                    x=initial_guess,
+                    success=False,
+                    message=f"Failed to find feasible solution (violation={best_violation:.2e})",
+                    n_iterations=self.maxiter,
+                    n_function_evals=self.maxiter * self.n_particles,
+                    time=execution_time
+                )
                 
         except Exception as e:
             logger.error(f"Error in PSO solver: {str(e)}")
