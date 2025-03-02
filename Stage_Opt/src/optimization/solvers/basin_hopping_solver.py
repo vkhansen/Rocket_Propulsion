@@ -8,7 +8,7 @@ from ..objective import objective_with_penalty
 class BasinHoppingOptimizer(BaseSolver):
     """Basin Hopping optimization solver implementation."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, niter=100, T=1.0, stepsize=0.5, minimizer_options=None):
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, niter=100, T=1.0, stepsize=0.5, minimizer_options=None):
         """Initialize Basin Hopping optimizer with direct problem parameters and BH-specific settings.
         
         Args:
@@ -17,12 +17,13 @@ class BasinHoppingOptimizer(BaseSolver):
             EPSILON: List of structural coefficients for each stage
             TOTAL_DELTA_V: Required total delta-v
             bounds: List of (min, max) bounds for each variable
+            config: Configuration dictionary
             niter: Number of basin hopping iterations
             T: Temperature parameter for BH
             stepsize: Step size for local minimizer
             minimizer_options: Dictionary of options for the local minimizer
         """
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.niter = niter
         self.T = T
         self.stepsize = stepsize

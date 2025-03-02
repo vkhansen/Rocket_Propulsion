@@ -8,7 +8,7 @@ from ..objective import objective_with_penalty
 class DifferentialEvolutionSolver(BaseSolver):
     """Differential Evolution solver implementation."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, strategy='best1bin', maxiter=1000, popsize=15, tol=0.01, mutation=(0.5, 1), recombination=0.7):
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, strategy='best1bin', maxiter=1000, popsize=15, tol=0.01, mutation=(0.5, 1), recombination=0.7):
         """Initialize DE solver with direct problem parameters and DE-specific settings.
         
         Args:
@@ -17,6 +17,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             EPSILON: List of structural coefficients for each stage
             TOTAL_DELTA_V: Required total delta-v
             bounds: List of (min, max) bounds for each variable
+            config: Configuration dictionary
             strategy: DE strategy (default 'best1bin')
             maxiter: Maximum number of iterations
             popsize: Population size multiplier
@@ -24,7 +25,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             mutation: Mutation constant or tuple
             recombination: Recombination constant
         """
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         
         self.strategy = strategy
         self.maxiter = maxiter

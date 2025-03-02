@@ -8,10 +8,10 @@ from src.optimization.objective import objective_with_penalty
 class BaseGASolver(BaseSolver):
     """Base genetic algorithm solver for stage optimization."""
 
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, pop_size=100, n_gen=100,
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, pop_size=100, n_gen=100,
                  mutation_rate=0.1, crossover_rate=0.9, tournament_size=3):
         """Initialize solver with GA parameters."""
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.pop_size = pop_size
         self.n_gen = n_gen
         self.mutation_rate = mutation_rate

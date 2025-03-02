@@ -8,7 +8,7 @@ from ..objective import objective_with_penalty
 class ParticleSwarmOptimizer(BaseSolver):
     """Particle Swarm Optimization solver implementation."""
 
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, swarm_size=50, max_iterations=100, inertia=0.5, cognitive_factor=0.5, social_factor=0.5):
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, swarm_size=50, max_iterations=100, inertia=0.5, cognitive_factor=0.5, social_factor=0.5):
         """Initialize PSO solver with direct problem parameters and PSO-specific settings.
 
         Args:
@@ -17,13 +17,14 @@ class ParticleSwarmOptimizer(BaseSolver):
             EPSILON: List of structural coefficients for each stage
             TOTAL_DELTA_V: Required total delta-v
             bounds: List of (min, max) bounds for each variable
+            config: Configuration dictionary
             swarm_size: Number of particles in the swarm
             max_iterations: Maximum number of iterations
             inertia: Inertia coefficient
             cognitive_factor: Cognitive coefficient
             social_factor: Social coefficient
         """
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         
         self.swarm_size = swarm_size
         self.max_iterations = max_iterations

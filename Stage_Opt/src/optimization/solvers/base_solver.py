@@ -6,13 +6,13 @@ import numpy as np
 from ...utils.config import logger
 from ..cache import OptimizationCache
 from ..physics import calculate_stage_ratios, calculate_payload_fraction
-from ..objective import objective_with_penalty
+from ..objective import enforce_stage_constraints, objective_with_penalty
 
 class BaseSolver(ABC):
     """Base class for all optimization solvers."""
     
     def __init__(self, G0: float, ISP: List[float], EPSILON: List[float], 
-                 TOTAL_DELTA_V: float, bounds: List[Tuple[float, float]]):
+                 TOTAL_DELTA_V: float, bounds: List[Tuple[float, float]], config: Dict):
         """Initialize solver with problem parameters.
         
         Args:
@@ -21,12 +21,14 @@ class BaseSolver(ABC):
             EPSILON: List of structural coefficients for each stage
             TOTAL_DELTA_V: Required total delta-v
             bounds: List of (min, max) bounds for each variable
+            config: Configuration dictionary
         """
         self.G0 = float(G0)
         self.ISP = np.array(ISP, dtype=float)
         self.EPSILON = np.array(EPSILON, dtype=float)
         self.TOTAL_DELTA_V = float(TOTAL_DELTA_V)
         self.bounds = bounds
+        self.config = config
         
         # Initialize cache
         self.cache = OptimizationCache()
@@ -110,48 +112,54 @@ class BaseSolver(ABC):
             stage_ratios, mass_ratios = self.calculate_stage_ratios(x)
             payload_fraction = calculate_payload_fraction(mass_ratios)
             
-            # Calculate objective and constraints using main objective function
-            objective_value, dv_constraint, physical_constraint = objective_with_penalty(
+            # Calculate total constraint violation
+            constraint_violation = enforce_stage_constraints(
                 dv=x,
-                G0=self.G0,
-                ISP=self.ISP,
-                EPSILON=self.EPSILON,
-                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                return_tuple=True
+                total_dv_required=self.TOTAL_DELTA_V,
+                config=self.config
             )
             
+            # Check if solution is feasible (constraints satisfied within tolerance)
+            feasibility_threshold = 1e-4  # Threshold for considering constraints satisfied
+            is_feasible = constraint_violation <= feasibility_threshold
+            
+            # Build stages info if solution is feasible
+            stages = []
+            if is_feasible:
+                for i, (dv, mr, sr) in enumerate(zip(x, mass_ratios, stage_ratios)):
+                    stages.append({
+                        'stage': i + 1,
+                        'delta_v': float(dv),
+                        'Lambda': float(sr),
+                        'mass_ratio': float(mr)
+                    })
+            
             return {
-                'solver': self.name,
-                'success': success,
-                'message': message,
-                'x': x.tolist(),
-                'stage_ratios': stage_ratios.tolist(),
-                'mass_ratios': mass_ratios.tolist(),
-                'payload_fraction': float(payload_fraction),
-                'objective': float(objective_value),
-                'dv_constraint': float(dv_constraint),
-                'physical_constraint': float(physical_constraint),
-                'n_iterations': n_iterations,
-                'n_function_evals': n_function_evals,
-                'time': time
+                'success': success and is_feasible,
+                'message': message if is_feasible else "Solution violates constraints",
+                'payload_fraction': float(payload_fraction) if is_feasible else 0.0,
+                'constraint_violation': float(constraint_violation),
+                'execution_metrics': {
+                    'iterations': n_iterations,
+                    'function_evaluations': n_function_evals,
+                    'execution_time': time
+                },
+                'stages': stages
             }
             
         except Exception as e:
             logger.error(f"Error processing results: {str(e)}")
             return {
-                'solver': self.name,
                 'success': False,
                 'message': f"Failed to process results: {str(e)}",
-                'x': x.tolist() if isinstance(x, np.ndarray) else x,
-                'stage_ratios': [],
-                'mass_ratios': [],
                 'payload_fraction': 0.0,
-                'objective': float('inf'),
-                'dv_constraint': float('inf'),
-                'physical_constraint': float('inf'),
-                'n_iterations': n_iterations,
-                'n_function_evals': n_function_evals,
-                'time': time
+                'constraint_violation': float('inf'),
+                'execution_metrics': {
+                    'iterations': n_iterations,
+                    'function_evaluations': n_function_evals,
+                    'execution_time': time
+                },
+                'stages': []
             }
             
     @abstractmethod

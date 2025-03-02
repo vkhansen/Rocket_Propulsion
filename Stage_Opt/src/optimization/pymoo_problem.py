@@ -2,7 +2,7 @@
 import numpy as np
 from pymoo.core.problem import Problem
 from src.utils.config import logger
-from src.optimization.objective import payload_fraction_objective, enforce_stage_constraints, calculate_mass_ratios
+from src.optimization.objective import payload_fraction_objective, enforce_stage_constraints, calculate_payload_fraction
 from src.optimization.physics import calculate_stage_ratios
 from src.optimization.cache import OptimizationCache
 from src.optimization.parallel_solver import ParallelSolver
@@ -53,8 +53,9 @@ class RocketOptimizationProblem(Problem):
                 payload_fraction = cached_fitness
                 logger.debug(f"Cache hit for solution {i}")
             else:
-                # Calculate payload fraction
-                payload_fraction = -payload_fraction_objective(solution, self.G0, self.ISP, self.EPSILON)
+                # Calculate stage ratios and payload fraction
+                stage_ratios, mass_ratios = calculate_stage_ratios(solution, self.G0, self.ISP, self.EPSILON)
+                payload_fraction = calculate_payload_fraction(mass_ratios)
                 # Store in cache
                 self.cache.add(solution, payload_fraction)
                 logger.debug(f"Cache miss for solution {i}")
@@ -62,8 +63,18 @@ class RocketOptimizationProblem(Problem):
             # Store objective (negative since we're minimizing)
             f[i, 0] = -payload_fraction
             
-            # Calculate constraint violations using stored config
-            g[i, 0] = enforce_stage_constraints(solution, self.TOTAL_DELTA_V, self.config)
+            # Calculate constraint violations with scaling
+            violation = enforce_stage_constraints(solution, self.TOTAL_DELTA_V, self.config)
+            # Scale violations to help solver navigate constraint space
+            if violation > 0:
+                if violation > 1.0:  # Major violation
+                    g[i, 0] = 1000.0 * violation
+                elif violation > 0.1:  # Moderate violation
+                    g[i, 0] = 100.0 * violation
+                else:  # Minor violation
+                    g[i, 0] = 10.0 * violation
+            else:
+                g[i, 0] = 0.0
         
         out["F"] = f
         out["G"] = g

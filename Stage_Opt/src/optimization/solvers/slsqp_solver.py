@@ -9,9 +9,9 @@ import time
 class SLSQPSolver(BaseSolver):
     """SLSQP solver implementation."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, max_iterations=100, ftol=1e-6):
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, max_iterations=100, ftol=1e-6):
         """Initialize SLSQP solver with problem parameters."""
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds)
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.max_iterations = max_iterations
         self.ftol = ftol
         

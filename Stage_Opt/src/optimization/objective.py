@@ -3,6 +3,7 @@ import numpy as np
 from typing import Tuple, Dict, Union
 from .physics import calculate_stage_ratios, calculate_payload_fraction
 from .parallel_solver import ParallelSolver
+from .pymoo_problem import get_solver_config
 from ..utils.config import logger
 
 def payload_fraction_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.ndarray) -> float:
@@ -62,22 +63,23 @@ def enforce_stage_constraints(dv_array, total_dv_required, config=None):
     # Calculate stage fractions
     stage_fractions = dv_array / total_dv if total_dv > 0 else np.zeros_like(dv_array)
     
+    total_violation = dv_violation
+    
     # Check first stage constraints
     if len(stage_fractions) > 0:
         if stage_fractions[0] < min_fraction_first:
-            return abs(stage_fractions[0] - min_fraction_first) + dv_violation
+            total_violation += abs(stage_fractions[0] - min_fraction_first)
         if stage_fractions[0] > max_fraction_first:
-            return abs(stage_fractions[0] - max_fraction_first) + dv_violation
+            total_violation += abs(stage_fractions[0] - max_fraction_first)
     
     # Check other stage constraints
     for fraction in stage_fractions[1:]:
         if fraction < min_fraction_other:
-            return abs(fraction - min_fraction_other) + dv_violation
+            total_violation += abs(fraction - min_fraction_other)
         if fraction > max_fraction_other:
-            return abs(fraction - max_fraction_other) + dv_violation
+            total_violation += abs(fraction - max_fraction_other)
     
-    # If we reach here, only return total DV violation
-    return dv_violation
+    return total_violation
 
 def calculate_mass_ratios(stage_ratios, EPSILON):
     """Calculate mass ratios from stage ratios.
@@ -223,14 +225,22 @@ class RocketStageOptimizer:
         EPSILON = [float(stage['EPSILON']) for stage in self.stages]
         bounds = [(0, TOTAL_DELTA_V) for _ in range(len(self.stages))]
         
-        # Create solver instances with new interface
+        # Get solver configurations
+        slsqp_config = get_solver_config(self.config, 'slsqp')
+        ga_config = get_solver_config(self.config, 'ga')
+        adaptive_ga_config = get_solver_config(self.config, 'adaptive_ga')
+        pso_config = get_solver_config(self.config, 'pso')
+        de_config = get_solver_config(self.config, 'de')
+        basin_config = get_solver_config(self.config, 'basin')
+        
+        # Create solver instances with configs
         return [
-            SLSQPSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
-            GeneticAlgorithmSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
-            AdaptiveGeneticAlgorithmSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
-            ParticleSwarmOptimizer(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
-            DifferentialEvolutionSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds),
-            BasinHoppingOptimizer(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds)
+            SLSQPSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds, config=slsqp_config),
+            GeneticAlgorithmSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds, config=ga_config),
+            AdaptiveGeneticAlgorithmSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds, config=adaptive_ga_config),
+            ParticleSwarmOptimizer(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds, config=pso_config),
+            DifferentialEvolutionSolver(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds, config=de_config),
+            BasinHoppingOptimizer(G0=G0, ISP=ISP, EPSILON=EPSILON, TOTAL_DELTA_V=TOTAL_DELTA_V, bounds=bounds, config=basin_config)
         ]
     
     def solve(self, initial_guess, bounds):
