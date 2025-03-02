@@ -231,34 +231,31 @@ class DifferentialEvolutionSolver(BaseSolver):
             
             # Return best feasible solution if found, otherwise best overall
             if self.best_feasible is not None:
-                solution = self.best_feasible
-                score = self.best_feasible_score
-                success = True
+                return {
+                    'x': self.best_feasible,
+                    'success': True,
+                    'message': f"Iterations: {iteration}, Feasible: {self.n_feasible}, Infeasible: {self.n_infeasible}",
+                    'n_iterations': iteration,
+                    'n_function_evals': iteration * self.population_size
+                }
             else:
-                solution = best_solution
-                score = best_score
-                success = False
-            
-            # Process results
-            return self.process_results(
-                x=solution,
-                success=success,
-                message=f"Iterations: {iteration}, Feasible: {self.n_feasible}, Infeasible: {self.n_infeasible}",
-                n_iterations=iteration,
-                n_function_evals=iteration * self.population_size,
-                time=0.0  # Time tracking handled by base solver
-            )
+                return {
+                    'x': best_solution,
+                    'success': False,
+                    'message': "No feasible solution found",
+                    'n_iterations': iteration,
+                    'n_function_evals': iteration * self.population_size
+                }
             
         except Exception as e:
             logger.error(f"DE optimization failed: {str(e)}")
-            return self.process_results(
-                x=np.zeros(self.n_stages),
-                success=False,
-                message=f"Optimization failed: {str(e)}",
-                n_iterations=0,
-                n_function_evals=0,
-                time=0.0
-            )
+            return {
+                'x': np.zeros(self.n_stages),
+                'success': False,
+                'message': str(e),
+                'n_iterations': 0,
+                'n_function_evals': 0
+            }
 
     def solve(self, initial_guess, bounds):
         """Solve using enhanced Differential Evolution."""
@@ -270,13 +267,13 @@ class DifferentialEvolutionSolver(BaseSolver):
             result = self.optimize()
             duration = time.time() - start_time
             
-            # Return processed results with timing
+            # Process results
             return self.process_results(
-                x=result['x'] if isinstance(result, dict) else result,
-                success=result['success'] if isinstance(result, dict) else result.success,
-                message=result['message'] if isinstance(result, dict) else result.message,
-                n_iterations=result['n_iterations'] if isinstance(result, dict) else result.n_iterations,
-                n_function_evals=result['n_function_evals'] if isinstance(result, dict) else result.n_function_evals,
+                x=result['x'],
+                success=result['success'],
+                message=result['message'],
+                n_iterations=result['n_iterations'],
+                n_function_evals=result['n_function_evals'],
                 time=duration
             )
             
@@ -290,7 +287,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                 n_function_evals=0,
                 time=0.0
             )
-            
+
     def get_violation(self, x):
         """Calculate constraint violation."""
         total = np.sum(x)
