@@ -3,7 +3,7 @@ import numpy as np
 from typing import Tuple, Dict, Union
 from .physics import calculate_stage_ratios, calculate_payload_fraction
 from .parallel_solver import ParallelSolver
-from .pymoo_problem import get_solver_config
+from .solver_config import get_solver_config
 from ..utils.config import logger
 
 def payload_fraction_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.ndarray) -> float:

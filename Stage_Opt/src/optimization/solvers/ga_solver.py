@@ -8,7 +8,7 @@ from .base_ga_solver import BaseGASolver
 class GeneticAlgorithmSolver(BaseGASolver):
     """Genetic Algorithm solver implementation using pymoo framework."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, pop_size=100, n_gen=100, 
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None, pop_size=100, n_gen=100, 
                  mutation_rate=0.1, crossover_rate=0.9, tournament_size=3,
                  max_generations=100, min_diversity=1e-6, stagnation_generations=10, stagnation_threshold=1e-6):
         """Initialize GA solver with direct problem parameters and GA settings.
@@ -19,6 +19,7 @@ class GeneticAlgorithmSolver(BaseGASolver):
             EPSILON: List of structural coefficients for each stage
             TOTAL_DELTA_V: Required total delta-v
             bounds: List of (min, max) bounds for each variable
+            config: Optional solver configuration dictionary
             pop_size: Population size
             n_gen: Number of generations
             mutation_rate: Mutation rate
@@ -29,6 +30,19 @@ class GeneticAlgorithmSolver(BaseGASolver):
             stagnation_generations: Number of generations to consider stagnation
             stagnation_threshold: Threshold for stagnation detection
         """
+        # Get solver-specific parameters from config if provided
+        if config is not None:
+            solver_params = config.get('solver_specific', {})
+            pop_size = solver_params.get('population_size', pop_size)
+            n_gen = solver_params.get('n_generations', n_gen)
+            mutation_rate = solver_params.get('mutation_rate', mutation_rate)
+            crossover_rate = solver_params.get('crossover_rate', crossover_rate)
+            tournament_size = solver_params.get('tournament_size', tournament_size)
+            max_generations = solver_params.get('max_generations', max_generations)
+            min_diversity = solver_params.get('min_diversity', min_diversity)
+            stagnation_generations = solver_params.get('stagnation_generations', stagnation_generations)
+            stagnation_threshold = solver_params.get('stagnation_threshold', stagnation_threshold)
+        
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds,
                          pop_size=pop_size, n_gen=n_gen, mutation_rate=mutation_rate,
                          crossover_rate=crossover_rate, tournament_size=tournament_size)

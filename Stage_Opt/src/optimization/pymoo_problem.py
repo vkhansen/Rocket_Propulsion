@@ -6,6 +6,7 @@ from src.optimization.objective import payload_fraction_objective, enforce_stage
 from src.optimization.physics import calculate_stage_ratios
 from src.optimization.cache import OptimizationCache
 from src.optimization.parallel_solver import ParallelSolver
+from src.optimization.solver_config import get_solver_config
 
 class RocketOptimizationProblem(Problem):
     """Problem definition for rocket stage optimization."""

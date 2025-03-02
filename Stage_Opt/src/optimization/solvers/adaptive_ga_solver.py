@@ -7,19 +7,39 @@ from src.optimization.solvers.base_ga_solver import BaseGASolver
 class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     """Adaptive Genetic Algorithm solver implementation."""
     
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, 
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None,
                  pop_size=100, n_gen=100, mutation_rate=0.1, crossover_rate=0.9, tournament_size=3):
         """Initialize the adaptive GA solver."""
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, 
-                        pop_size, n_gen, mutation_rate, crossover_rate, tournament_size)
+        # Get solver-specific parameters from config if provided
+        if config is not None:
+            solver_params = config.get('solver_specific', {})
+            pop_size = solver_params.get('population_size', pop_size)
+            n_gen = solver_params.get('n_generations', n_gen)
+            mutation_rate = solver_params.get('initial_mutation_rate', mutation_rate)
+            crossover_rate = solver_params.get('initial_crossover_rate', crossover_rate)
+            tournament_size = solver_params.get('tournament_size', tournament_size)
         
-        # Initialize adaptive parameters
-        self.min_pop_size = 50
-        self.max_pop_size = 300
-        self.min_mutation_rate = 0.01
-        self.max_mutation_rate = 0.4
-        self.min_crossover_rate = 0.3
-        self.max_crossover_rate = 1.0
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config,
+                        pop_size=pop_size, n_gen=n_gen, mutation_rate=mutation_rate,
+                        crossover_rate=crossover_rate, tournament_size=tournament_size)
+        
+        # Initialize adaptive parameters with config values if provided
+        if config is not None:
+            solver_params = config.get('solver_specific', {})
+            self.min_pop_size = solver_params.get('min_population_size', 50)
+            self.max_pop_size = solver_params.get('max_population_size', 300)
+            self.min_mutation_rate = solver_params.get('min_mutation_rate', 0.01)
+            self.max_mutation_rate = solver_params.get('max_mutation_rate', 0.4)
+            self.min_crossover_rate = solver_params.get('min_crossover_rate', 0.3)
+            self.max_crossover_rate = solver_params.get('max_crossover_rate', 1.0)
+        else:
+            # Default adaptive parameters
+            self.min_pop_size = 50
+            self.max_pop_size = 300
+            self.min_mutation_rate = 0.01
+            self.max_mutation_rate = 0.4
+            self.min_crossover_rate = 0.3
+            self.max_crossover_rate = 1.0
         
         # Initialize tracking variables
         self.generations_without_improvement = 0
