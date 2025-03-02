@@ -68,7 +68,10 @@ class DifferentialEvolutionSolver(BaseSolver):
 
     def _objective_wrapper(self, x):
         """Wrapper for the objective function to ensure proper mapping."""
-        return float(self.objective(x))
+        result = self.objective(x)
+        if isinstance(result, tuple):
+            return float(result[0])  # Return just the objective value
+        return float(result)
         
     def solve(self, initial_guess, bounds):
         """Solve using enhanced Differential Evolution."""
@@ -166,7 +169,8 @@ class DifferentialEvolutionSolver(BaseSolver):
         try:
             result = objective_with_penalty(
                 x, self.G0, self.ISP, self.EPSILON,
-                self.TOTAL_DELTA_V, self.bounds
+                self.TOTAL_DELTA_V, self.bounds,
+                return_tuple=False  # Ensure we get a scalar value
             )
             return result
         except:
