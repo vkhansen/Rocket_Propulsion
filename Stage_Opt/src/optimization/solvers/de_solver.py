@@ -116,17 +116,23 @@ class DifferentialEvolutionSolver(BaseSolver):
                 result.fun = final_obj
             
             duration = time.time() - start_time
-            logger.info(f"DE optimization completed in {duration:.2f} seconds")
             
             # Process results
             violation = self.get_violation(result.x)
-            success = violation < 1e-4 and result.success
+            success = violation < 1e-4  # Only mark as success if constraints are satisfied
+            
+            if not success:
+                message = f"Failed to find feasible solution (violation={violation:.2e})"
+            else:
+                message = "Optimization completed successfully"
+            
+            logger.info(f"DE optimization completed in {duration:.2f} seconds. Success: {success}")
             
             return {
                 'x': result.x,
                 'fun': result.fun if success else float('inf'),
                 'success': success,
-                'message': result.message if success else f"Failed to find feasible solution (violation={violation:.2e})",
+                'message': message,
                 'nfev': result.nfev,
                 'time': duration
             }
