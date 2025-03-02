@@ -75,7 +75,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                     population[i,j] = samples[i,j] * (upper - lower) + lower
                 
                 # Then project to feasible space
-                population[i] = self.project_to_feasible(population[i])
+                population[i] = super().project_to_feasible(population[i])
                 
             return population
             
@@ -90,7 +90,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             for j in range(self.n_stages):
                 lower, upper = self.bounds[j]
                 population[i,j] = np.random.uniform(lower, upper)
-            population[i] = self.project_to_feasible(population[i])
+            population[i] = super().project_to_feasible(population[i])
         return population
 
     def optimize(self):
@@ -134,7 +134,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                     trial = np.where(cross_points, mutant, population[i])
                     
                     # Project to feasible space
-                    trial = self.project_to_feasible(trial)
+                    trial = super().project_to_feasible(trial)
                     
                     # Selection
                     trial_score = self.evaluate_population(trial.reshape(1,-1))[0]
@@ -220,64 +220,6 @@ class DifferentialEvolutionSolver(BaseSolver):
                 n_function_evals=0,
                 time=0.0
             )
-
-    def project_to_feasible(self, x):
-        """Project solution to feasible space with high precision."""
-        try:
-            # Convert to high precision
-            x = np.array(x, dtype=np.float64)
-            
-            # First normalize to total delta-v
-            total = np.sum(x)
-            if total > 0:
-                x *= self.TOTAL_DELTA_V / total
-            else:
-                # If total is 0, distribute evenly
-                x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
-            
-            # Then enforce bounds with iterative projection
-            for _ in range(10):  # Max iterations for convergence
-                # Project to bounds
-                for i in range(len(x)):
-                    lower, upper = self.bounds[i]
-                    x[i] = np.clip(x[i], lower, upper)
-                
-                # Re-normalize to maintain total delta-v
-                total = np.sum(x)
-                if total > 0:
-                    x *= self.TOTAL_DELTA_V / total
-            
-            # Final high-precision correction
-            error = abs(np.sum(x) - self.TOTAL_DELTA_V)
-            if error > 1e-10:
-                # Distribute error proportionally
-                correction = (self.TOTAL_DELTA_V - np.sum(x)) / len(x)
-                x += correction
-                
-                # Final bounds check
-                for i in range(len(x)):
-                    lower, upper = self.bounds[i]
-                    if x[i] < lower:
-                        x[i] = lower
-                        # Redistribute excess to other components
-                        excess = (lower - x[i]) / (len(x) - 1)
-                        for j in range(len(x)):
-                            if j != i:
-                                x[j] += excess
-                    elif x[i] > upper:
-                        x[i] = upper
-                        # Redistribute deficit to other components
-                        deficit = (x[i] - upper) / (len(x) - 1)
-                        for j in range(len(x)):
-                            if j != i:
-                                x[j] -= deficit
-            
-            return x
-            
-        except Exception as e:
-            logger.error(f"Error in projection: {str(e)}")
-            # Return evenly distributed fallback
-            return np.full(len(x), self.TOTAL_DELTA_V / len(x))
 
     def polish_solution(self, x, violation):
         """Polish promising solutions using L-BFGS-B."""
