@@ -34,10 +34,59 @@ class BasinHoppingOptimizer(BaseSolver):
             minimizer_options={self.minimizer_options}"
         )
         
+    def generate_initial_guess(self):
+        """Generate initial guess that satisfies total ΔV constraint."""
+        n_vars = len(self.bounds)
+        
+        # Generate random fractions that sum to 1
+        fractions = np.random.random(n_vars)
+        fractions /= np.sum(fractions)
+        
+        # Scale by total ΔV
+        x0 = fractions * self.TOTAL_DELTA_V
+        
+        # Ensure bounds constraints
+        for i in range(n_vars):
+            lower, upper = self.bounds[i]
+            x0[i] = np.clip(x0[i], lower, upper)
+        
+        # Re-normalize to maintain total ΔV
+        total = np.sum(x0)
+        if total > 0:
+            x0 *= self.TOTAL_DELTA_V / total
+            
+        return x0
+        
+    def take_step(self, x):
+        """Custom step-taking function that maintains total ΔV constraint."""
+        n_vars = len(self.bounds)
+        
+        # Take random step
+        step = np.random.normal(0, self.stepsize, n_vars)
+        new_x = x + step
+        
+        # Ensure bounds constraints
+        for i in range(n_vars):
+            lower, upper = self.bounds[i]
+            new_x[i] = np.clip(new_x[i], lower, upper)
+        
+        # Project back to total ΔV constraint
+        total = np.sum(new_x)
+        if total > 0:
+            new_x *= self.TOTAL_DELTA_V / total
+            
+        return new_x
+        
     def objective(self, x):
         """Objective function for Basin Hopping optimization."""
+        # Project solution to feasible space
+        x_scaled = x.copy()
+        total = np.sum(x_scaled)
+        if total > 0:
+            x_scaled *= self.TOTAL_DELTA_V / total
+            
         return objective_with_penalty(
-            dv=x,
+            dv=x_scaled,
             G0=self.G0,
             ISP=self.ISP,
             EPSILON=self.EPSILON,
@@ -51,23 +100,37 @@ class BasinHoppingOptimizer(BaseSolver):
             logger.info("Starting Basin Hopping optimization...")
             start_time = time.time()
             
-            minimizer_kwargs = {'method': 'L-BFGS-B', 'bounds': bounds}
+            # Generate feasible initial guess
+            x0 = self.generate_initial_guess()
+            
+            minimizer_kwargs = {
+                'method': 'L-BFGS-B',
+                'bounds': bounds,
+                'options': {'ftol': 1e-6, 'maxiter': 100}
+            }
             minimizer_kwargs.update(self.minimizer_options)
             
             result = basinhopping(
                 self.objective,
-                x0=initial_guess,
+                x0=x0,
                 minimizer_kwargs=minimizer_kwargs,
                 niter=self.niter,
                 T=self.T,
+                take_step=self.take_step,
                 stepsize=self.stepsize,
                 disp=False
             )
             
             execution_time = time.time() - start_time
             
+            # Project final solution to feasible space
+            x_final = result.x
+            total = np.sum(x_final)
+            if total > 0:
+                x_final *= self.TOTAL_DELTA_V / total
+            
             return self.process_results(
-                x=result.x,
+                x=x_final,
                 success=result.lowest_optimization_result.success,
                 message=result.lowest_optimization_result.message,
                 n_iterations=self.niter,

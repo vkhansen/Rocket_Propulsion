@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T17:39:55.097930",
+    "timestamp": "2025-03-02T17:44:08.025086",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -98,15 +98,15 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6245.835192425992,
-                    "Lambda": 0.11975968619383517,
+                    "delta_v": 6245.835236853644,
+                    "Lambda": 0.11975968438593791,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 3054.1648075740086,
-                    "Lambda": 0.41085316760193885,
+                    "delta_v": 3054.1647631463566,
+                    "Lambda": 0.410853172918159,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }
@@ -125,37 +125,52 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6245.835180030872,
-                    "Lambda": 0.1197596866982306,
+                    "delta_v": 6245.835216392312,
+                    "Lambda": 0.11975968521857222,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 3054.164819969129,
-                    "Lambda": 0.41085316611873673,
+                    "delta_v": 3054.164783607689,
+                    "Lambda": 0.41085317046975256,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }
             ]
         },
         "ParticleSwarmOptimizer": {
-            "success": false,
-            "message": "Solution violates constraints",
-            "payload_fraction": 0.0,
-            "constraint_violation": 9300.16,
+            "success": true,
+            "message": "PSO Optimization completed successfully",
+            "payload_fraction": 0.069147607559391,
+            "constraint_violation": 1.8189894035458565e-12,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
                 "execution_time": 0.0
             },
-            "stages": []
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 6245.83521739611,
+                    "Lambda": 0.11975968517772458,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 3054.1647826038916,
+                    "Lambda": 0.41085317058986714,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                }
+            ]
         },
         "DifferentialEvolutionSolver": {
             "success": false,
             "message": "Solution violates constraints",
             "payload_fraction": 0.0,
-            "constraint_violation": 0.20999999999999996,
+            "constraint_violation": 0.14985033042951584,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
@@ -164,16 +179,31 @@
             "stages": []
         },
         "BasinHoppingOptimizer": {
-            "success": false,
-            "message": "Solution violates constraints",
-            "payload_fraction": 0.0,
-            "constraint_violation": 0.15,
+            "success": true,
+            "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+            "payload_fraction": 0.08326515201664908,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
                 "execution_time": 0.0
             },
-            "stages": []
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 2744.7436043654097,
+                    "Lambda": 0.39351559041976947,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 6555.25639563459,
+                    "Lambda": 0.1481981129336954,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                }
+            ]
         }
     }
 }
