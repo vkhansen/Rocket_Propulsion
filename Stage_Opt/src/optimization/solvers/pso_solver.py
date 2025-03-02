@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 from ...utils.config import logger as global_logger
 from .base_solver import BaseSolver
 from .solver_logging import setup_solver_logger
+from .stage_constraints import enforce_stage_allocation
 
 class ParticleSwarmOptimizer(BaseSolver):
     """PSO solver implementation."""
@@ -31,7 +32,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         alpha = np.ones(self.n_stages) * 10.0  # Reduced from 15.0 for more variation
         
         # More relaxed minimum stage fraction - allow some stages to be smaller
-        min_stage_fraction = 0.5 / self.n_stages  # Reduced from 1.0/n_stages
+        min_stage_fraction = 0.05  # 5% minimum per stage
         max_retries = 100  # Prevent infinite loops
         
         self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
@@ -48,13 +49,10 @@ class ParticleSwarmOptimizer(BaseSolver):
                 if retry_count % 10 == 0:
                     self.logger.debug(f"Retrying initialization {retry_count} times for particle {i}")
             
-            # If we hit max retries, redistribute remaining delta-V
-            if retry_count >= max_retries:
-                self.logger.warning(f"Hit max retries for particle {i}, redistributing stages")
-                props = np.clip(props, min_stage_fraction, 1.0)
-                props = props / np.sum(props)  # Renormalize
-            
+            # If we hit max retries, enforce constraints
             positions[i] = props * self.TOTAL_DELTA_V
+            positions[i] = enforce_stage_allocation(positions[i], logger=self.logger)
+            
             if i < 3:  # Log first few particles
                 self.logger.debug(f"Initial position {i}: {positions[i]}")
         
@@ -146,34 +144,8 @@ class ParticleSwarmOptimizer(BaseSolver):
                     # Update position with velocity
                     new_position = positions[i] + velocities[i]
                     
-                    # Project position to feasible space using improved method
-                    new_position = self.iterative_projection(new_position)
-                    
-                    # Enforce stage balance constraints
-                    total_dv = np.sum(new_position)
-                    max_stage_dv = 0.8 * total_dv  # No stage should exceed 80% of total
-                    
-                    # Check and rebalance if any stage exceeds limit
-                    max_stage = np.max(new_position)
-                    if max_stage > max_stage_dv:
-                        self.logger.debug(f"Rebalancing particle {i} - Stage exceeds limit:")
-                        self.logger.debug(f"Before rebalance: {new_position}")
-                        excess = max_stage - max_stage_dv
-                        max_idx = np.argmax(new_position)
-                        new_position[max_idx] = max_stage_dv
-                        
-                        # Redistribute excess to other stages with safety check for zero-sum
-                        other_stages = list(range(self.n_stages))
-                        other_stages.remove(max_idx)
-                        other_sum = np.sum(new_position[other_stages])
-                        if other_sum > 1e-10:  # Use small threshold to avoid division by zero
-                            props = new_position[other_stages] / other_sum
-                        else:
-                            # If other stages have near-zero sum, distribute equally
-                            props = np.ones(len(other_stages)) / len(other_stages)
-                            self.logger.debug("Using equal redistribution due to near-zero sum")
-                        new_position[other_stages] += excess * props
-                        self.logger.debug(f"After rebalance: {new_position}")
+                    # Enforce stage allocation constraints
+                    new_position = enforce_stage_allocation(new_position, logger=self.logger)
                     
                     # Update position and evaluate
                     positions[i] = new_position

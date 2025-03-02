@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 from ...utils.config import logger as global_logger
 from .base_solver import BaseSolver
 from .solver_logging import setup_solver_logger
+from .stage_constraints import enforce_stage_allocation
 
 class DifferentialEvolutionSolver(BaseSolver):
     """Differential Evolution solver implementation."""
@@ -31,7 +32,7 @@ class DifferentialEvolutionSolver(BaseSolver):
         alpha = np.ones(self.n_stages) * 10.0  # Reduced from 15.0 for more variation
         
         # More relaxed minimum stage fraction - allow some stages to be smaller
-        min_stage_fraction = 0.5 / self.n_stages  # Reduced from 1.0/n_stages
+        min_stage_fraction = 0.05  # 5% minimum per stage
         max_retries = 100  # Prevent infinite loops
         
         self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
@@ -48,13 +49,10 @@ class DifferentialEvolutionSolver(BaseSolver):
                 if retry_count % 10 == 0:
                     self.logger.debug(f"Retrying initialization {retry_count} times for individual {i}")
             
-            # If we hit max retries, redistribute remaining delta-V
-            if retry_count >= max_retries:
-                self.logger.warning(f"Hit max retries for individual {i}, redistributing stages")
-                props = np.clip(props, min_stage_fraction, 1.0)
-                props = props / np.sum(props)  # Renormalize
-            
+            # If we hit max retries, enforce constraints
             population[i] = props * self.TOTAL_DELTA_V
+            population[i] = enforce_stage_allocation(population[i], logger=self.logger)
+            
             if i < 3:  # Log first few individuals
                 self.logger.debug(f"Initial position {i}: {population[i]}")
         
@@ -108,6 +106,9 @@ class DifferentialEvolutionSolver(BaseSolver):
         # Project to feasible space
         mutant = self.iterative_projection(mutant)
         
+        # Enforce stage allocation constraints
+        mutant = enforce_stage_allocation(mutant, logger=self.logger)
+        
         return mutant
 
     def crossover(self, target, mutant):
@@ -140,7 +141,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             self.logger.info("Starting DE optimization...")
             start_time = time.time()
             
-            # Initialize population using balanced distribution
+            # Initialize population
             population = self.initialize_population()
             
             # Evaluate initial population
