@@ -27,9 +27,26 @@ class BaseGASolver(BaseSolver):
         try:
             n_vars = len(self.bounds)
             population = np.zeros((self.pop_size, n_vars))
-            for i in range(n_vars):
-                lower, upper = self.bounds[i]
-                population[:, i] = np.random.uniform(lower, upper, self.pop_size)
+            
+            # Generate initial population ensuring total ΔV constraint
+            for p in range(self.pop_size):
+                # First generate random fractions that sum to 1
+                fractions = np.random.random(n_vars)
+                fractions /= np.sum(fractions)
+                
+                # Scale fractions by total ΔV
+                population[p] = fractions * self.TOTAL_DELTA_V
+                
+                # Ensure each component is within bounds
+                for i in range(n_vars):
+                    lower, upper = self.bounds[i]
+                    population[p,i] = np.clip(population[p,i], lower, upper)
+                
+                # Normalize to ensure total ΔV constraint
+                total = np.sum(population[p])
+                if total > 0:
+                    population[p] *= self.TOTAL_DELTA_V / total
+                    
             return population
         except Exception as e:
             logger.error(f"Error initializing population: {str(e)}")
@@ -86,7 +103,7 @@ class BaseGASolver(BaseSolver):
             return None
 
     def crossover(self, parent1, parent2):
-        """Perform crossover between parents."""
+        """Perform crossover between parents while maintaining total ΔV constraint."""
         try:
             if parent1 is None or parent2 is None:
                 return None, None
@@ -99,6 +116,22 @@ class BaseGASolver(BaseSolver):
             child1 = np.concatenate([parent1[:point], parent2[point:]])
             child2 = np.concatenate([parent2[:point], parent1[point:]])
             
+            # Normalize children to maintain total ΔV constraint
+            for child in [child1, child2]:
+                total = np.sum(child)
+                if total > 0:
+                    child *= self.TOTAL_DELTA_V / total
+                    
+                # Ensure bounds constraints
+                for i in range(len(child)):
+                    lower, upper = self.bounds[i]
+                    child[i] = np.clip(child[i], lower, upper)
+                    
+                # Final normalization after clipping
+                total = np.sum(child)
+                if total > 0:
+                    child *= self.TOTAL_DELTA_V / total
+            
             return child1, child2
             
         except Exception as e:
@@ -106,16 +139,38 @@ class BaseGASolver(BaseSolver):
             return None, None
 
     def mutate(self, individual):
-        """Perform mutation on individual."""
+        """Perform mutation on individual while maintaining total ΔV constraint."""
         try:
             if individual is None:
                 return None
                 
             mutated = individual.copy()
+            total_dv = np.sum(mutated)
+            
             for i in range(len(mutated)):
                 if np.random.random() < self.mutation_rate:
-                    lower, upper = self.bounds[i]
-                    mutated[i] = np.random.uniform(lower, upper)
+                    # Calculate allowed range for this component
+                    remaining_dv = total_dv - mutated[i]
+                    min_allowed = max(self.bounds[i][0], total_dv - remaining_dv)
+                    max_allowed = min(self.bounds[i][1], total_dv - remaining_dv)
+                    
+                    # Generate new value
+                    new_value = np.random.uniform(min_allowed, max_allowed)
+                    
+                    # Adjust other components proportionally
+                    if remaining_dv > 0:
+                        scale = (total_dv - new_value) / remaining_dv
+                        for j in range(len(mutated)):
+                            if j != i:
+                                mutated[j] *= scale
+                    
+                    mutated[i] = new_value
+                    
+            # Final normalization to ensure exact total ΔV
+            total = np.sum(mutated)
+            if total > 0:
+                mutated *= self.TOTAL_DELTA_V / total
+                
             return mutated
             
         except Exception as e:

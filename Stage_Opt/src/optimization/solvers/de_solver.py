@@ -39,10 +39,41 @@ class DifferentialEvolutionSolver(BaseSolver):
             f"popsize={popsize}, tol={tol}, mutation={mutation}, recombination={recombination}"
         )
         
+    def custom_init(self):
+        """Generate initial population that satisfies total ΔV constraint."""
+        n_vars = len(self.bounds)
+        population = np.zeros((self.popsize * n_vars, n_vars))
+        
+        for i in range(self.popsize * n_vars):
+            # Generate random fractions that sum to 1
+            fractions = np.random.random(n_vars)
+            fractions /= np.sum(fractions)
+            
+            # Scale by total ΔV
+            population[i] = fractions * self.TOTAL_DELTA_V
+            
+            # Ensure bounds constraints
+            for j in range(n_vars):
+                lower, upper = self.bounds[j]
+                population[i,j] = np.clip(population[i,j], lower, upper)
+            
+            # Re-normalize to maintain total ΔV
+            total = np.sum(population[i])
+            if total > 0:
+                population[i] *= self.TOTAL_DELTA_V / total
+                
+        return population
+        
     def objective(self, x):
         """Objective function for DE optimization."""
+        # Project solution to feasible space
+        x_scaled = x.copy()
+        total = np.sum(x_scaled)
+        if total > 0:
+            x_scaled *= self.TOTAL_DELTA_V / total
+            
         return objective_with_penalty(
-            dv=x,
+            dv=x_scaled,
             G0=self.G0,
             ISP=self.ISP,
             EPSILON=self.EPSILON,
@@ -65,13 +96,21 @@ class DifferentialEvolutionSolver(BaseSolver):
                 tol=self.tol,
                 mutation=self.mutation,
                 recombination=self.recombination,
-                disp=False
+                init='random',
+                disp=False,
+                workers=1  # Required for custom objective with state
             )
             
             execution_time = time.time() - start_time
             
+            # Project final solution to feasible space
+            x_final = result.x
+            total = np.sum(x_final)
+            if total > 0:
+                x_final *= self.TOTAL_DELTA_V / total
+            
             return self.process_results(
-                x=result.x,
+                x=x_final,
                 success=result.success,
                 message=result.message,
                 n_iterations=result.nit if hasattr(result, 'nit') else self.maxiter,

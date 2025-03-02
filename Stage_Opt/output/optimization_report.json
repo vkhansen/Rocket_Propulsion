@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T17:23:39.024333",
+    "timestamp": "2025-03-02T17:39:55.097930",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -62,7 +62,7 @@
             "success": true,
             "message": "Optimization terminated successfully",
             "payload_fraction": 0.07194710595394845,
-            "constraint_violation": 2.6619834174472156e-13,
+            "constraint_violation": 2.4756445782259107e-09,
             "execution_metrics": {
                 "iterations": 0,
                 "function_evaluations": 0,
@@ -86,72 +86,9 @@
             ]
         },
         "GeneticAlgorithmSolver": {
-            "success": false,
-            "message": "Solution violates constraints",
-            "payload_fraction": 0.0,
-            "constraint_violation": 0.9989195373619859,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.0
-            },
-            "stages": []
-        },
-        "AdaptiveGeneticAlgorithmSolver": {
-            "success": false,
-            "message": "Solution violates constraints",
-            "payload_fraction": 0.0,
-            "constraint_violation": 0.997702139130768,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.0
-            },
-            "stages": []
-        },
-        "ParticleSwarmOptimizer": {
-            "success": false,
-            "message": "Solution violates constraints",
-            "payload_fraction": 0.0,
-            "constraint_violation": 1.0,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.0
-            },
-            "stages": []
-        },
-        "DifferentialEvolutionSolver": {
             "success": true,
-            "message": "Optimization terminated successfully.",
-            "payload_fraction": 0.08061406597213161,
-            "constraint_violation": 1.4962654771103013e-13,
-            "execution_metrics": {
-                "iterations": 0,
-                "function_evaluations": 0,
-                "execution_time": 0.0
-            },
-            "stages": [
-                {
-                    "stage": 1,
-                    "delta_v": 9286.284723498522,
-                    "Lambda": 0.04262218144176992,
-                    "ISP": 0.0,
-                    "EPSILON": 0.0
-                },
-                {
-                    "stage": 2,
-                    "delta_v": 13.715276500086375,
-                    "Lambda": 0.9960134207714999,
-                    "ISP": 0.0,
-                    "EPSILON": 0.0
-                }
-            ]
-        },
-        "BasinHoppingOptimizer": {
-            "success": true,
-            "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
-            "payload_fraction": 0.12263182258429393,
+            "message": "Optimization completed successfully",
+            "payload_fraction": 0.06914760755939102,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 0,
@@ -161,19 +98,82 @@
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 0.0,
-                    "Lambda": 1.0,
+                    "delta_v": 6245.835192425992,
+                    "Lambda": 0.11975968619383517,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 },
                 {
                     "stage": 2,
-                    "delta_v": 9300.0,
-                    "Lambda": 0.06662959849392973,
+                    "delta_v": 3054.1648075740086,
+                    "Lambda": 0.41085316760193885,
                     "ISP": 0.0,
                     "EPSILON": 0.0
                 }
             ]
+        },
+        "AdaptiveGeneticAlgorithmSolver": {
+            "success": true,
+            "message": "Optimization completed successfully",
+            "payload_fraction": 0.06914760755939102,
+            "constraint_violation": 0.0,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 6245.835180030872,
+                    "Lambda": 0.1197596866982306,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 3054.164819969129,
+                    "Lambda": 0.41085316611873673,
+                    "ISP": 0.0,
+                    "EPSILON": 0.0
+                }
+            ]
+        },
+        "ParticleSwarmOptimizer": {
+            "success": false,
+            "message": "Solution violates constraints",
+            "payload_fraction": 0.0,
+            "constraint_violation": 9300.16,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "DifferentialEvolutionSolver": {
+            "success": false,
+            "message": "Solution violates constraints",
+            "payload_fraction": 0.0,
+            "constraint_violation": 0.20999999999999996,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "BasinHoppingOptimizer": {
+            "success": false,
+            "message": "Solution violates constraints",
+            "payload_fraction": 0.0,
+            "constraint_violation": 0.15,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
         }
     }
 }

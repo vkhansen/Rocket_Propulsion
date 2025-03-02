@@ -47,10 +47,31 @@ class ParticleSwarmOptimizer(BaseSolver):
             n_vars = len(self.bounds)
             self.swarm = np.zeros((self.swarm_size, n_vars))
             self.velocities = np.zeros((self.swarm_size, n_vars))
-            for i in range(n_vars):
-                lower, upper = self.bounds[i]
-                self.swarm[:, i] = np.random.uniform(lower, upper, self.swarm_size)
-                self.velocities[:, i] = np.random.uniform(-abs(upper-lower), abs(upper-lower), self.swarm_size)
+            
+            # Generate initial swarm ensuring total ΔV constraint
+            for p in range(self.swarm_size):
+                # First generate random fractions that sum to 1
+                fractions = np.random.random(n_vars)
+                fractions /= np.sum(fractions)
+                
+                # Scale fractions by total ΔV
+                self.swarm[p] = fractions * self.TOTAL_DELTA_V
+                
+                # Ensure each component is within bounds
+                for i in range(n_vars):
+                    lower, upper = self.bounds[i]
+                    self.swarm[p,i] = np.clip(self.swarm[p,i], lower, upper)
+                
+                # Normalize to ensure total ΔV constraint
+                total = np.sum(self.swarm[p])
+                if total > 0:
+                    self.swarm[p] *= self.TOTAL_DELTA_V / total
+                    
+                # Initialize velocities proportional to bounds range
+                for i in range(n_vars):
+                    lower, upper = self.bounds[i]
+                    self.velocities[p,i] = np.random.uniform(-0.1*(upper-lower), 0.1*(upper-lower))
+                    
             return True
         except Exception as e:
             logger.error(f"Error initializing swarm: {str(e)}")
@@ -80,19 +101,35 @@ class ParticleSwarmOptimizer(BaseSolver):
             return None
 
     def update_velocities_and_positions(self, personal_best, global_best):
-        """Update velocities and positions of the swarm."""
+        """Update velocities and positions of the swarm while maintaining constraints."""
         try:
             r1 = np.random.rand(self.swarm_size, len(self.bounds))
             r2 = np.random.rand(self.swarm_size, len(self.bounds))
             cognitive_velocity = self.cognitive_factor * r1 * (personal_best - self.swarm)
             social_velocity = self.social_factor * r2 * (global_best - self.swarm)
             self.velocities = self.inertia * self.velocities + cognitive_velocity + social_velocity
-            self.swarm = self.swarm + self.velocities
             
-            # Ensure particles are within bounds
+            # Dampen velocities to prevent large jumps
             for i in range(len(self.bounds)):
                 lower, upper = self.bounds[i]
-                self.swarm[:, i] = np.clip(self.swarm[:, i], lower, upper)
+                max_velocity = 0.1 * (upper - lower)
+                self.velocities[:, i] = np.clip(self.velocities[:, i], -max_velocity, max_velocity)
+            
+            # Update positions
+            self.swarm = self.swarm + self.velocities
+            
+            # Project particles back to feasible space
+            for p in range(self.swarm_size):
+                # First ensure bounds constraints
+                for i in range(len(self.bounds)):
+                    lower, upper = self.bounds[i]
+                    self.swarm[p,i] = np.clip(self.swarm[p,i], lower, upper)
+                
+                # Then ensure total ΔV constraint
+                total = np.sum(self.swarm[p])
+                if total > 0:
+                    self.swarm[p] *= self.TOTAL_DELTA_V / total
+            
             return True
         except Exception as e:
             logger.error(f"Error updating velocities and positions: {str(e)}")

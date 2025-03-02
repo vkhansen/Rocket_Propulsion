@@ -114,7 +114,7 @@ class BaseSolver(ABC):
             
             # Calculate total constraint violation
             constraint_violation = enforce_stage_constraints(
-                dv=x,
+                dv_array=x,
                 total_dv_required=self.TOTAL_DELTA_V,
                 config=self.config
             )
