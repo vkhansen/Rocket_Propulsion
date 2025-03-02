@@ -176,7 +176,7 @@ class ParticleSwarmOptimizer(BaseSolver):
                 
                 if not improved:
                     stall_count += 1
-                    if stall_count >= self.stall_generations:
+                    if stall_count >= self.stall_limit:
                         logger.info(f"PSO converged after {iteration + 1} iterations")
                         break
                 

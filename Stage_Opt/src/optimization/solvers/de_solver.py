@@ -167,7 +167,7 @@ class DifferentialEvolutionSolver(BaseSolver):
                 
                 if not improved:
                     stall_count += 1
-                    if stall_count >= self.stall_generations:
+                    if stall_count >= self.stall_limit:
                         logger.info(f"DE converged after {generation + 1} generations")
                         break
                 
