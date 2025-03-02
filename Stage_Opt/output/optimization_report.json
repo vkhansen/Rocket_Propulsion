@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T18:16:00.110865",
+    "timestamp": "2025-03-02T18:18:54.991089",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -66,7 +66,7 @@
             "execution_metrics": {
                 "iterations": 1,
                 "function_evaluations": 15,
-                "execution_time": 0.0035135746002197266
+                "execution_time": 0.0030791759490966797
             },
             "stages": [
                 {
@@ -89,84 +89,84 @@
         "GeneticAlgorithmSolver": {
             "success": true,
             "message": "Optimization completed successfully",
-            "payload_fraction": 0.06950978062098948,
-            "constraint_violation": 1.8189894035458565e-12,
+            "payload_fraction": 0.0692836446934357,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 200,
                 "function_evaluations": 20000,
-                "execution_time": 2.8373866081237793
+                "execution_time": 5.009814262390137
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6145.888544521399,
-                    "Lambda": 0.12389667156656188
+                    "delta_v": 5949.1110644426835,
+                    "Lambda": 0.1324639870508904
                 },
                 {
                     "stage": 2,
-                    "delta_v": 2630.14158042564,
-                    "Lambda": 0.46485791980646934
+                    "delta_v": 3240.8095693650293,
+                    "Lambda": 0.38911540908698306
                 },
                 {
                     "stage": 3,
-                    "delta_v": 523.9698750529623,
-                    "Lambda": 0.875001629946716
+                    "delta_v": 110.07936619228657,
+                    "Lambda": 0.9723369816979763
                 }
             ]
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": true,
             "message": "Optimization completed successfully",
-            "payload_fraction": 0.06923162002451154,
-            "constraint_violation": 1.8189894035458565e-12,
+            "payload_fraction": 0.06957273435084695,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 200,
                 "function_evaluations": 20000,
-                "execution_time": 3.030719518661499
+                "execution_time": 5.4968016147613525
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 6382.286901260635,
-                    "Lambda": 0.11433380513217349
+                    "delta_v": 5635.317810388469,
+                    "Lambda": 0.1473682287945136
                 },
                 {
                     "stage": 2,
-                    "delta_v": 2819.7912929830823,
-                    "Lambda": 0.43987769002495547
+                    "delta_v": 3541.496046212327,
+                    "Lambda": 0.3564883807535423
                 },
                 {
                     "stage": 3,
-                    "delta_v": 97.92180575628151,
-                    "Lambda": 0.9753542032001856
+                    "delta_v": 123.18614339920393,
+                    "Lambda": 0.9690946412180509
                 }
             ]
         },
         "ParticleSwarmOptimizer": {
             "success": true,
             "message": "Optimization successful",
-            "payload_fraction": 0.08850304192385325,
+            "payload_fraction": 0.07339332444002054,
             "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
                 "function_evaluations": 5000,
-                "execution_time": 0.8949429988861084
+                "execution_time": 1.336522102355957
             },
             "stages": [
                 {
                     "stage": 1,
-                    "delta_v": 1465.0065405642817,
-                    "Lambda": 0.6078703914090396
+                    "delta_v": 4140.898478499121,
+                    "Lambda": 0.24486870203396932
                 },
                 {
                     "stage": 2,
-                    "delta_v": 5449.238666801796,
-                    "Lambda": 0.20452197531243363
+                    "delta_v": 3625.1405185551857,
+                    "Lambda": 0.34790879485707676
                 },
                 {
                     "stage": 3,
-                    "delta_v": 2385.7547926339225,
-                    "Lambda": 0.5444438206307827
+                    "delta_v": 1533.9610029456933,
+                    "Lambda": 0.6764358333557197
                 }
             ]
         },
@@ -183,16 +183,32 @@
             "stages": []
         },
         "BasinHoppingOptimizer": {
-            "success": false,
-            "message": "Solution violates constraints (violation=8.57e-02)",
-            "payload_fraction": 0.0,
-            "constraint_violation": 0.08574358072869498,
+            "success": true,
+            "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+            "payload_fraction": 0.07544344939999713,
+            "constraint_violation": 0.0,
             "execution_metrics": {
                 "iterations": 100,
                 "function_evaluations": 0,
-                "execution_time": 0.10730791091918945
+                "execution_time": 0.15483951568603516
             },
-            "stages": []
+            "stages": [
+                {
+                    "stage": 1,
+                    "delta_v": 4652.054999044626,
+                    "Lambda": 0.2058271265306725
+                },
+                {
+                    "stage": 2,
+                    "delta_v": 1160.0390626106425,
+                    "Lambda": 0.7132958168599883
+                },
+                {
+                    "stage": 3,
+                    "delta_v": 3487.905938344731,
+                    "Lambda": 0.4111221453405273
+                }
+            ]
         }
     }
 }

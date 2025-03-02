@@ -21,7 +21,7 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.recombination = recombination
         self.n_stages = len(bounds)
         self.best_solution = None
-        self.best_fitness = float('-inf')
+        self.best_fitness = float('inf')
         self.best_violation = float('inf')
         
     def project_to_feasible(self, x):
@@ -66,6 +66,10 @@ class DifferentialEvolutionSolver(BaseSolver):
                 
         return best_x, best_obj
 
+    def _objective_wrapper(self, x):
+        """Wrapper for the objective function to ensure proper mapping."""
+        return float(self.objective(x))
+        
     def solve(self, initial_guess, bounds):
         """Solve using enhanced Differential Evolution."""
         try:
@@ -84,7 +88,7 @@ class DifferentialEvolutionSolver(BaseSolver):
             
             # Run DE with enhanced parameters
             result = differential_evolution(
-                func=self.objective,  # Explicitly name the parameter
+                func=self._objective_wrapper,  # Use wrapper function
                 bounds=bounds,
                 strategy=self.strategy,
                 maxiter=self.maxiter,
@@ -92,10 +96,10 @@ class DifferentialEvolutionSolver(BaseSolver):
                 tol=self.tol,
                 mutation=self.mutation,
                 recombination=self.recombination,
-                x0=initial_guess,  # Provide initial guess
-                init='array',  # Use array initialization
+                x0=initial_guess,
+                init='latinhypercube',  # Use Latin Hypercube sampling for better coverage
                 updating='immediate',
-                workers=-1,  # Use default serial processing
+                workers=1,  # Force single worker to avoid mapping issues
                 disp=False,
                 polish=False
             )
