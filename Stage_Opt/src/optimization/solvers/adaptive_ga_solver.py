@@ -39,18 +39,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     def create_problem(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> Problem:
         """Create optimization problem instance."""
         n_var = len(initial_guess)
-        xl = np.array([b[0] for b in bounds])
-        xu = np.array([b[1] for b in bounds])
+        bounds = np.array(bounds)  # Convert to numpy array
         
         return RocketStageProblem(
+            solver=self,
             n_var=n_var,
-            xl=xl,
-            xu=xu,
-            G0=self.G0,
-            ISP=self.ISP,
-            EPSILON=self.EPSILON,
-            TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-            cache=self.cache
+            bounds=bounds
         )
         
     def setup_algorithm(self) -> GA:
@@ -129,7 +123,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             algorithm = self.setup_algorithm()
             
             # Setup termination
-            termination = get_termination("n_gen", self.n_gen)
+            termination = get_termination("n_gen", self.n_generations)
             
             # Run optimization
             start_time = time.time()

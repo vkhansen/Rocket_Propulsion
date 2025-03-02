@@ -25,7 +25,7 @@ def calculate_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.
         logger.error(f"Error in objective calculation: {str(e)}")
         return 1e6  # Large penalty for failed calculations
 
-def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> float:
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> Tuple[float, float, float]:
     """Calculate objective value with penalties for constraint violations.
     
     Args:
@@ -36,7 +36,10 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> float:
         TOTAL_DELTA_V: Required total delta-v
         
     Returns:
-        float: Penalized objective value (scalar)
+        Tuple[float, float, float]: (objective, dv_constraint, physical_constraint)
+            - objective: Negative payload fraction (for minimization)
+            - dv_constraint: Delta-v constraint violation
+            - physical_constraint: Physical constraint violation
     """
     try:
         # Convert inputs to numpy arrays
@@ -56,15 +59,12 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> float:
         # Physical constraints on stage ratios (should be between 0 and 1)
         physical_constraint = np.sum(np.maximum(0, -stage_ratios)) + np.sum(np.maximum(0, stage_ratios - 1))
         
-        # Return negative payload fraction (for minimization) plus penalties
-        penalty_factor = 1000.0
-        objective = -payload_fraction + penalty_factor * (dv_constraint + physical_constraint)
-        
-        return float(objective)  # Ensure scalar return
+        # Return objective and constraints separately
+        return (-payload_fraction, dv_constraint, physical_constraint)
         
     except Exception as e:
         logger.error(f"Error in objective calculation: {str(e)}")
-        return float('inf')  # Return scalar infinity for failed calculations
+        return (float('inf'), float('inf'), float('inf'))  # Return tuple of infinities for failed calculations
 
 def get_constraint_violations(dv: np.ndarray, G0: float, ISP: np.ndarray, 
                             EPSILON: np.ndarray, TOTAL_DELTA_V: float) -> Tuple[float, float]:

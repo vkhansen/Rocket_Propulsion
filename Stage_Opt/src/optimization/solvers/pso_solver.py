@@ -34,17 +34,25 @@ class ParticleSwarmOptimizer(BaseSolver):
         
     def _evaluate_swarm(self, positions):
         """Evaluate fitness for all particles."""
-        return np.array([
-            objective_with_penalty(
+        fitness = []
+        for x in positions:
+            result = objective_with_penalty(
                 dv=x,
                 G0=self.G0,
                 ISP=self.ISP,
                 EPSILON=self.EPSILON,
                 TOTAL_DELTA_V=self.TOTAL_DELTA_V
             )
-            for x in positions
-        ])
-    
+            # Handle both scalar and tuple returns
+            if isinstance(result, tuple):
+                objective, dv_constraint, physical_constraint = result
+                # Add penalty for constraint violations
+                penalty_factor = 1000.0
+                fitness.append(objective + penalty_factor * (dv_constraint + physical_constraint))
+            else:
+                fitness.append(result)
+        return np.array(fitness)
+
     def solve(self, initial_guess, bounds):
         """Solve using Particle Swarm Optimization.
         
@@ -58,8 +66,8 @@ class ParticleSwarmOptimizer(BaseSolver):
         try:
             logger.info("Starting PSO optimization...")
             
-            # Get solver parameters
-            n_particles = int(self.solver_specific.get('n_particles', 50))
+            # Get solver parameters with safe defaults
+            n_particles = min(int(self.solver_specific.get('n_particles', 50)), 100)  # Cap at 100 particles
             n_iterations = int(self.solver_specific.get('n_iterations', 100))
             w = float(self.solver_specific.get('w', 0.7))  # Inertia weight
             c1 = float(self.solver_specific.get('c1', 2.0))  # Cognitive parameter
@@ -67,9 +75,19 @@ class ParticleSwarmOptimizer(BaseSolver):
             
             # Convert bounds to numpy array
             bounds = np.array(bounds)
+            n_dim = len(bounds)
             
-            # Initialize swarm
-            positions, velocities = self._initialize_swarm(n_particles, bounds)
+            # Initialize swarm with safe dimensions
+            positions = np.random.uniform(
+                low=bounds[:, 0],
+                high=bounds[:, 1],
+                size=(n_particles, n_dim)
+            )
+            velocities = np.random.uniform(
+                low=-1,
+                high=1,
+                size=(n_particles, n_dim)
+            )
             
             # Initialize best positions and fitness
             fitness = self._evaluate_swarm(positions)
@@ -125,5 +143,8 @@ class ParticleSwarmOptimizer(BaseSolver):
             return self.process_results(
                 x=initial_guess,
                 success=False,
-                message=str(e)
+                message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
+                time=0.0
             )

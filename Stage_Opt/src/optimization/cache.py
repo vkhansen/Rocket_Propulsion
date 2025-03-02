@@ -9,12 +9,27 @@ from ..utils.config import logger
 class OptimizationCache:
     """Cache for optimization results to avoid redundant calculations."""
     
-    def __init__(self):
-        """Initialize the cache."""
+    def __init__(self, cache_file=None, max_size=10000):
+        """Initialize the cache.
+        
+        Args:
+            cache_file: Optional file path to persist cache
+            max_size: Maximum number of entries in cache
+        """
         self.cache = {}
         self.hits = 0
         self.misses = 0
+        self.cache_file = cache_file
+        self.max_size = max_size
         
+        # Load from file if it exists
+        if cache_file and os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    self.cache = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading cache from file: {str(e)}")
+                
     def _hash_array(self, arr: np.ndarray) -> str:
         """Create a hash for a numpy array.
         
@@ -46,6 +61,18 @@ class OptimizationCache:
                     'result': result,
                     'timestamp': time.time()
                 }
+                
+                # Save to file if specified
+                if self.cache_file:
+                    try:
+                        with open(self.cache_file, 'w') as f:
+                            json.dump(self.cache, f)
+                    except Exception as e:
+                        logger.error(f"Error saving cache to file: {str(e)}")
+                        
+                # Limit cache size
+                if len(self.cache) > self.max_size:
+                    self.cache = dict(list(self.cache.items())[-self.max_size:])
         except Exception as e:
             logger.error(f"Error adding to cache: {str(e)}")
             
@@ -75,6 +102,13 @@ class OptimizationCache:
         self.hits = 0
         self.misses = 0
         
+        # Remove file if it exists
+        if self.cache_file and os.path.exists(self.cache_file):
+            try:
+                os.remove(self.cache_file)
+            except Exception as e:
+                logger.error(f"Error removing cache file: {str(e)}")
+                
     def get_stats(self) -> Dict:
         """Get cache statistics.
         

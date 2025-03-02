@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-03-02T04:41:09.459789",
+    "timestamp": "2025-03-02T15:00:49.734042",
     "configuration": {
         "optimization": {
             "tolerance": 1e-06,
@@ -60,20 +60,20 @@
     "results": {
         "SLSQPSolver": {
             "success": false,
-            "message": "Failed to process results: cannot unpack non-iterable float object",
-            "payload_fraction": 0.0,
+            "message": "The user-provided objective function must return a scalar value.",
+            "payload_fraction": 0.07194710595390245,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 9,
-                "function_evaluations": 44,
+                "iterations": 0,
+                "function_evaluations": 0,
                 "execution_time": 0.0
             },
             "stages": []
         },
         "GeneticAlgorithmSolver": {
             "success": false,
-            "message": "Failed to process results: cannot unpack non-iterable float object",
-            "payload_fraction": 0.0,
+            "message": "'NoneType' object is not subscriptable",
+            "payload_fraction": 0.07194710595390245,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
@@ -84,8 +84,20 @@
         },
         "AdaptiveGeneticAlgorithmSolver": {
             "success": false,
-            "message": "Failed to process results: cannot unpack non-iterable float object",
-            "payload_fraction": 0.0,
+            "message": "'NoneType' object is not subscriptable",
+            "payload_fraction": 0.07194710595390245,
+            "constraint_violation": Infinity,
+            "execution_metrics": {
+                "iterations": 0,
+                "function_evaluations": 0,
+                "execution_time": 0.0
+            },
+            "stages": []
+        },
+        "BasinHoppingOptimizer": {
+            "success": false,
+            "message": "The user-provided objective function must return a scalar value.",
+            "payload_fraction": 0.07194710595390245,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 0,
@@ -95,9 +107,9 @@
             "stages": []
         },
         "ParticleSwarmOptimizer": {
-            "success": false,
-            "message": "Failed to process results: cannot unpack non-iterable float object",
-            "payload_fraction": 0.0,
+            "success": true,
+            "message": "PSO optimization completed",
+            "payload_fraction": 0.08072705076935627,
             "constraint_violation": Infinity,
             "execution_metrics": {
                 "iterations": 100,
@@ -106,26 +118,14 @@
             },
             "stages": []
         },
-        "BasinHoppingOptimizer": {
-            "success": false,
-            "message": "Failed to process results: cannot unpack non-iterable float object",
-            "payload_fraction": 0.0,
-            "constraint_violation": Infinity,
-            "execution_metrics": {
-                "iterations": 100,
-                "function_evaluations": 4045,
-                "execution_time": 0.0
-            },
-            "stages": []
-        },
         "DifferentialEvolutionSolver": {
             "success": false,
-            "message": "Failed to process results: cannot unpack non-iterable float object",
-            "payload_fraction": 0.0,
+            "message": "func(x, *args) must return a scalar value",
+            "payload_fraction": 0.07194710595390245,
             "constraint_violation": Infinity,
             "execution_metrics": {
-                "iterations": 58,
-                "function_evaluations": 1969,
+                "iterations": 0,
+                "function_evaluations": 0,
                 "execution_time": 0.0
             },
             "stages": []
