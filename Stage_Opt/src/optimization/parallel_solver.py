@@ -2,6 +2,7 @@
 import concurrent.futures
 import time
 import psutil
+import signal
 from typing import List, Dict, Any
 from ..utils.config import logger
 
@@ -39,35 +40,54 @@ class ParallelSolver:
             
             # Create tasks for each solver
             tasks = []
+            results = {}
+            
+            # Use context manager to ensure proper cleanup
             with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-                for solver in solvers:
-                    solver_name = solver.__class__.__name__
-                    logger.debug(f"Submitting {solver_name}")
+                try:
+                    # Submit all tasks
+                    futures = {
+                        executor.submit(
+                            self._run_solver,
+                            solver,
+                            initial_guess,
+                            bounds
+                        ): solver.__class__.__name__ 
+                        for solver in solvers
+                    }
                     
-                    # Submit task with timeout
-                    future = executor.submit(
-                        self._run_solver,
-                        solver,
-                        initial_guess,
-                        bounds
+                    # Wait for completion with timeout
+                    completed = concurrent.futures.wait(
+                        futures.keys(),
+                        timeout=self.timeout,
+                        return_when=concurrent.futures.ALL_COMPLETED
                     )
-                    tasks.append((solver_name, future))
-                
-                # Collect results with timeout
-                results = {}
-                for solver_name, future in tasks:
-                    try:
-                        result = future.result(timeout=self.solver_timeout)
-                        if result is not None:
-                            results[solver_name] = result
-                            logger.info(f"{solver_name} completed successfully")
-                        else:
-                            logger.warning(f"{solver_name} failed to find valid solution")
-                    except concurrent.futures.TimeoutError:
-                        logger.warning(f"{solver_name} timed out after {self.solver_timeout}s")
-                    except Exception as e:
-                        logger.error(f"Error in {solver_name}: {str(e)}")
-                
+                    
+                    # Process completed tasks
+                    for future in completed.done:
+                        solver_name = futures[future]
+                        try:
+                            result = future.result(timeout=0)  # Already completed
+                            if result is not None:
+                                results[solver_name] = result
+                                logger.info(f"{solver_name} completed successfully")
+                            else:
+                                logger.warning(f"{solver_name} failed to find valid solution")
+                        except Exception as e:
+                            logger.error(f"Error in {solver_name}: {str(e)}")
+                    
+                    # Handle timeouts
+                    for future in completed.not_done:
+                        solver_name = futures[future]
+                        logger.warning(f"{solver_name} timed out")
+                        future.cancel()
+                        
+                except Exception as e:
+                    logger.error(f"Error during parallel execution: {str(e)}")
+                finally:
+                    # Ensure all processes are terminated
+                    executor._processes.clear()
+                    
             # Log summary
             elapsed = time.time() - start_time
             logger.info(f"Parallel optimization completed in {elapsed:.2f}s")
@@ -91,6 +111,9 @@ class ParallelSolver:
             dict: Solver results if successful, None otherwise
         """
         try:
+            # Set up process signal handlers
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            
             # Run solver and return results
             return solver.solve(initial_guess, bounds)
         except Exception as e:

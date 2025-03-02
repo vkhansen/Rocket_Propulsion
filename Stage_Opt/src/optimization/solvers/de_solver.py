@@ -21,9 +21,6 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.mutation_max = float(mutation_max)
         self.crossover_prob = float(crossover_prob)
         
-        # Setup dedicated logger
-        self.logger = setup_solver_logger("DE")
-
     def initialize_population(self):
         """Initialize population with balanced stage allocations."""
         self.logger.debug("Initializing DE population...")
@@ -129,6 +126,8 @@ class DifferentialEvolutionSolver(BaseSolver):
     def solve(self, initial_guess, bounds):
         """Solve using Differential Evolution."""
         try:
+            # Setup logger at the start of solve() for multiprocessing support
+            self.logger = setup_solver_logger("DE")
             self.logger.info("Starting DE optimization...")
             start_time = time.time()
             

@@ -21,9 +21,6 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.c1 = float(c1)  # Cognitive parameter
         self.c2 = float(c2)  # Social parameter
         
-        # Setup dedicated logger
-        self.logger = setup_solver_logger("PSO")
-
     def initialize_swarm(self):
         """Initialize particle swarm with positions and velocities."""
         self.logger.debug("Initializing PSO swarm...")
@@ -111,6 +108,8 @@ class ParticleSwarmOptimizer(BaseSolver):
     def solve(self, initial_guess, bounds):
         """Solve using Particle Swarm Optimization."""
         try:
+            # Setup logger at the start of solve() for multiprocessing support
+            self.logger = setup_solver_logger("PSO")
             self.logger.info("Starting PSO optimization...")
             start_time = time.time()
             
