@@ -83,28 +83,14 @@ class RocketStageProblem(Problem):
                     objective, dv_constraint, physical_constraint = cached_result
                 else:
                     # Calculate objective and constraints
-                    result = objective_with_penalty(
-                        x_i,
-                        self.solver.G0,
-                        self.solver.ISP,
-                        self.solver.EPSILON,
-                        self.solver.TOTAL_DELTA_V
+                    objective, dv_constraint, physical_constraint = objective_with_penalty(
+                        dv=x_i,
+                        G0=self.solver.G0,
+                        ISP=self.solver.ISP,
+                        EPSILON=self.solver.EPSILON,
+                        TOTAL_DELTA_V=self.solver.TOTAL_DELTA_V,
+                        return_tuple=True  # Always get tuple for PyMOO
                     )
-                    
-                    # Handle both scalar and tuple returns for backward compatibility
-                    if isinstance(result, tuple):
-                        objective, dv_constraint, physical_constraint = result
-                    else:
-                        # If scalar, use it as objective and compute constraints separately
-                        objective = result
-                        dv_constraint, physical_constraint = get_constraint_violations(
-                            x_i,
-                            self.solver.G0,
-                            self.solver.ISP,
-                            self.solver.EPSILON,
-                            self.solver.TOTAL_DELTA_V
-                        )
-                    
                     self.cache.add(x_tuple, (objective, dv_constraint, physical_constraint))
                 
                 # Store results for this individual

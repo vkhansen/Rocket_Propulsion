@@ -1,6 +1,6 @@
 """Objective functions for rocket stage optimization."""
 import numpy as np
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Union
 from .physics import calculate_stage_ratios, calculate_payload_fraction
 from ..utils.config import logger
 from .parallel_solver import ParallelSolver
@@ -25,7 +25,7 @@ def calculate_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSILON: np.
         logger.error(f"Error in objective calculation: {str(e)}")
         return 1e6  # Large penalty for failed calculations
 
-def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> Tuple[float, float, float]:
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=False) -> Union[float, Tuple[float, float, float]]:
     """Calculate objective value with penalties for constraint violations.
     
     Args:
@@ -34,12 +34,12 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> Tuple[float, 
         ISP: Array of specific impulse values for each stage
         EPSILON: Array of structural coefficients for each stage
         TOTAL_DELTA_V: Required total delta-v
+        return_tuple: If True, returns (objective, dv_constraint, physical_constraint)
+                     If False, returns penalized scalar objective
         
     Returns:
-        Tuple[float, float, float]: (objective, dv_constraint, physical_constraint)
-            - objective: Negative payload fraction (for minimization)
-            - dv_constraint: Delta-v constraint violation
-            - physical_constraint: Physical constraint violation
+        Union[float, Tuple[float, float, float]]: Either a scalar objective value or
+            a tuple of (objective, dv_constraint, physical_constraint)
     """
     try:
         # Convert inputs to numpy arrays
@@ -52,6 +52,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> Tuple[float, 
         
         # Calculate payload fraction
         payload_fraction = calculate_payload_fraction(mass_ratios, EPSILON)
+        objective = -payload_fraction  # Negative for minimization
         
         # Calculate constraint violations
         dv_constraint = abs(np.sum(dv) - TOTAL_DELTA_V)
@@ -59,12 +60,19 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V) -> Tuple[float, 
         # Physical constraints on stage ratios (should be between 0 and 1)
         physical_constraint = np.sum(np.maximum(0, -stage_ratios)) + np.sum(np.maximum(0, stage_ratios - 1))
         
-        # Return objective and constraints separately
-        return (-payload_fraction, dv_constraint, physical_constraint)
+        if return_tuple:
+            return (objective, dv_constraint, physical_constraint)
+        else:
+            # Return penalized scalar objective
+            penalty_factor = 1000.0
+            return objective + penalty_factor * (dv_constraint + physical_constraint)
         
     except Exception as e:
         logger.error(f"Error in objective calculation: {str(e)}")
-        return (float('inf'), float('inf'), float('inf'))  # Return tuple of infinities for failed calculations
+        if return_tuple:
+            return (float('inf'), float('inf'), float('inf'))
+        else:
+            return float('inf')
 
 def get_constraint_violations(dv: np.ndarray, G0: float, ISP: np.ndarray, 
                             EPSILON: np.ndarray, TOTAL_DELTA_V: float) -> Tuple[float, float]:

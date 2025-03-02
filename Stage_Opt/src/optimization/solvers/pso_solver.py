@@ -34,24 +34,17 @@ class ParticleSwarmOptimizer(BaseSolver):
         
     def _evaluate_swarm(self, positions):
         """Evaluate fitness for all particles."""
-        fitness = []
-        for x in positions:
-            result = objective_with_penalty(
+        return np.array([
+            objective_with_penalty(
                 dv=x,
                 G0=self.G0,
                 ISP=self.ISP,
                 EPSILON=self.EPSILON,
-                TOTAL_DELTA_V=self.TOTAL_DELTA_V
+                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                return_tuple=False  # Get scalar for PSO
             )
-            # Handle both scalar and tuple returns
-            if isinstance(result, tuple):
-                objective, dv_constraint, physical_constraint = result
-                # Add penalty for constraint violations
-                penalty_factor = 1000.0
-                fitness.append(objective + penalty_factor * (dv_constraint + physical_constraint))
-            else:
-                fitness.append(result)
-        return np.array(fitness)
+            for x in positions
+        ])
 
     def solve(self, initial_guess, bounds):
         """Solve using Particle Swarm Optimization.

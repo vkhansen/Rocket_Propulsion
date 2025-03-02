@@ -20,7 +20,8 @@ class SLSQPSolver(BaseSolver):
             G0=self.G0,
             ISP=self.ISP,
             EPSILON=self.EPSILON,
-            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+            TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+            return_tuple=False  # Get scalar for SLSQP
         )
         
     def solve(self, initial_guess, bounds):
@@ -59,5 +60,8 @@ class SLSQPSolver(BaseSolver):
             return self.process_results(
                 x=initial_guess,
                 success=False,
-                message=str(e)
+                message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
+                time=0.0
             )
