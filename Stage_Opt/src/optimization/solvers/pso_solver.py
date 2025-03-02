@@ -9,7 +9,7 @@ class ParticleSwarmOptimizer(BaseSolver):
     """PSO solver implementation."""
     
     def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, 
-                 n_particles=100, maxiter=200, w=0.7, c1=1.5, c2=1.5):
+                 n_particles=150, maxiter=300, w=0.9, c1=2.0, c2=2.0):
         """Initialize PSO solver with problem parameters and PSO-specific settings."""
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.n_particles = n_particles  # Increased for better coverage
@@ -18,6 +18,8 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.c1 = c1  # Stronger cognitive component
         self.c2 = c2  # Stronger social component
         self.n_stages = len(bounds)
+        self.w_min = 0.4  # For adaptive inertia
+        self.feasibility_threshold = 1e-6  # Tighter feasibility check
         
     def project_to_feasible(self, x):
         """Project solution to feasible space with high precision."""
@@ -64,20 +66,21 @@ class ParticleSwarmOptimizer(BaseSolver):
             positions = np.zeros((self.n_particles, self.n_stages))
             velocities = np.zeros((self.n_particles, self.n_stages))
             
+            # Scale to ensure total ΔV constraint
+            scale_factor = self.TOTAL_DELTA_V / self.n_stages
+            
             for i in range(self.n_particles):
-                # Scale samples to bounds
-                for j in range(self.n_stages):
-                    lower, upper = self.bounds[j]
-                    positions[i,j] = samples[i,j] * (upper - lower) + lower
+                # Initial distribution proportional to total ΔV
+                positions[i] = samples[i] * scale_factor
+                
+                # Ensure sum equals total ΔV
+                positions[i] = positions[i] / np.sum(positions[i]) * self.TOTAL_DELTA_V
                 
                 # Project to feasible space using base class method
                 positions[i] = super().project_to_feasible(positions[i])
                 
-                # Initialize velocities based on problem scale
-                for j in range(self.n_stages):
-                    lower, upper = self.bounds[j]
-                    range_j = upper - lower
-                    velocities[i,j] = np.random.uniform(-0.2, 0.2) * range_j
+                # Initialize velocities more conservatively
+                velocities[i] = np.random.uniform(-0.1, 0.1, self.n_stages) * scale_factor
                     
             return positions, velocities
             
@@ -107,17 +110,20 @@ class ParticleSwarmOptimizer(BaseSolver):
                 
         return positions, velocities
         
-    def update_velocity(self, velocity, position, p_best, g_best):
-        """Update particle velocity with improved stability."""
+    def update_velocity(self, velocity, position, p_best, g_best, iteration):
+        """Update particle velocity with improved stability and adaptive parameters."""
         r1, r2 = np.random.random(2)
         
+        # Adaptive inertia weight
+        w = self.w - (self.w - self.w_min) * (iteration / self.maxiter)
+        
         # Calculate new velocity with balanced exploration/exploitation
-        new_velocity = (self.w * velocity + 
+        new_velocity = (w * velocity + 
                        self.c1 * r1 * (p_best - position) +  # Cognitive
                        self.c2 * r2 * (g_best - position))   # Social
         
         # Apply velocity clamping
-        max_velocity = 0.2 * self.TOTAL_DELTA_V  # Increased to 20% of total ΔV
+        max_velocity = 0.1 * self.TOTAL_DELTA_V  # More conservative velocity limit
         new_velocity = np.clip(new_velocity, -max_velocity, max_velocity)
         
         return new_velocity
@@ -175,10 +181,16 @@ class ParticleSwarmOptimizer(BaseSolver):
                     # Evaluate with components
                     obj, dv_const, phys_const = self.evaluate_solution(curr_pos, return_components=True)
                     total_violation = dv_const + phys_const
-                    score = obj + total_violation
                     
-                    # Update personal best if better score and feasible
-                    if score < p_best_scores[i]:
+                    # Adaptive penalty scaling
+                    penalty = 100.0 if total_violation > 0.1 else 10.0
+                    score = obj + penalty * total_violation
+                    
+                    # Update personal best if better score or more feasible
+                    if score < p_best_scores[i] or (
+                        total_violation < self.feasibility_threshold and 
+                        obj < best_feasible_score
+                    ):
                         p_best_pos[i] = curr_pos.copy()
                         p_best_scores[i] = score
                         improved = True
@@ -194,25 +206,28 @@ class ParticleSwarmOptimizer(BaseSolver):
                             best_feasible_pos = curr_pos.copy()
                             best_feasible_score = obj
                             improved = True
+                            stall_count = 0
                     elif total_violation < best_violation:
                         best_violation = total_violation
                     
-                    # Update velocity and position
+                    # Update velocity and position with adaptive parameters
                     velocities[i] = self.update_velocity(
-                        velocities[i], positions[i],
-                        p_best_pos[i], g_best_pos
+                        velocities[i], positions[i], p_best_pos[i], g_best_pos, iteration
                     )
-                    positions[i] += velocities[i]
-                    
-                # Update stall count
+                    positions[i] = positions[i] + velocities[i]
+                
+                # Early stopping if no improvement
                 if not improved:
                     stall_count += 1
+                    if stall_count >= 50:  # Increased stall limit
+                        logger.info(f"Stopping early due to stall at iteration {iteration}")
+                        break
                 else:
                     stall_count = 0
-                    
-                # Early stopping if stalled
-                if stall_count >= 30:  # Increased from previous value
-                    break
+                
+                if iteration % 20 == 0:
+                    logger.info(f"Iteration {iteration}: Best score = {best_feasible_score:.6f}, "
+                              f"Violation = {best_violation:.6f}")
             
             execution_time = time.time() - start_time
             
