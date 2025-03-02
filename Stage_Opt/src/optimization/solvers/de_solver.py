@@ -26,24 +26,33 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.logger.debug("Initializing DE population...")
         
         population = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
-        # Increase alpha for more uniform distribution
-        alpha = np.ones(self.n_stages) * 15.0  # Increased from 5.0 to encourage more even distribution
         
-        # Minimum fraction of total delta-v per stage based on equal distribution
-        min_stage_fraction = 1.0 / self.n_stages  # Equal distribution baseline
+        # Use more balanced Dirichlet distribution
+        alpha = np.ones(self.n_stages) * 10.0  # Reduced from 15.0 for more variation
+        
+        # More relaxed minimum stage fraction - allow some stages to be smaller
+        min_stage_fraction = 0.5 / self.n_stages  # Reduced from 1.0/n_stages
+        max_retries = 100  # Prevent infinite loops
+        
         self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
         
         for i in range(self.population_size):
             # Generate balanced proportions using Dirichlet
             props = np.random.dirichlet(alpha)
             
-            # Ensure minimum stage allocation
+            # Allow more variation but prevent extremely small allocations
             retry_count = 0
-            while np.any(props < min_stage_fraction):
+            while np.any(props < min_stage_fraction) and retry_count < max_retries:
                 props = np.random.dirichlet(alpha)
                 retry_count += 1
                 if retry_count % 10 == 0:
                     self.logger.debug(f"Retrying initialization {retry_count} times for individual {i}")
+            
+            # If we hit max retries, redistribute remaining delta-V
+            if retry_count >= max_retries:
+                self.logger.warning(f"Hit max retries for individual {i}, redistributing stages")
+                props = np.clip(props, min_stage_fraction, 1.0)
+                props = props / np.sum(props)  # Renormalize
             
             population[i] = props * self.TOTAL_DELTA_V
             if i < 3:  # Log first few individuals
