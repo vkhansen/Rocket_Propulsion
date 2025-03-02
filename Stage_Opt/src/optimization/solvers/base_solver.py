@@ -1,6 +1,6 @@
 """Base solver class for optimization."""
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 import numpy as np
 
 from ...utils.config import logger
@@ -29,8 +29,19 @@ class BaseSolver(ABC):
         self.TOTAL_DELTA_V = float(TOTAL_DELTA_V)
         self.bounds = bounds
         self.config = config
-        self.n_stages = len(bounds)  # Number of stages
+        self.n_stages = len(bounds)
         self.name = self.__class__.__name__
+        
+        # Constraint parameters
+        self.feasibility_threshold = 1e-4
+        self.precision_threshold = 1e-10
+        self.max_projection_iterations = 10
+        
+        # Statistics tracking
+        self.n_feasible = 0
+        self.n_infeasible = 0
+        self.best_feasible = None
+        self.best_feasible_score = float('inf')
         
         logger.debug(f"Initialized {self.name} with {self.n_stages} stages")
         
@@ -62,18 +73,83 @@ class BaseSolver(ABC):
             logger.error(f"Error calculating stage ratios: {str(e)}")
             return np.zeros_like(self.ISP), np.zeros_like(self.ISP)
 
-    def enforce_constraints(self, x: np.ndarray):
-        """Enforce optimization constraints.
+    def project_to_feasible(self, x: np.ndarray) -> np.ndarray:
+        """Project solution to feasible space with high precision.
         
         Args:
-            x: Array of delta-v values
+            x: Input solution vector
             
         Returns:
-            Total constraint violation value
+            Projected solution satisfying all constraints
         """
         try:
-            # Calculate constraint violations using main objective function
-            _, dv_constraint, physical_constraint = objective_with_penalty(
+            # Convert to high precision
+            x = np.array(x, dtype=np.float64)
+            
+            # First normalize to total delta-v
+            total = np.sum(x)
+            if total > 0:
+                x *= self.TOTAL_DELTA_V / total
+            else:
+                x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
+            
+            # Iterative projection to handle bounds and total delta-v
+            for _ in range(self.max_projection_iterations):
+                # Project to bounds
+                for i in range(len(x)):
+                    lower, upper = self.bounds[i]
+                    x[i] = np.clip(x[i], lower, upper)
+                
+                # Re-normalize to maintain total delta-v
+                total = np.sum(x)
+                if total > 0:
+                    x *= self.TOTAL_DELTA_V / total
+            
+            # Final high-precision correction
+            error = abs(np.sum(x) - self.TOTAL_DELTA_V)
+            if error > self.precision_threshold:
+                # Distribute error proportionally
+                correction = (self.TOTAL_DELTA_V - np.sum(x)) / len(x)
+                x += correction
+                
+                # Final bounds check with redistribution
+                for i in range(len(x)):
+                    lower, upper = self.bounds[i]
+                    if x[i] < lower:
+                        excess = (lower - x[i]) / (len(x) - 1)
+                        x[i] = lower
+                        for j in range(len(x)):
+                            if j != i:
+                                x[j] += excess
+                    elif x[i] > upper:
+                        deficit = (x[i] - upper) / (len(x) - 1)
+                        x[i] = upper
+                        for j in range(len(x)):
+                            if j != i:
+                                x[j] -= deficit
+            
+            return x
+            
+        except Exception as e:
+            logger.error(f"Error in projection: {str(e)}")
+            return np.full(len(x), self.TOTAL_DELTA_V / len(x))
+
+    def evaluate_solution(self, x: np.ndarray, return_components: bool = False) -> Union[float, Tuple[float, float, float]]:
+        """Evaluate solution with constraint handling.
+        
+        Args:
+            x: Solution vector
+            return_components: If True, returns (objective, dv_violation, physical_violation)
+            
+        Returns:
+            Either total score or components tuple
+        """
+        try:
+            # Project to feasible space first
+            x = self.project_to_feasible(x)
+            
+            # Get objective and constraints
+            obj, dv_const, phys_const = objective_with_penalty(
                 dv=x,
                 G0=self.G0,
                 ISP=self.ISP,
@@ -81,12 +157,42 @@ class BaseSolver(ABC):
                 TOTAL_DELTA_V=self.TOTAL_DELTA_V,
                 return_tuple=True
             )
-            return float(abs(dv_constraint) + abs(physical_constraint))
             
+            # Track feasibility
+            total_violation = dv_const + phys_const
+            if total_violation <= self.feasibility_threshold:
+                self.n_feasible += 1
+                if obj < self.best_feasible_score:
+                    self.best_feasible = x.copy()
+                    self.best_feasible_score = obj
+            else:
+                self.n_infeasible += 1
+            
+            if return_components:
+                return obj, dv_const, phys_const
+            else:
+                return obj + total_violation
+                
         except Exception as e:
-            logger.error(f"Error enforcing constraints: {str(e)}")
-            return float('inf')
+            logger.error(f"Error evaluating solution: {str(e)}")
+            if return_components:
+                return float('inf'), float('inf'), float('inf')
+            else:
+                return float('inf')
+
+    def check_feasibility(self, x: np.ndarray) -> Tuple[bool, float]:
+        """Check if solution is feasible and get violation amount.
+        
+        Args:
+            x: Solution vector
             
+        Returns:
+            Tuple of (is_feasible, violation_amount)
+        """
+        _, dv_const, phys_const = self.evaluate_solution(x, return_components=True)
+        total_violation = dv_const + phys_const
+        return total_violation <= self.feasibility_threshold, total_violation
+
     def check_constraints(self, x):
         """Check if solution violates any constraints.
         
@@ -111,50 +217,6 @@ class BaseSolver(ABC):
         is_feasible = total_violation < 1e-6  # Strict tolerance
         
         return is_feasible, total_violation
-
-    def project_to_feasible(self, x):
-        """Project solution to feasible space with high precision."""
-        x_proj = np.array(x, dtype=np.float64)  # Higher precision
-        
-        # First ensure bounds constraints
-        for i in range(len(self.bounds)):
-            lower, upper = self.bounds[i]
-            x_proj[i] = np.clip(x_proj[i], lower, upper)
-            
-        # Normalize to total ΔV with high precision
-        total = np.sum(x_proj)
-        if total > 0:
-            scale = self.TOTAL_DELTA_V / total
-            x_proj *= scale
-            
-            # High precision correction
-            error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
-            if error > 1e-10:
-                # Use L-BFGS-B for final projection
-                from scipy.optimize import minimize
-                
-                def proj_objective(x):
-                    return np.sum((x - x_proj)**2)
-                    
-                def total_constraint(x):
-                    return np.sum(x) - self.TOTAL_DELTA_V
-                    
-                constraints = {'type': 'eq', 'fun': total_constraint}
-                bounds = [(lower, upper) for lower, upper in self.bounds]
-                
-                result = minimize(
-                    proj_objective,
-                    x_proj,
-                    method='L-BFGS-B',
-                    bounds=bounds,
-                    constraints=constraints,
-                    options={'ftol': 1e-12, 'maxiter': 100}
-                )
-                
-                if result.success:
-                    x_proj = result.x
-                    
-        return x_proj
 
     def process_results(self, x: np.ndarray, success: bool = True, message: str = "", 
                        n_iterations: int = 0, n_function_evals: int = 0, 

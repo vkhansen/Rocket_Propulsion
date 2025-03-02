@@ -30,145 +30,24 @@ class DifferentialEvolutionSolver(BaseSolver):
         self.adaptive_penalty = True
         self.penalty_factor = 10.0
         self.penalty_growth = 2.0
-        self.feasible_threshold = 1e-4
-        
-        # Statistics tracking
-        self.best_feasible = None
-        self.best_feasible_score = float('inf')
-        self.n_feasible = 0
-        self.n_infeasible = 0
-        
-    def project_to_feasible(self, x):
-        """Project solution to feasible space with high precision."""
-        try:
-            # Convert to high precision
-            x = np.array(x, dtype=np.float64)
-            
-            # First normalize to total delta-v
-            total = np.sum(x)
-            if total > 0:
-                x *= self.TOTAL_DELTA_V / total
-            else:
-                # If total is 0, distribute evenly
-                x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
-            
-            # Then enforce bounds with iterative projection
-            for _ in range(10):  # Max iterations for convergence
-                # Project to bounds
-                for i in range(len(x)):
-                    lower, upper = self.bounds[i]
-                    x[i] = np.clip(x[i], lower, upper)
-                
-                # Re-normalize to maintain total delta-v
-                total = np.sum(x)
-                if total > 0:
-                    x *= self.TOTAL_DELTA_V / total
-            
-            # Final high-precision correction
-            error = abs(np.sum(x) - self.TOTAL_DELTA_V)
-            if error > 1e-10:
-                # Distribute error proportionally
-                correction = (self.TOTAL_DELTA_V - np.sum(x)) / len(x)
-                x += correction
-                
-                # Final bounds check
-                for i in range(len(x)):
-                    lower, upper = self.bounds[i]
-                    if x[i] < lower:
-                        x[i] = lower
-                        # Redistribute excess to other components
-                        excess = (lower - x[i]) / (len(x) - 1)
-                        for j in range(len(x)):
-                            if j != i:
-                                x[j] += excess
-                    elif x[i] > upper:
-                        x[i] = upper
-                        # Redistribute deficit to other components
-                        deficit = (x[i] - upper) / (len(x) - 1)
-                        for j in range(len(x)):
-                            if j != i:
-                                x[j] -= deficit
-            
-            return x
-            
-        except Exception as e:
-            logger.error(f"Error in projection: {str(e)}")
-            # Return evenly distributed fallback
-            return np.full(len(x), self.TOTAL_DELTA_V / len(x))
 
-    def polish_solution(self, x, violation):
-        """Polish promising solutions using L-BFGS-B."""
-        if violation > 0.01:  # Only polish low-violation solutions
-            return x, self.objective(x)
-            
-        scales = np.linspace(0.98, 1.02, 5)  # Try multiple scaling factors
-        best_x = x
-        best_obj = self.objective(x)
-        
-        for scale in scales:
-            try:
-                result = minimize(
-                    self.objective,
-                    x * scale,
-                    method='L-BFGS-B',
-                    bounds=self.bounds,
-                    options={'ftol': 1e-10, 'maxiter': 100}
-                )
-                if result.success and result.fun < best_obj:
-                    best_x = result.x
-                    best_obj = result.fun
-            except:
-                continue
-                
-        return best_x, best_obj
-
-    def _objective_wrapper(self, x):
-        """Wrapper for the objective function to ensure proper mapping."""
-        result = self.objective(x)
-        if isinstance(result, tuple):
-            return float(result[0])  # Return just the objective value
-        if result == float('inf') or result > 1e10:  # Handle very large penalties
-            return float('inf')
-        return float(result)
-        
     def evaluate_population(self, population):
         """Evaluate population with adaptive penalties."""
         scores = np.zeros(len(population))
         for i, x in enumerate(population):
             try:
-                # Ensure solution is properly projected
-                x = self.project_to_feasible(x)
+                # Get objective and constraint components
+                obj, dv_const, phys_const = self.evaluate_solution(x, return_components=True)
                 
-                # Get raw objective and constraints
-                obj, dv_const, phys_const = objective_with_penalty(
-                    dv=x,
-                    G0=self.G0,
-                    ISP=self.ISP,
-                    EPSILON=self.EPSILON,
-                    TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                    return_tuple=True
-                )
-                
-                # Calculate total violation for feasibility check
-                total_violation = dv_const + phys_const
-                
-                # Track feasible solutions
-                if total_violation <= self.feasible_threshold:
-                    self.n_feasible += 1
-                    if obj < self.best_feasible_score:
-                        self.best_feasible = x.copy()
-                        self.best_feasible_score = obj
-                else:
-                    self.n_infeasible += 1
-                
-                # Calculate adaptive penalty
+                # Apply adaptive penalty
                 if self.adaptive_penalty:
                     penalty = self.penalty_factor
+                    total_violation = dv_const + phys_const
                     if total_violation > 0.1:
                         penalty *= self.penalty_growth
                     scores[i] = obj + penalty * total_violation
                 else:
-                    scores[i] = obj + self.penalty_factor * total_violation
+                    scores[i] = obj + self.penalty_factor * (dv_const + phys_const)
                     
             except Exception as e:
                 logger.error(f"Error evaluating solution: {str(e)}")
@@ -295,10 +174,12 @@ class DifferentialEvolutionSolver(BaseSolver):
                     'n_function_evals': iteration * self.population_size
                 }
             else:
+                # Check if best solution is feasible
+                is_feasible, violation = self.check_feasibility(best_solution)
                 return {
                     'x': best_solution,
-                    'success': False,
-                    'message': "No feasible solution found",
+                    'success': is_feasible,
+                    'message': "No feasible solution found" if not is_feasible else "Optimization successful",
                     'n_iterations': iteration,
                     'n_function_evals': iteration * self.population_size
                 }
@@ -316,14 +197,10 @@ class DifferentialEvolutionSolver(BaseSolver):
     def solve(self, initial_guess, bounds):
         """Solve using enhanced Differential Evolution."""
         try:
-            # Record start time
             start_time = time.time()
-            
-            # Run optimization
             result = self.optimize()
             duration = time.time() - start_time
             
-            # Process results
             return self.process_results(
                 x=result['x'],
                 success=result['success'],
@@ -344,6 +221,99 @@ class DifferentialEvolutionSolver(BaseSolver):
                 time=0.0
             )
 
+    def project_to_feasible(self, x):
+        """Project solution to feasible space with high precision."""
+        try:
+            # Convert to high precision
+            x = np.array(x, dtype=np.float64)
+            
+            # First normalize to total delta-v
+            total = np.sum(x)
+            if total > 0:
+                x *= self.TOTAL_DELTA_V / total
+            else:
+                # If total is 0, distribute evenly
+                x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
+            
+            # Then enforce bounds with iterative projection
+            for _ in range(10):  # Max iterations for convergence
+                # Project to bounds
+                for i in range(len(x)):
+                    lower, upper = self.bounds[i]
+                    x[i] = np.clip(x[i], lower, upper)
+                
+                # Re-normalize to maintain total delta-v
+                total = np.sum(x)
+                if total > 0:
+                    x *= self.TOTAL_DELTA_V / total
+            
+            # Final high-precision correction
+            error = abs(np.sum(x) - self.TOTAL_DELTA_V)
+            if error > 1e-10:
+                # Distribute error proportionally
+                correction = (self.TOTAL_DELTA_V - np.sum(x)) / len(x)
+                x += correction
+                
+                # Final bounds check
+                for i in range(len(x)):
+                    lower, upper = self.bounds[i]
+                    if x[i] < lower:
+                        x[i] = lower
+                        # Redistribute excess to other components
+                        excess = (lower - x[i]) / (len(x) - 1)
+                        for j in range(len(x)):
+                            if j != i:
+                                x[j] += excess
+                    elif x[i] > upper:
+                        x[i] = upper
+                        # Redistribute deficit to other components
+                        deficit = (x[i] - upper) / (len(x) - 1)
+                        for j in range(len(x)):
+                            if j != i:
+                                x[j] -= deficit
+            
+            return x
+            
+        except Exception as e:
+            logger.error(f"Error in projection: {str(e)}")
+            # Return evenly distributed fallback
+            return np.full(len(x), self.TOTAL_DELTA_V / len(x))
+
+    def polish_solution(self, x, violation):
+        """Polish promising solutions using L-BFGS-B."""
+        if violation > 0.01:  # Only polish low-violation solutions
+            return x, self.objective(x)
+            
+        scales = np.linspace(0.98, 1.02, 5)  # Try multiple scaling factors
+        best_x = x
+        best_obj = self.objective(x)
+        
+        for scale in scales:
+            try:
+                result = minimize(
+                    self.objective,
+                    x * scale,
+                    method='L-BFGS-B',
+                    bounds=self.bounds,
+                    options={'ftol': 1e-10, 'maxiter': 100}
+                )
+                if result.success and result.fun < best_obj:
+                    best_x = result.x
+                    best_obj = result.fun
+            except:
+                continue
+                
+        return best_x, best_obj
+
+    def _objective_wrapper(self, x):
+        """Wrapper for the objective function to ensure proper mapping."""
+        result = self.objective(x)
+        if isinstance(result, tuple):
+            return float(result[0])  # Return just the objective value
+        if result == float('inf') or result > 1e10:  # Handle very large penalties
+            return float('inf')
+        return float(result)
+        
     def get_violation(self, x):
         """Calculate constraint violation."""
         total = np.sum(x)

@@ -13,16 +13,6 @@
             "stage": 2,
             "ISP": 275.0,
             "EPSILON": 0.1
-        },
-        {
-            "stage": 4,
-            "ISP": 300.0,
-            "EPSILON": 0.09
-        },
-        {
-            "stage": 4,
-            "ISP": 400.0,
-            "EPSILON": 0.06
         }
     ]
 }
