@@ -86,6 +86,31 @@ class BaseSolver(ABC):
             logger.error(f"Error enforcing constraints: {str(e)}")
             return float('inf')
             
+    def check_constraints(self, x):
+        """Check if solution violates any constraints.
+        
+        Returns:
+            tuple: (is_feasible, violation_amount)
+            - is_feasible: True if solution satisfies all constraints
+            - violation_amount: Amount of constraint violation (0 if feasible)
+        """
+        # Check total ΔV constraint
+        total_dv = np.sum(x)
+        dv_violation = abs(total_dv - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
+        
+        # Check bounds constraints
+        bounds_violation = 0
+        for i, (lower, upper) in enumerate(self.bounds):
+            if x[i] < lower:
+                bounds_violation += abs(x[i] - lower) / self.TOTAL_DELTA_V
+            elif x[i] > upper:
+                bounds_violation += abs(x[i] - upper) / self.TOTAL_DELTA_V
+                
+        total_violation = dv_violation + bounds_violation
+        is_feasible = total_violation < 1e-6  # Strict tolerance
+        
+        return is_feasible, total_violation
+
     def process_results(self, x: np.ndarray, success: bool = True, message: str = "", 
                        n_iterations: int = 0, n_function_evals: int = 0, 
                        time: float = 0.0) -> Dict:

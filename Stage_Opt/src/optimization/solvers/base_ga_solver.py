@@ -9,7 +9,7 @@ class BaseGASolver(BaseSolver):
     """Base genetic algorithm solver for stage optimization."""
 
     def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None, pop_size=100, n_gen=100,
-                 mutation_rate=0.1, crossover_rate=0.9, tournament_size=3):
+                 mutation_rate=0.1, crossover_rate=0.9, tournament_size=3, mutation_std=1.0):
         """Initialize solver with GA parameters."""
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
         self.pop_size = pop_size
@@ -17,40 +17,42 @@ class BaseGASolver(BaseSolver):
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         self.tournament_size = tournament_size
+        self.mutation_std = mutation_std
         self.best_fitness = float('-inf')
         self.best_solution = None
         self.population = None
         self.fitness_values = None
+        self.n_stages = len(bounds)
         
     def initialize_population(self):
-        """Initialize random population within bounds."""
-        try:
-            n_vars = len(self.bounds)
-            population = np.zeros((self.pop_size, n_vars))
+        """Initialize population with solutions that satisfy constraints."""
+        population = []
+        for _ in range(self.pop_size):
+            # Generate random fractions that sum to 1
+            fractions = np.random.random(self.n_stages)
+            fractions /= np.sum(fractions)
             
-            # Generate initial population ensuring total ΔV constraint
-            for p in range(self.pop_size):
-                # First generate random fractions that sum to 1
-                fractions = np.random.random(n_vars)
-                fractions /= np.sum(fractions)
+            # Scale by total ΔV and ensure bounds
+            solution = fractions * self.TOTAL_DELTA_V
+            for i in range(self.n_stages):
+                lower, upper = self.bounds[i]
+                solution[i] = np.clip(solution[i], lower, upper)
+            
+            # Final normalization with high precision
+            total = np.sum(solution)
+            if total > 0:
+                solution = np.array(solution, dtype=np.float64)  # Higher precision
+                solution *= self.TOTAL_DELTA_V / total
                 
-                # Scale fractions by total ΔV
-                population[p] = fractions * self.TOTAL_DELTA_V
-                
-                # Ensure each component is within bounds
-                for i in range(n_vars):
-                    lower, upper = self.bounds[i]
-                    population[p,i] = np.clip(population[p,i], lower, upper)
-                
-                # Normalize to ensure total ΔV constraint
-                total = np.sum(population[p])
-                if total > 0:
-                    population[p] *= self.TOTAL_DELTA_V / total
+                # Verify and adjust for exact constraint
+                error = np.abs(np.sum(solution) - self.TOTAL_DELTA_V)
+                if error > 1e-10:
+                    # Distribute any remaining error proportionally
+                    adjustment = (self.TOTAL_DELTA_V - np.sum(solution)) / self.n_stages
+                    solution += adjustment
                     
-            return population
-        except Exception as e:
-            logger.error(f"Error initializing population: {str(e)}")
-            return None
+            population.append(solution)
+        return np.array(population)
 
     def evaluate_population(self, population):
         """Evaluate fitness for entire population."""
@@ -103,79 +105,62 @@ class BaseGASolver(BaseSolver):
             return None
 
     def crossover(self, parent1, parent2):
-        """Perform crossover between parents while maintaining total ΔV constraint."""
-        try:
-            if parent1 is None or parent2 is None:
-                return None, None
-                
-            if np.random.random() > self.crossover_rate:
-                return parent1.copy(), parent2.copy()
-                
-            # Single point crossover
-            point = np.random.randint(1, len(parent1))
-            child1 = np.concatenate([parent1[:point], parent2[point:]])
-            child2 = np.concatenate([parent2[:point], parent1[point:]])
+        """Perform crossover while maintaining total ΔV constraint."""
+        # Perform crossover
+        alpha = np.random.random()
+        child = alpha * parent1 + (1 - alpha) * parent2
+        
+        # Ensure bounds constraints
+        for i in range(self.n_stages):
+            lower, upper = self.bounds[i]
+            child[i] = np.clip(child[i], lower, upper)
+        
+        # High precision normalization
+        total = np.sum(child)
+        if total > 0:
+            child = np.array(child, dtype=np.float64)  # Higher precision
+            child *= self.TOTAL_DELTA_V / total
             
-            # Normalize children to maintain total ΔV constraint
-            for child in [child1, child2]:
-                total = np.sum(child)
-                if total > 0:
-                    child *= self.TOTAL_DELTA_V / total
-                    
-                # Ensure bounds constraints
-                for i in range(len(child)):
-                    lower, upper = self.bounds[i]
-                    child[i] = np.clip(child[i], lower, upper)
-                    
-                # Final normalization after clipping
-                total = np.sum(child)
-                if total > 0:
-                    child *= self.TOTAL_DELTA_V / total
-            
-            return child1, child2
-            
-        except Exception as e:
-            logger.error(f"Error in crossover: {str(e)}")
-            return None, None
+            # Verify and adjust for exact constraint
+            error = np.abs(np.sum(child) - self.TOTAL_DELTA_V)
+            if error > 1e-10:
+                # Distribute any remaining error proportionally
+                adjustment = (self.TOTAL_DELTA_V - np.sum(child)) / self.n_stages
+                child += adjustment
+        
+        return child
 
-    def mutate(self, individual):
-        """Perform mutation on individual while maintaining total ΔV constraint."""
-        try:
-            if individual is None:
-                return None
-                
-            mutated = individual.copy()
-            total_dv = np.sum(mutated)
+    def mutate(self, solution):
+        """Mutate a solution while maintaining total ΔV constraint."""
+        mutated = solution.copy()
+        
+        # Select two random stages for mutation
+        i, j = np.random.choice(self.n_stages, size=2, replace=False)
+        
+        # Generate random perturbation maintaining sum
+        delta = np.random.normal(0, self.mutation_std)
+        mutated[i] += delta
+        mutated[j] -= delta
+        
+        # Ensure bounds constraints
+        for idx in range(self.n_stages):
+            lower, upper = self.bounds[idx]
+            mutated[idx] = np.clip(mutated[idx], lower, upper)
+        
+        # High precision normalization
+        total = np.sum(mutated)
+        if total > 0:
+            mutated = np.array(mutated, dtype=np.float64)  # Higher precision
+            mutated *= self.TOTAL_DELTA_V / total
             
-            for i in range(len(mutated)):
-                if np.random.random() < self.mutation_rate:
-                    # Calculate allowed range for this component
-                    remaining_dv = total_dv - mutated[i]
-                    min_allowed = max(self.bounds[i][0], total_dv - remaining_dv)
-                    max_allowed = min(self.bounds[i][1], total_dv - remaining_dv)
-                    
-                    # Generate new value
-                    new_value = np.random.uniform(min_allowed, max_allowed)
-                    
-                    # Adjust other components proportionally
-                    if remaining_dv > 0:
-                        scale = (total_dv - new_value) / remaining_dv
-                        for j in range(len(mutated)):
-                            if j != i:
-                                mutated[j] *= scale
-                    
-                    mutated[i] = new_value
-                    
-            # Final normalization to ensure exact total ΔV
-            total = np.sum(mutated)
-            if total > 0:
-                mutated *= self.TOTAL_DELTA_V / total
-                
-            return mutated
-            
-        except Exception as e:
-            logger.error(f"Error in mutation: {str(e)}")
-            return None
+            # Verify and adjust for exact constraint
+            error = np.abs(np.sum(mutated) - self.TOTAL_DELTA_V)
+            if error > 1e-10:
+                # Distribute any remaining error proportionally
+                adjustment = (self.TOTAL_DELTA_V - np.sum(mutated)) / self.n_stages
+                mutated += adjustment
+        
+        return mutated
 
     def create_next_generation(self, population, fitness_values):
         """Create next generation through selection, crossover and mutation."""
@@ -202,25 +187,22 @@ class BaseGASolver(BaseSolver):
                         parent1, parent2 = population[idx1].copy(), population[idx2].copy()
                     
                     # Crossover
-                    child1, child2 = self.crossover(parent1, parent2)
-                    
-                    if child1 is None or child2 is None:
-                        child1, child2 = parent1.copy(), parent2.copy()
-                    
-                    # Mutation
-                    child1 = self.mutate(child1)
-                    child2 = self.mutate(child2)
+                    child1 = self.crossover(parent1, parent2)
                     
                     if child1 is None:
                         child1 = parent1.copy()
-                    if child2 is None:
-                        child2 = parent2.copy()
+                    
+                    # Mutation
+                    child1 = self.mutate(child1)
+                    
+                    if child1 is None:
+                        child1 = parent1.copy()
                     
                     # Add to new population
                     if i < len(population):
                         new_population[i] = child1
                     if i + 1 < len(population):
-                        new_population[i + 1] = child2
+                        new_population[i + 1] = child1.copy()
                         
                 except Exception as e:
                     logger.error(f"Error creating individuals {i}/{i+1}: {str(e)}")

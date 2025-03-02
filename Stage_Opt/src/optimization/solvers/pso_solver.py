@@ -6,181 +6,198 @@ from .base_solver import BaseSolver
 from ..objective import objective_with_penalty
 
 class ParticleSwarmOptimizer(BaseSolver):
-    """Particle Swarm Optimization solver implementation."""
-
-    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config, swarm_size=50, max_iterations=100, inertia=0.5, cognitive_factor=0.5, social_factor=0.5):
-        """Initialize PSO solver with direct problem parameters and PSO-specific settings.
-
-        Args:
-            G0: Gravitational constant
-            ISP: List of specific impulse values for each stage
-            EPSILON: List of structural coefficients for each stage
-            TOTAL_DELTA_V: Required total delta-v
-            bounds: List of (min, max) bounds for each variable
-            config: Configuration dictionary
-            swarm_size: Number of particles in the swarm
-            max_iterations: Maximum number of iterations
-            inertia: Inertia coefficient
-            cognitive_factor: Cognitive coefficient
-            social_factor: Social coefficient
-        """
+    """PSO solver implementation."""
+    
+    def __init__(self, G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config=None, n_particles=50, n_iterations=100,
+                 w=0.7, c1=2.0, c2=2.0):
+        """Initialize PSO solver with parameters."""
         super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config)
+        self.n_particles = n_particles
+        self.n_iterations = n_iterations
+        self.w = w  # Inertia weight
+        self.c1 = c1  # Cognitive weight
+        self.c2 = c2  # Social weight
+        self.n_stages = len(bounds)
         
-        self.swarm_size = swarm_size
-        self.max_iterations = max_iterations
-        self.inertia = inertia
-        self.cognitive_factor = cognitive_factor
-        self.social_factor = social_factor
+    def project_to_feasible(self, x):
+        """Project solution to feasible space with high precision."""
+        x_proj = np.array(x, dtype=np.float64)  # Higher precision
         
-        # Initialize swarm positions and velocities
-        self.swarm = None
-        self.velocities = None
+        # Ensure bounds constraints
+        for i in range(self.n_stages):
+            lower, upper = self.bounds[i]
+            x_proj[i] = np.clip(x_proj[i], lower, upper)
         
-        logger.debug(
-            f"Initialized {self.name} with parameters: swarm_size={swarm_size}, max_iterations={max_iterations}, "
-            f"inertia={inertia}, cognitive_factor={cognitive_factor}, social_factor={social_factor}"
-        )
-
-    def initialize_swarm(self):
-        """Initialize particle positions and velocities within bounds."""
-        try:
-            n_vars = len(self.bounds)
-            self.swarm = np.zeros((self.swarm_size, n_vars))
-            self.velocities = np.zeros((self.swarm_size, n_vars))
+        # Normalize to total ΔV
+        total = np.sum(x_proj)
+        if total > 0:
+            x_proj *= self.TOTAL_DELTA_V / total
             
-            # Generate initial swarm ensuring total ΔV constraint
-            for p in range(self.swarm_size):
-                # First generate random fractions that sum to 1
-                fractions = np.random.random(n_vars)
-                fractions /= np.sum(fractions)
+            # Verify and adjust for exact constraint
+            error = np.abs(np.sum(x_proj) - self.TOTAL_DELTA_V)
+            if error > 1e-10:
+                # Distribute remaining error proportionally
+                adjustment = (self.TOTAL_DELTA_V - np.sum(x_proj)) / self.n_stages
+                x_proj += adjustment
                 
-                # Scale fractions by total ΔV
-                self.swarm[p] = fractions * self.TOTAL_DELTA_V
-                
-                # Ensure each component is within bounds
-                for i in range(n_vars):
+                # Final bounds check after adjustment
+                for i in range(self.n_stages):
                     lower, upper = self.bounds[i]
-                    self.swarm[p,i] = np.clip(self.swarm[p,i], lower, upper)
+                    x_proj[i] = np.clip(x_proj[i], lower, upper)
                 
-                # Normalize to ensure total ΔV constraint
-                total = np.sum(self.swarm[p])
-                if total > 0:
-                    self.swarm[p] *= self.TOTAL_DELTA_V / total
-                    
-                # Initialize velocities proportional to bounds range
-                for i in range(n_vars):
-                    lower, upper = self.bounds[i]
-                    self.velocities[p,i] = np.random.uniform(-0.1*(upper-lower), 0.1*(upper-lower))
-                    
-            return True
-        except Exception as e:
-            logger.error(f"Error initializing swarm: {str(e)}")
-            return False
-
-    def evaluate_swarm(self):
-        """Evaluate the fitness of each particle in the swarm."""
+                # One final normalization if needed
+                total = np.sum(x_proj)
+                if np.abs(total - self.TOTAL_DELTA_V) > 1e-10:
+                    x_proj *= self.TOTAL_DELTA_V / total
+        
+        return x_proj
+        
+    def initialize_swarm(self):
+        """Initialize particle swarm with feasible solutions."""
+        positions = np.zeros((self.n_particles, self.n_stages))
+        velocities = np.zeros((self.n_particles, self.n_stages))
+        
+        for i in range(self.n_particles):
+            # Generate random fractions that sum to 1
+            fractions = np.random.random(self.n_stages)
+            fractions /= np.sum(fractions)
+            
+            # Scale by total ΔV and project to feasible space
+            positions[i] = self.project_to_feasible(fractions * self.TOTAL_DELTA_V)
+            
+            # Initialize velocities as small random values
+            for j in range(self.n_stages):
+                lower, upper = self.bounds[j]
+                range_j = upper - lower
+                velocities[i,j] = np.random.uniform(-0.1, 0.1) * range_j
+                
+        return positions, velocities
+        
+    def update_velocity(self, velocity, position, p_best, g_best):
+        """Update particle velocity with damping for stability."""
+        r1, r2 = np.random.random(2)
+        
+        # Calculate new velocity
+        new_velocity = (self.w * velocity + 
+                       self.c1 * r1 * (p_best - position) +
+                       self.c2 * r2 * (g_best - position))
+        
+        # Apply velocity damping for stability
+        max_velocity = 0.1 * self.TOTAL_DELTA_V  # Max 10% of total ΔV
+        new_velocity = np.clip(new_velocity, -max_velocity, max_velocity)
+        
+        return new_velocity
+        
+    def check_constraints(self, x):
+        """Check if solution satisfies constraints."""
+        is_feasible = True
+        violation = 0
+        
+        # Check bounds constraints
+        for i in range(self.n_stages):
+            lower, upper = self.bounds[i]
+            if x[i] < lower or x[i] > upper:
+                is_feasible = False
+                violation += 1
+        
+        # Check total ΔV constraint
+        total = np.sum(x)
+        if np.abs(total - self.TOTAL_DELTA_V) > 1e-10:
+            is_feasible = False
+            violation += 1
+        
+        return is_feasible, violation
+        
+    def solve(self, initial_guess=None, bounds=None):
+        """Solve using PSO."""
         try:
-            fitness_values = np.zeros(self.swarm_size)
-            for i in range(self.swarm_size):
-                try:
+            logger.info("Starting PSO optimization...")
+            start_time = time.time()
+            
+            # Initialize swarm
+            positions, velocities = self.initialize_swarm()
+            
+            # Initialize personal and global bests
+            p_best_positions = positions.copy()
+            p_best_fitness = np.array([float('-inf')] * self.n_particles)
+            g_best_position = None
+            g_best_fitness = float('-inf')
+            
+            # Main optimization loop
+            for iteration in range(self.n_iterations):
+                # Evaluate all particles
+                for i in range(self.n_particles):
+                    # Project position to feasible space
+                    positions[i] = self.project_to_feasible(positions[i])
+                    
+                    # Check constraints
+                    is_feasible, violation = self.check_constraints(positions[i])
+                    if not is_feasible:
+                        continue  # Skip infeasible solutions
+                    
+                    # Evaluate fitness only for feasible solutions
                     fitness = objective_with_penalty(
-                        dv=self.swarm[i],
+                        dv=positions[i],
                         G0=self.G0,
                         ISP=self.ISP,
                         EPSILON=self.EPSILON,
                         TOTAL_DELTA_V=self.TOTAL_DELTA_V,
                         return_tuple=False
                     )
-                    fitness_values[i] = fitness if fitness is not None else float('-inf')
-                except Exception as inner_e:
-                    logger.error(f"Error evaluating particle {i}: {str(inner_e)}")
-                    fitness_values[i] = float('-inf')
-            return fitness_values
-        except Exception as e:
-            logger.error(f"Error evaluating swarm: {str(e)}")
-            return None
-
-    def update_velocities_and_positions(self, personal_best, global_best):
-        """Update velocities and positions of the swarm while maintaining constraints."""
-        try:
-            r1 = np.random.rand(self.swarm_size, len(self.bounds))
-            r2 = np.random.rand(self.swarm_size, len(self.bounds))
-            cognitive_velocity = self.cognitive_factor * r1 * (personal_best - self.swarm)
-            social_velocity = self.social_factor * r2 * (global_best - self.swarm)
-            self.velocities = self.inertia * self.velocities + cognitive_velocity + social_velocity
-            
-            # Dampen velocities to prevent large jumps
-            for i in range(len(self.bounds)):
-                lower, upper = self.bounds[i]
-                max_velocity = 0.1 * (upper - lower)
-                self.velocities[:, i] = np.clip(self.velocities[:, i], -max_velocity, max_velocity)
-            
-            # Update positions
-            self.swarm = self.swarm + self.velocities
-            
-            # Project particles back to feasible space
-            for p in range(self.swarm_size):
-                # First ensure bounds constraints
-                for i in range(len(self.bounds)):
-                    lower, upper = self.bounds[i]
-                    self.swarm[p,i] = np.clip(self.swarm[p,i], lower, upper)
-                
-                # Then ensure total ΔV constraint
-                total = np.sum(self.swarm[p])
-                if total > 0:
-                    self.swarm[p] *= self.TOTAL_DELTA_V / total
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error updating velocities and positions: {str(e)}")
-            return False
-
-    def solve(self, initial_guess, bounds):
-        """Solve using Particle Swarm Optimization."""
-        try:
-            logger.info("Starting PSO optimization...")
-            
-            if not self.initialize_swarm():
-                raise ValueError("Failed to initialize swarm")
-            
-            # Initialize personal bests and global best
-            personal_best = self.swarm.copy()
-            personal_best_fitness = self.evaluate_swarm()
-            global_best_idx = np.argmax(personal_best_fitness)
-            global_best = personal_best[global_best_idx].copy()
-            global_best_fitness = personal_best_fitness[global_best_idx]
-            
-            start_time = time.time()
-            
-            for iteration in range(self.max_iterations):
-                current_fitness = self.evaluate_swarm()
-                
-                # Update personal bests
-                for i in range(self.swarm_size):
-                    if current_fitness[i] > personal_best_fitness[i]:
-                        personal_best[i] = self.swarm[i].copy()
-                        personal_best_fitness[i] = current_fitness[i]
+                    
+                    # Update personal best (only if feasible)
+                    if fitness > p_best_fitness[i]:
+                        p_best_fitness[i] = fitness
+                        p_best_positions[i] = positions[i].copy()
                         
                         # Update global best
-                        if current_fitness[i] > global_best_fitness:
-                            global_best = self.swarm[i].copy()
-                            global_best_fitness = current_fitness[i]
+                        if fitness > g_best_fitness:
+                            g_best_fitness = fitness
+                            g_best_position = positions[i].copy()
                 
-                if not self.update_velocities_and_positions(personal_best, global_best):
-                    raise ValueError("Error updating swarm positions")
-                
-                logger.info(f"Iteration {iteration + 1}/{self.max_iterations} - Global Best Fitness: {global_best_fitness:.6f}")
+                # Update velocities and positions
+                for i in range(self.n_particles):
+                    # Update velocity
+                    velocities[i] = self.update_velocity(
+                        velocities[i],
+                        positions[i],
+                        p_best_positions[i],
+                        g_best_position if g_best_position is not None else positions[i]
+                    )
+                    
+                    # Update position
+                    positions[i] += velocities[i]
+                    
+                    # Project to feasible space
+                    positions[i] = self.project_to_feasible(positions[i])
             
             execution_time = time.time() - start_time
             
+            # Final check of best solution
+            if g_best_position is not None:
+                g_best_position = self.project_to_feasible(g_best_position)
+                is_feasible, violation = self.check_constraints(g_best_position)
+                
+                if is_feasible:
+                    return self.process_results(
+                        x=g_best_position,
+                        success=True,
+                        message="Optimization completed successfully",
+                        n_iterations=self.n_iterations,
+                        n_function_evals=self.n_iterations * self.n_particles,
+                        time=execution_time
+                    )
+            
+            # If we get here, no feasible solution was found
             return self.process_results(
-                x=global_best,
-                success=True,
-                message="PSO Optimization completed successfully",
-                n_iterations=self.max_iterations,
-                n_function_evals=self.max_iterations * self.swarm_size,
+                x=initial_guess,
+                success=False,
+                message="Failed to find feasible solution",
+                n_iterations=self.n_iterations,
+                n_function_evals=self.n_iterations * self.n_particles,
                 time=execution_time
             )
+                
         except Exception as e:
             logger.error(f"Error in PSO solver: {str(e)}")
             return self.process_results(
