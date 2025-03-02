@@ -25,6 +25,10 @@ class ParticleSwarmOptimizer(BaseSolver):
         # Initialize positions using LHS
         positions = self.initialize_population_lhs()
         
+        # Project all initial positions to feasible space
+        for i in range(self.population_size):
+            positions[i] = self.iterative_projection(positions[i])
+        
         # Initialize velocities relative to stage ranges
         velocities = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
         for i in range(self.population_size):
@@ -42,23 +46,26 @@ class ParticleSwarmOptimizer(BaseSolver):
         # Adaptive inertia weight
         w = self.w - (self.w - self.w_min) * (iteration / self.max_iterations)
         
-        # Calculate cognitive and social components
-        cognitive = self.c1 * r1 * (p_best - position)
-        social = self.c2 * r2 * (g_best - position)
+        # Calculate cognitive and social components with stage-specific scaling
+        cognitive = np.zeros_like(velocity, dtype=np.float64)
+        social = np.zeros_like(velocity, dtype=np.float64)
         
-        # Scale velocity components by stage ranges
-        new_velocity = np.zeros_like(velocity, dtype=np.float64)
         for j in range(self.n_stages):
             lower, upper = self.bounds[j]
             range_j = float(upper - lower)
             
-            # Apply stage-specific velocity updates
-            new_velocity[j] = (w * velocity[j] + 
-                             cognitive[j] * range_j * 0.1 +
-                             social[j] * range_j * 0.1)
-            
-            # Velocity clamping relative to stage range
-            max_velocity = 0.2 * range_j
+            # Scale cognitive and social components by stage range
+            cognitive[j] = self.c1 * r1 * (p_best[j] - position[j]) / range_j
+            social[j] = self.c2 * r2 * (g_best[j] - position[j]) / range_j
+        
+        # Update velocity with better numerical stability
+        new_velocity = w * velocity + cognitive + social
+        
+        # Apply stage-specific velocity clamping
+        for j in range(self.n_stages):
+            lower, upper = self.bounds[j]
+            range_j = float(upper - lower)
+            max_velocity = 0.1 * range_j  # Limit velocity to 10% of stage range
             new_velocity[j] = np.clip(new_velocity[j], -max_velocity, max_velocity)
         
         return new_velocity
@@ -84,14 +91,17 @@ class ParticleSwarmOptimizer(BaseSolver):
                 
                 # Evaluate all particles
                 for i in range(self.population_size):
-                    # Project position to feasible space
+                    # Update position with velocity
+                    positions[i] += velocities[i]
+                    
+                    # Project position to feasible space using improved method
                     positions[i] = self.iterative_projection(positions[i])
                     
                     # Check feasibility and evaluate
                     is_feasible, violation = self.check_feasibility(positions[i])
-                    score = self.evaluate_solution(positions[i])  # Remove [0] indexing
+                    score = self.evaluate_solution(positions[i])
                     
-                    # Update personal best
+                    # Update personal best if better feasible solution found
                     if score < p_best_scores[i]:
                         p_best_pos[i] = positions[i].copy()
                         p_best_scores[i] = score
@@ -102,12 +112,11 @@ class ParticleSwarmOptimizer(BaseSolver):
                             g_best_score = score
                             improved = True
                             
-                # Update velocities and positions
+                # Update velocities using improved update method
                 for i in range(self.population_size):
                     velocities[i] = self.update_velocity(
                         velocities[i], positions[i], p_best_pos[i], g_best_pos, iteration
                     )
-                    positions[i] += velocities[i]
                     
                 # Check convergence
                 if not improved:

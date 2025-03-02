@@ -152,30 +152,90 @@ class BaseSolver(ABC):
             return False
             
     def iterative_projection(self, x: np.ndarray) -> np.ndarray:
-        """Project solution to feasible space using iterative refinement."""
+        """Project solution to feasible space using iterative water-filling approach.
+        
+        This method uses a sophisticated water-filling algorithm to redistribute delta-v:
+        1. First clips values to their bounds
+        2. Identifies stages at their limits (fixed)
+        3. Redistributes remaining delta-v among unfixed stages
+        4. Repeats until convergence or max iterations reached
+        """
         try:
             x_proj = np.asarray(x, dtype=np.float64).reshape(-1)
             
-            for _ in range(self.max_projection_iterations):
-                # First ensure bounds constraints
+            for iteration in range(self.max_projection_iterations):
+                # Track which stages are fixed at their bounds
+                fixed_stages = np.zeros(self.n_stages, dtype=bool)
+                fixed_values = np.zeros(self.n_stages, dtype=np.float64)
+                
+                # First pass: Clip to bounds and identify fixed stages
                 for i in range(self.n_stages):
                     lower, upper = self.bounds[i]
-                    x_proj[i] = np.clip(x_proj[i], lower, upper)
+                    if x_proj[i] <= lower:
+                        x_proj[i] = lower
+                        fixed_stages[i] = True
+                        fixed_values[i] = lower
+                    elif x_proj[i] >= upper:
+                        x_proj[i] = upper
+                        fixed_stages[i] = True
+                        fixed_values[i] = upper
                 
-                # Check total ΔV constraint using relative error
+                # Calculate remaining delta-v to distribute
+                fixed_dv = np.sum(fixed_values)
+                remaining_dv = self.TOTAL_DELTA_V - fixed_dv
+                unfixed_stages = ~fixed_stages
+                n_unfixed = np.sum(unfixed_stages)
+                
+                if n_unfixed == 0:
+                    # All stages are fixed - cannot satisfy constraints
+                    logger.warning("All stages fixed at bounds - cannot satisfy constraints")
+                    break
+                
+                # Calculate relative proportions for unfixed stages
+                if n_unfixed > 1:
+                    current_sum = np.sum(x_proj[unfixed_stages])
+                    if current_sum > 0:
+                        # Preserve relative proportions
+                        proportions = x_proj[unfixed_stages] / current_sum
+                    else:
+                        # Equal distribution if current sum is zero
+                        proportions = np.ones(n_unfixed) / n_unfixed
+                    
+                    # Redistribute remaining delta-v according to proportions
+                    x_proj[unfixed_stages] = remaining_dv * proportions
+                else:
+                    # Only one unfixed stage - assign all remaining delta-v
+                    x_proj[unfixed_stages] = remaining_dv
+                
+                # Check if solution is feasible
                 total = np.sum(x_proj)
                 rel_error = abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
                 
                 if rel_error <= self.precision_threshold:
                     break
-                    
-                # Scale to match total ΔV
-                x_proj *= self.TOTAL_DELTA_V / total
                 
+                # Apply stage-specific constraints if defined
+                stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
+                if stage_constraints:
+                    first_stage = stage_constraints.get('first_stage', {})
+                    other_stages = stage_constraints.get('other_stages', {})
+                    
+                    # First stage constraints
+                    min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
+                    max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                    x_proj[0] = np.clip(x_proj[0], min_first, max_first)
+                    
+                    # Other stages constraints
+                    min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
+                    max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                    for i in range(1, self.n_stages):
+                        x_proj[i] = np.clip(x_proj[i], min_other, max_other)
+            
             return x_proj
             
         except Exception as e:
             logger.error(f"Error in projection: {str(e)}")
+            # Fallback to equal distribution
             return np.full(self.n_stages, self.TOTAL_DELTA_V / self.n_stages)
             
     def initialize_population_lhs(self) -> np.ndarray:
