@@ -85,10 +85,15 @@ class DifferentialEvolutionSolver(BaseSolver):
             max_idx = np.argmax(mutant)
             mutant[max_idx] = max_stage_dv
             
-            # Redistribute excess to other stages proportionally
+            # Redistribute excess to other stages with safety check for zero-sum
             other_stages = list(range(self.n_stages))
             other_stages.remove(max_idx)
-            props = mutant[other_stages] / np.sum(mutant[other_stages])
+            other_sum = np.sum(mutant[other_stages])
+            if other_sum > 1e-10:  # Use small threshold to avoid division by zero
+                props = mutant[other_stages] / other_sum
+            else:
+                # If other stages have near-zero sum, distribute equally
+                props = np.ones(len(other_stages)) / len(other_stages)
             mutant[other_stages] += excess * props
         
         # Project to feasible space

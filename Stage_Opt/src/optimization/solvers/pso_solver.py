@@ -143,10 +143,15 @@ class ParticleSwarmOptimizer(BaseSolver):
                         max_idx = np.argmax(new_position)
                         new_position[max_idx] = max_stage_dv
                         
-                        # Redistribute excess to other stages proportionally
+                        # Redistribute excess to other stages with safety check for zero-sum
                         other_stages = list(range(self.n_stages))
                         other_stages.remove(max_idx)
-                        props = new_position[other_stages] / np.sum(new_position[other_stages])
+                        other_sum = np.sum(new_position[other_stages])
+                        if other_sum > 1e-10:  # Use small threshold to avoid division by zero
+                            props = new_position[other_stages] / other_sum
+                        else:
+                            # If other stages have near-zero sum, distribute equally
+                            props = np.ones(len(other_stages)) / len(other_stages)
                         new_position[other_stages] += excess * props
                         
                         # Re-project to ensure constraints

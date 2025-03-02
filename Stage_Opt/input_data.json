@@ -6,18 +6,23 @@
     "stages": [
         {
             "stage": 1,
-            "ISP": 250.0,
-            "EPSILON": 0.15
+            "ISP": 280.0,
+            "EPSILON": 0.08
         },
         {
             "stage": 2,
-            "ISP": 275.0,
-            "EPSILON": 0.1
+            "ISP": 287.0,
+            "EPSILON": 0.09
         },
         {
             "stage": 3,
-            "ISP": 300.0,
-            "EPSILON": 0.06
+            "ISP": 294.0,
+            "EPSILON": 0.10
+        },
+        {
+            "stage": 4,
+            "ISP": 315.0,
+            "EPSILON": 0.185
         }
     ]
 }
