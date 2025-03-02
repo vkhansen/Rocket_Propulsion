@@ -24,18 +24,21 @@ class BaseSolver(ABC):
             config: Configuration dictionary
         """
         self.G0 = float(G0)
-        self.ISP = np.array(ISP, dtype=float)
-        self.EPSILON = np.array(EPSILON, dtype=float)
+        self.ISP = np.array(ISP, dtype=np.float64)
+        self.EPSILON = np.array(EPSILON, dtype=np.float64)
         self.TOTAL_DELTA_V = float(TOTAL_DELTA_V)
         self.bounds = bounds
         self.config = config
         self.n_stages = len(bounds)
         self.name = self.__class__.__name__
         
-        # Constraint parameters
-        self.feasibility_threshold = 1e-6  # Relative error threshold
-        self.precision_threshold = 1e-10
+        # Common solver parameters
+        self.population_size = 150
+        self.max_iterations = 300
+        self.precision_threshold = 1e-6
+        self.feasibility_threshold = 1e-6
         self.max_projection_iterations = 20
+        self.stall_limit = 30
         
         # Statistics tracking
         self.n_feasible = 0
@@ -59,7 +62,7 @@ class BaseSolver(ABC):
         """
         try:
             # Ensure x is a 1D array matching the number of stages
-            x = np.asarray(x, dtype=float).reshape(-1)
+            x = np.asarray(x, dtype=np.float64).reshape(-1)
             if x.size != len(self.ISP):
                 raise ValueError(f"Expected {len(self.ISP)} stages, got {x.size}")
                 
@@ -134,6 +137,84 @@ class BaseSolver(ABC):
             logger.error(f"Error in projection: {str(e)}")
             return np.full(len(x), self.TOTAL_DELTA_V / len(x))
 
+    def initialize_population_lhs(self):
+        """Initialize population using Latin Hypercube Sampling."""
+        try:
+            from scipy.stats import qmc
+            
+            # Use Latin Hypercube Sampling for better coverage
+            sampler = qmc.LatinHypercube(d=self.n_stages)
+            samples = sampler.random(n=self.population_size)
+            
+            # Convert to float64 for numerical stability
+            population = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
+            
+            # Scale samples to stage-specific ranges
+            for i in range(self.population_size):
+                for j in range(self.n_stages):
+                    lower, upper = self.bounds[j]
+                    population[i,j] = lower + samples[i,j] * (upper - lower)
+                    
+                # Project to feasible space
+                population[i] = self.iterative_projection(population[i])
+                    
+            return population
+            
+        except Exception as e:
+            logger.warning(f"LHS initialization failed: {str(e)}, using uniform random")
+            return self.initialize_population_uniform()
+            
+    def initialize_population_uniform(self):
+        """Initialize population using uniform random sampling."""
+        population = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
+        
+        for i in range(self.population_size):
+            # Generate random position within bounds
+            for j in range(self.n_stages):
+                lower, upper = self.bounds[j]
+                population[i,j] = np.random.uniform(lower, upper)
+                
+            # Project to feasible space
+            population[i] = self.iterative_projection(population[i])
+            
+        return population
+        
+    def iterative_projection(self, x):
+        """Project solution to feasible space using iterative refinement."""
+        x_proj = np.array(x, dtype=np.float64)
+        
+        for _ in range(self.max_projection_iterations):
+            # First ensure bounds constraints
+            for i in range(self.n_stages):
+                lower, upper = self.bounds[i]
+                x_proj[i] = np.clip(x_proj[i], lower, upper)
+            
+            # Check total ΔV constraint using relative error
+            total = np.sum(x_proj)
+            rel_error = abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
+            
+            if rel_error <= self.precision_threshold:
+                break
+                
+            # Scale to match total ΔV
+            x_proj *= self.TOTAL_DELTA_V / total
+            
+            # Re-check bounds after scaling
+            for i in range(self.n_stages):
+                lower, upper = self.bounds[i]
+                x_proj[i] = np.clip(x_proj[i], lower, upper)
+                
+            # Distribute any remaining error proportionally
+            remaining = self.TOTAL_DELTA_V - np.sum(x_proj)
+            if abs(remaining) / self.TOTAL_DELTA_V > self.precision_threshold:
+                # Scale adjustment by stage values
+                total_stage_values = np.sum(x_proj)
+                if total_stage_values > 0:
+                    adjustments = (remaining * x_proj) / total_stage_values
+                    x_proj += adjustments
+                
+        return x_proj
+        
     def evaluate_solution(self, x: np.ndarray, return_components: bool = False) -> Union[float, Tuple[float, float, float]]:
         """Evaluate solution with constraint handling.
         
@@ -180,24 +261,38 @@ class BaseSolver(ABC):
             else:
                 return float('inf')
 
-    def check_feasibility(self, x: np.ndarray) -> Tuple[bool, float]:
-        """Check if solution is feasible and get violation amount using relative error.
-        
-        Args:
-            x: Solution vector
-            
-        Returns:
-            Tuple of (is_feasible, violation_amount)
-        """
-        obj, dv_const, phys_const = self.evaluate_solution(x, return_components=True)
-        
-        # Convert to relative error for consistency with objective function
+    def check_feasibility(self, x):
+        """Check if solution is feasible and get violation amount using relative error."""
+        # Check bounds constraints
+        bounds_violation = 0
+        for i, (lower, upper) in enumerate(self.bounds):
+            if x[i] < lower:
+                bounds_violation += abs(x[i] - lower) / self.TOTAL_DELTA_V
+            elif x[i] > upper:
+                bounds_violation += abs(x[i] - upper) / self.TOTAL_DELTA_V
+                
+        # Check total ΔV constraint
         total = np.sum(x)
         dv_violation = abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
         
-        total_violation = dv_violation + phys_const
-        return total_violation <= self.feasibility_threshold, total_violation
-
+        total_violation = dv_violation + bounds_violation
+        is_feasible = total_violation <= self.feasibility_threshold
+        
+        return is_feasible, total_violation
+        
+    def update_best_solution(self, solution, score, is_feasible, violation):
+        """Update best solution tracking."""
+        if is_feasible:
+            self.n_feasible += 1
+            if score < self.best_feasible_score:
+                self.best_feasible = solution.copy()
+                self.best_feasible_score = score
+                return True
+        else:
+            self.n_infeasible += 1
+            
+        return False
+        
     def check_constraints(self, x):
         """Check if solution violates any constraints using relative error.
         
@@ -241,7 +336,7 @@ class BaseSolver(ABC):
         """
         try:
             # Convert x to numpy array and validate
-            x = np.asarray(x, dtype=float)
+            x = np.asarray(x, dtype=np.float64)
             if x.size == 0 or not np.all(np.isfinite(x)):
                 raise ValueError("Invalid solution vector")
             
