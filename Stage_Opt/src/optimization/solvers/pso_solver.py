@@ -24,11 +24,20 @@ class ParticleSwarmOptimizer(BaseSolver):
         """Initialize particle swarm with positions and velocities."""
         # Initialize positions using Dirichlet distribution for better balance
         positions = np.zeros((self.population_size, self.n_stages), dtype=np.float64)
-        alpha = np.ones(self.n_stages) * 5.0  # Concentration parameter for more balanced distribution
+        # Increase alpha for more uniform distribution
+        alpha = np.ones(self.n_stages) * 15.0  # Increased from 5.0 to encourage more even distribution
+        
+        # Minimum fraction of total delta-v per stage based on equal distribution
+        min_stage_fraction = 1.0 / self.n_stages  # Equal distribution baseline
         
         for i in range(self.population_size):
             # Generate balanced proportions using Dirichlet
             props = np.random.dirichlet(alpha)
+            
+            # Ensure minimum stage allocation
+            while np.any(props < min_stage_fraction):
+                props = np.random.dirichlet(alpha)
+            
             positions[i] = props * self.TOTAL_DELTA_V
             
             # Enforce first stage constraints (15-80% of total)
