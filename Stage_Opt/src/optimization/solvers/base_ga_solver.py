@@ -217,7 +217,7 @@ class BaseGASolver(BaseSolver):
             return None
 
     def tournament_selection(self, population, fitness_values):
-        """Select parent using tournament selection."""
+        """Select parent using tournament selection with feasibility prioritization."""
         try:
             if population is None or fitness_values is None:
                 return None
@@ -225,6 +225,22 @@ class BaseGASolver(BaseSolver):
             tournament_indices = np.random.randint(0, len(population), self.tournament_size)
             tournament_fitness = fitness_values[tournament_indices]
             
+            # Check feasibility of tournament candidates
+            feasible_candidates = []
+            for idx in tournament_indices:
+                candidate = population[idx]
+                is_feasible, violation = self.check_feasibility(candidate)
+                if is_feasible:
+                    feasible_candidates.append((idx, fitness_values[idx], violation))
+            
+            # If we have feasible candidates, select the best one
+            if feasible_candidates:
+                # Sort by fitness (higher is better)
+                feasible_candidates.sort(key=lambda x: x[1], reverse=True)
+                winner_idx = feasible_candidates[0][0]
+                return population[winner_idx].copy()
+            
+            # Otherwise fall back to standard tournament selection
             # Handle NaN or inf values
             valid_mask = np.isfinite(tournament_fitness)
             if not np.any(valid_mask):
@@ -298,16 +314,34 @@ class BaseGASolver(BaseSolver):
         return mutated
 
     def create_next_generation(self, population, fitness_values):
-        """Create next generation through selection, crossover and mutation."""
+        """Create next generation through selection, crossover and mutation with feasibility preservation."""
         try:
             if population is None or fitness_values is None:
                 return None
                 
             new_population = np.zeros_like(population)
             
-            # Elitism - preserve best individual
-            best_idx = np.argmax(fitness_values)
-            new_population[0] = population[best_idx].copy()
+            # Find feasible solutions in current population
+            feasible_indices = []
+            for i, individual in enumerate(population):
+                is_feasible, _ = self.check_feasibility(individual)
+                if is_feasible:
+                    feasible_indices.append(i)
+            
+            # Elitism - preserve best feasible individual if available
+            if feasible_indices:
+                feasible_fitness = fitness_values[feasible_indices]
+                best_feasible_idx = feasible_indices[np.argmax(feasible_fitness)]
+                new_population[0] = population[best_feasible_idx].copy()
+                logger.debug(f"Preserved best feasible solution with fitness {fitness_values[best_feasible_idx]}")
+            else:
+                # If no feasible solutions, preserve best overall
+                best_idx = np.argmax(fitness_values)
+                new_population[0] = population[best_idx].copy()
+                
+                # Project this solution to make it feasible
+                new_population[0] = self.iterative_projection(new_population[0])
+                logger.debug(f"No feasible solutions found, preserving and projecting best overall")
             
             # Create rest of new population
             for i in range(1, len(population), 2):
@@ -322,22 +356,38 @@ class BaseGASolver(BaseSolver):
                         parent1, parent2 = population[idx1].copy(), population[idx2].copy()
                     
                     # Crossover
-                    child1 = self.crossover(parent1, parent2)
+                    if np.random.random() < self.crossover_rate:
+                        child1 = self.crossover(parent1, parent2)
+                        child2 = self.crossover(parent2, parent1)
+                    else:
+                        child1 = parent1.copy()
+                        child2 = parent2.copy()
                     
                     if child1 is None:
                         child1 = parent1.copy()
+                    if child2 is None:
+                        child2 = parent2.copy()
                     
                     # Mutation
-                    child1 = self.mutate(child1)
+                    if np.random.random() < self.mutation_rate:
+                        child1 = self.mutate(child1)
+                    if np.random.random() < self.mutation_rate:
+                        child2 = self.mutate(child2)
                     
                     if child1 is None:
                         child1 = parent1.copy()
+                    if child2 is None:
+                        child2 = parent2.copy()
+                    
+                    # Project children to feasible space
+                    child1 = self.iterative_projection(child1)
+                    child2 = self.iterative_projection(child2)
                     
                     # Add to new population
                     if i < len(population):
                         new_population[i] = child1
                     if i + 1 < len(population):
-                        new_population[i + 1] = child1.copy()
+                        new_population[i + 1] = child2
                         
                 except Exception as e:
                     logger.error(f"Error creating individuals {i}/{i+1}: {str(e)}")
