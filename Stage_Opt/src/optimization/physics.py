@@ -29,7 +29,7 @@ def calculate_stage_ratios(dv, G0, ISP, EPSILON):
         mass_ratios = np.zeros_like(stage_ratios)
         for i in range(len(stage_ratios)):
             # Since λ is now mf/m0, we need to adjust the mass ratio formula
-            mass_ratios[i] = 1.0 / (stage_ratios[i] * (1.0 - EPSILON[i]) + EPSILON[i])
+            mass_ratios[i] = (stage_ratios[i] - EPSILON[i]) / (1.0 - EPSILON[i])            
         
         return stage_ratios, mass_ratios
         
@@ -77,10 +77,10 @@ def calculate_payload_fraction(mass_ratios):
         
         # Calculate payload fraction
         payload_fraction = 1.0
-        for ratio in mass_ratios:
-            payload_fraction /= ratio
-            
+        for ratio in mass_ratios:     # ratio is the leftover fraction
+            payload_fraction *= ratio
         return float(payload_fraction)
+
         
     except Exception as e:
         logger.error(f"Error calculating payload fraction: {str(e)}")
