@@ -72,11 +72,6 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     def optimize(self):
         """Run adaptive genetic algorithm optimization."""
         try:
-            # Initialize population
-            self.population = self.initialize_population()
-            if self.population is None:
-                raise ValueError("Failed to initialize population")
-                
             # Main optimization loop
             for gen in range(self.n_gen):
                 try:
@@ -130,12 +125,13 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             logger.error(f"Error in Adaptive GA optimization: {str(e)}")
             return None, None
 
-    def solve(self, initial_guess, bounds):
+    def solve(self, initial_guess, bounds, other_solver_results=None):
         """Solve optimization problem.
         
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) bounds for each variable
+            other_solver_results: Optional dictionary of solutions from other solvers
             
         Returns:
             Dictionary containing optimization results
@@ -147,13 +143,66 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             logger.info(f"Initial mutation rate: {self.mutation_rate}")
             logger.info(f"Initial crossover rate: {self.crossover_rate}")
             logger.info(f"Tournament size: {self.tournament_size}")
+            
+            # Log if we're using other solver results
+            if other_solver_results:
+                logger.info(f"Using {len(other_solver_results)} solutions from other solvers as seeds")
             logger.info("=" * 50)
             
             start_time = time.time()
             
-            # Run the adaptive GA optimization
-            self.best_solution, self.best_fitness = self.optimize()
-            
+            # Run the adaptive GA optimization with other solver results
+            self.population = self.initialize_population(other_solver_results)
+            if self.population is None:
+                raise ValueError("Failed to initialize population")
+                
+            # Main optimization loop
+            for gen in range(self.n_gen):
+                try:
+                    # Evaluate population
+                    self.fitness_values = self.evaluate_population(self.population)
+                    if self.fitness_values is None:
+                        raise ValueError("Failed to evaluate population")
+                    
+                    # Update best solution
+                    gen_best_idx = np.argmax(self.fitness_values)
+                    gen_best_fitness = self.fitness_values[gen_best_idx]
+                    
+                    if gen_best_fitness > self.best_fitness:
+                        self.best_fitness = gen_best_fitness
+                        self.best_solution = self.population[gen_best_idx].copy()
+                        self.generations_without_improvement = 0
+                    else:
+                        self.generations_without_improvement += 1
+                    
+                    # Calculate statistics
+                    avg_fitness = np.mean(self.fitness_values)
+                    diversity = self.calculate_diversity(self.population)
+                    improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100 if self.best_fitness != 0 else 0
+                    
+                    # Log progress
+                    logger.info(f"Generation {gen + 1}/{self.n_gen}:")
+                    logger.info(f"  Best Fitness: {gen_best_fitness:.6f}")
+                    logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
+                    logger.info(f"  Population Diversity: {diversity:.6f}")
+                    logger.info(f"  Improvement: {improvement:+.2f}%")
+                    
+                    # Update adaptive parameters
+                    self.update_parameters()
+                    
+                    # Create next generation with new parameters
+                    new_population = self.create_next_generation(self.population, self.fitness_values)
+                    if new_population is None:
+                        raise ValueError("Failed to create next generation")
+                        
+                    self.population = new_population
+                    
+                except Exception as e:
+                    logger.error(f"Error in generation {gen + 1}: {str(e)}")
+                    if gen == 0:  # If error in first generation, abort
+                        raise
+                    continue  # Otherwise try to continue with next generation
+                    
             # Post-optimization feasibility enforcement
             logger.info("Optimization completed, checking solution feasibility...")
             

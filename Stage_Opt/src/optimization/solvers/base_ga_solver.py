@@ -28,15 +28,18 @@ class BaseGASolver(BaseSolver):
         """Initialize population with solutions that satisfy constraints.
         
         Args:
-            other_solver_results: Optional list of solutions from other solvers
+            other_solver_results: Optional dictionary of solutions from other solvers
+        
+        Returns:
+            List of initialized population solutions
         """
         population = []
         bootstrapped_count = 0
         rejected_count = 0
         
         # If other solver results are provided, add them first
-        if other_solver_results is not None:
-            logger.info(f"Initializing population with {len(other_solver_results)} bootstrapped solutions")
+        if other_solver_results is not None and isinstance(other_solver_results, dict):
+            logger.info(f"Initializing population with solutions from {len(other_solver_results)} other solvers")
             for solver_name, result in other_solver_results.items():
                 if 'x' in result and result.get('success', False):
                     solution = result['x']
@@ -57,19 +60,20 @@ class BaseGASolver(BaseSolver):
                             solution[i] = np.clip(solution[i], lower, upper)
                         
                         # Verify solution quality by evaluating objective
-                        fitness = objective_with_penalty(
+                        fitness, penalty, payload_fraction = objective_with_penalty(
                             dv=solution,
                             G0=self.G0,
                             ISP=self.ISP,
                             EPSILON=self.EPSILON,
-                            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+                            TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                            return_tuple=True
                         )
                         
                         # Only add solutions with finite fitness
                         if np.isfinite(fitness):
                             population.append(solution)
                             bootstrapped_count += 1
-                            logger.info(f"Added solution from {solver_name} to GA initial population with fitness {fitness}")
+                            logger.info(f"Added solution from {solver_name} to GA initial population with fitness {fitness:.6f}, penalty {penalty:.6f}, payload fraction {payload_fraction:.6f}")
                         else:
                             rejected_count += 1
                             logger.warning(f"Rejected bootstrapped solution from {solver_name} with infinite fitness: {fitness}")
@@ -78,7 +82,7 @@ class BaseGASolver(BaseSolver):
                         logger.warning(f"Rejected bootstrapped solution from {solver_name} with zero total delta-v")
         
         # Log how many bootstrapped solutions were added
-        if other_solver_results is not None:
+        if bootstrapped_count > 0 or rejected_count > 0:
             logger.info(f"Bootstrapping summary: Added {bootstrapped_count} valid solutions, rejected {rejected_count} solutions")
         
         # Fill remaining population with random solutions
@@ -116,15 +120,16 @@ class BaseGASolver(BaseSolver):
                 
                 # Verify solution quality for random solutions too
                 if attempts % 10 == 0:  # Only check every 10 attempts to save computation
-                    fitness = objective_with_penalty(
+                    fitness, penalty, _ = objective_with_penalty(
                         dv=solution,
                         G0=self.G0,
                         ISP=self.ISP,
                         EPSILON=self.EPSILON,
-                        TOTAL_DELTA_V=self.TOTAL_DELTA_V
+                        TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                        return_tuple=True
                     )
-                    if not np.isfinite(fitness):
-                        continue  # Skip this solution if fitness is not finite
+                    if not np.isfinite(fitness) or penalty > 1.0:  # Skip solutions with high penalties
+                        continue  # Skip this solution if fitness is not finite or penalty is high
                 
                 population.append(solution)
         
@@ -144,15 +149,21 @@ class BaseGASolver(BaseSolver):
                 if total > 0:
                     solution *= self.TOTAL_DELTA_V / total
                 
+                # Ensure all values are within bounds
+                for i in range(self.n_stages):
+                    lower, upper = self.bounds[i]
+                    solution[i] = np.clip(solution[i], lower, upper)
+                
                 population.append(solution)
             else:
                 # If no valid solutions, create a uniform distribution as fallback
                 solution = np.ones(self.n_stages) * self.TOTAL_DELTA_V / self.n_stages
                 population.append(solution)
         
-        logger.info(f"Initialized population with {len(population)} solutions")
+        # Log population statistics
         self.print_population_stats(population)
-        return np.array(population[:self.pop_size])
+        
+        return np.array(population)
 
     def print_population_stats(self, population, fitness_values=None):
         """Print statistics about the population."""

@@ -3,6 +3,7 @@ import concurrent.futures
 import time
 import psutil
 import signal
+import numpy as np
 from typing import List, Dict, Any
 from ..utils.config import logger
 
@@ -216,17 +217,33 @@ class ParallelSolver:
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             
-            # Log detailed information about bootstrapped solutions
-            logger.info(f"Bootstrapping {solver.__class__.__name__} with solutions from {len(other_solver_results)} other solvers")
+            # Filter out unsuccessful or invalid results
+            filtered_results = {}
             for solver_name, result in other_solver_results.items():
                 if 'x' in result and result.get('success', False):
+                    # Only include successful results with valid solutions
                     solution = result['x']
-                    logger.info(f"  - {solver_name}: solution={solution}, fitness={-result.get('payload_fraction', 0)}")
+                    if np.all(np.isfinite(solution)) and len(solution) > 0:
+                        filtered_results[solver_name] = result
+            
+            # Log detailed information about bootstrapped solutions
+            logger.info(f"Bootstrapping {solver.__class__.__name__} with solutions from {len(filtered_results)} other solvers")
+            for solver_name, result in filtered_results.items():
+                if 'x' in result and result.get('success', False):
+                    solution = result['x']
+                    payload_fraction = result.get('payload_fraction', 0)
+                    fitness = -payload_fraction if payload_fraction else 0
+                    logger.info(f"  - {solver_name}: solution={solution}, fitness={fitness:.6f}, payload_fraction={payload_fraction:.6f}")
                 else:
                     logger.info(f"  - {solver_name}: No valid solution available")
             
             # Run solver with other solver results
-            return solver.solve(initial_guess, bounds, other_solver_results)
+            if filtered_results:
+                logger.info(f"Running {solver.__class__.__name__} with {len(filtered_results)} bootstrapped solutions")
+                return solver.solve(initial_guess, bounds, filtered_results)
+            else:
+                logger.info(f"No valid solutions from other solvers, running {solver.__class__.__name__} without bootstrapping")
+                return solver.solve(initial_guess, bounds)
         except Exception as e:
             logger.error(f"Error in solver {solver.__class__.__name__}: {str(e)}")
             return None

@@ -117,12 +117,13 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.error(f"Error logging generation stats: {e}")
             return float('inf'), float('inf'), 0.0
 
-    def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]]) -> dict:
+    def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]], other_solver_results: dict = None) -> dict:
         """Solve using Genetic Algorithm.
         
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) tuples for each variable
+            other_solver_results: Optional dictionary of solutions from other solvers
         
         Returns:
             Dictionary containing optimization results
@@ -134,14 +135,18 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.info(f"Mutation rate: {self.mutation_rate}")
             logger.info(f"Crossover rate: {self.crossover_rate}")
             logger.info(f"Tournament size: {self.tournament_size}")
+            
+            # Log if we're using other solver results
+            if other_solver_results:
+                logger.info(f"Using {len(other_solver_results)} solutions from other solvers as seeds")
             logger.info("=" * 50)
             
             # Setup problem and algorithm here (using pymoo if needed)
             # For demonstration, using the base GA solver routine
             start_time = time.time()
             
-            # Initialize population
-            self.population = self.initialize_population()
+            # Initialize population with solutions from other solvers
+            self.population = self.initialize_population(other_solver_results)
             if self.population is None:
                 raise ValueError("Failed to initialize population")
             
