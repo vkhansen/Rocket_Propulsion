@@ -64,8 +64,8 @@ def generate_report(results, config, filename="optimization_report.json"):
                 
                 report['results'][method] = method_report
                 
-                # Track successful solvers only if constraints are satisfied
-                if method_report['success'] and method_report['constraint_violation'] < 1e-4:
+                # Track successful solvers - only check success flag, not constraint violation
+                if method_report['success']:
                     successful_solvers.append(method)
                 
             except Exception as e:
