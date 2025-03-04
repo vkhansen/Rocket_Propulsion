@@ -1,9 +1,13 @@
 import numpy as np
+import logging
 from typing import Tuple, Dict, Union
 from .physics import calculate_stage_ratios, calculate_payload_fraction
 from .parallel_solver import ParallelSolver
 from .solver_config import get_solver_config
 from ..utils.config import logger
+
+# Set up logger
+# logger = logging.getLogger('optimization')
 
 def enforce_stage_constraints(dv_array: np.ndarray,
                               total_dv_required: float,

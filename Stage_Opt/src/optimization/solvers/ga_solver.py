@@ -347,6 +347,21 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.info(f"Initializing population of size {self.pop_size}")
             population, fitness, feasibility, violations = self.initialize_population(other_solver_results)
             
+            # Initialize best solution tracking
+            self.best_solution = None
+            self.best_fitness = float('inf')
+            self.best_is_feasible = False
+            self.best_violation = float('inf')
+            
+            # Find initial best solution
+            for i in range(len(population)):
+                self.update_best_solution(
+                    population[i],
+                    fitness[i],
+                    feasibility[i],
+                    violations[i]
+                )
+            
             # Main GA loop
             generation = 0
             for generation in range(self.max_generations):
@@ -416,6 +431,17 @@ class GeneticAlgorithmSolver(BaseGASolver):
             # Final log
             self.log_generation_stats(self.max_generations, population, fitness, feasibility)
             
+            # Ensure we have a valid solution to return
+            if self.best_solution is None:
+                # If no feasible solution found, return the best infeasible one
+                best_idx = np.argmin(fitness)
+                self.best_solution = population[best_idx].copy()
+                self.best_fitness = fitness[best_idx]
+                self.best_is_feasible = feasibility[best_idx]
+                self.best_violation = violations[best_idx]
+                
+                logger.warning(f"No feasible solution found. Returning best infeasible solution with fitness {self.best_fitness}")
+            
             # Return results
             return {
                 'x': self.best_solution,
@@ -436,7 +462,9 @@ class GeneticAlgorithmSolver(BaseGASolver):
                 'success': False,
                 'message': f'Error in GA solver: {str(e)}',
                 'nfev': self.function_evaluations,
-                'nit': 0
+                'nit': 0,
+                'is_feasible': False,
+                'violation': float('inf')
             }
 
     def evaluate(self, solution):
