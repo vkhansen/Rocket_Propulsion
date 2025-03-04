@@ -31,19 +31,27 @@ class ParallelSolver:
             start_time = time.time()
             results = {}
             
-            # Separate GA solvers from other solvers
+            # Categorize solvers by type for proper execution order
             ga_solvers = []
+            de_solvers = []
+            pso_solvers = []
             other_solvers = []
             
             for solver in solvers:
-                if 'GA' in solver.__class__.__name__ or 'Genetic' in solver.__class__.__name__:
+                solver_name = solver.__class__.__name__
+                if 'GA' in solver_name or 'Genetic' in solver_name:
                     ga_solvers.append(solver)
+                elif 'Differential' in solver_name or 'DE' in solver_name:
+                    de_solvers.append(solver)
+                elif 'PSO' in solver_name or 'Particle' in solver_name:
+                    pso_solvers.append(solver)
                 else:
                     other_solvers.append(solver)
                     
-            logger.info(f"Found {len(ga_solvers)} GA solvers and {len(other_solvers)} other solvers")
+            logger.info(f"Found {len(ga_solvers)} GA solvers, {len(de_solvers)} DE solvers, "
+                      f"{len(pso_solvers)} PSO solvers, and {len(other_solvers)} other solvers")
             
-            # Run non-GA solvers first
+            # Run non-population-based solvers first
             for solver in other_solvers:
                 solver_name = solver.__class__.__name__
                 try:
@@ -73,7 +81,7 @@ class ParallelSolver:
                 except Exception as e:
                     logger.error(f"Error in {solver_name}: {str(e)}")
             
-            # Run GA solvers with results from other solvers
+            # Prepare bootstrap solutions for population-based methods
             other_solver_results = []
             for solver_name, result in results.items():
                 if result.get('success', False) and result.get('solution') is not None:
@@ -83,40 +91,42 @@ class ParallelSolver:
                         'fitness': result.get('fitness', float('inf'))
                     })
             
-            for solver in ga_solvers:
-                solver_name = solver.__class__.__name__
-                try:
-                    logger.info(f"Running {solver_name} with {len(other_solver_results)} bootstrapped solutions...")
-                    result = solver.solve(initial_guess, bounds, other_solver_results=other_solver_results)
-                    
-                    # Check if the solution is valid - either success flag is True or there are valid stages
-                    is_valid = result.get('success', False) or (
-                        'stages' in result and result['stages'] and len(result['stages']) > 0
-                    )
-                    
-                    if result and is_valid:
-                        # Extract solution from stages if available
-                        solution = None
-                        if 'stages' in result and result['stages']:
-                            solution = np.array([stage['delta_v'] for stage in result['stages']])
+            # Run all population-based solvers with bootstrapped solutions
+            for solver_group in [ga_solvers, de_solvers, pso_solvers]:
+                for solver in solver_group:
+                    solver_name = solver.__class__.__name__
+                    try:
+                        logger.info(f"Running {solver_name} with {len(other_solver_results)} bootstrapped solutions...")
+                        result = solver.solve(initial_guess, bounds, other_solver_results=other_solver_results)
                         
-                        results[solver_name] = {
-                            'solver_name': solver_name,
-                            'solution': solution,
-                            'fitness': result.get('payload_fraction', 0.0),
-                            'success': True,  # Mark as successful if we have valid stages
-                            'payload_fraction': result.get('payload_fraction', 0.0),
-                            'constraint_violation': result.get('constraint_violation', 0.0),
-                            'message': result.get('message', ''),
-                            'execution_metrics': result.get('execution_metrics', {}),
-                            'stages': result.get('stages', []),
-                            'raw_result': result
-                        }
-                        logger.info(f"{solver_name} completed successfully")
-                    else:
-                        logger.warning(f"{solver_name} failed to find valid solution")
-                except Exception as e:
-                    logger.error(f"Error in {solver_name}: {str(e)}")
+                        # Check if the solution is valid - either success flag is True or there are valid stages
+                        is_valid = result.get('success', False) or (
+                            'stages' in result and result['stages'] and len(result['stages']) > 0
+                        )
+                        
+                        if result and is_valid:
+                            # Extract solution from stages if available
+                            solution = None
+                            if 'stages' in result and result['stages']:
+                                solution = np.array([stage['delta_v'] for stage in result['stages']])
+                            
+                            results[solver_name] = {
+                                'solver_name': solver_name,
+                                'solution': solution,
+                                'fitness': result.get('payload_fraction', 0.0),
+                                'success': True,  # Mark as successful if we have valid stages
+                                'payload_fraction': result.get('payload_fraction', 0.0),
+                                'constraint_violation': result.get('constraint_violation', 0.0),
+                                'message': result.get('message', ''),
+                                'execution_metrics': result.get('execution_metrics', {}),
+                                'stages': result.get('stages', []),
+                                'raw_result': result
+                            }
+                            logger.info(f"{solver_name} completed successfully")
+                        else:
+                            logger.warning(f"{solver_name} failed to find valid solution")
+                    except Exception as e:
+                        logger.error(f"Error in {solver_name}: {str(e)}")
             
             # Log final summary
             elapsed = time.time() - start_time
