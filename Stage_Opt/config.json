@@ -1,10 +1,10 @@
 {
     "optimization": {
-        "penalty_coefficient": 1000.0,
+        "penalty_coefficient": 100.0,
         "constraints": {
             "total_dv": {
                 "type": "equality",
-                "tolerance": 1e-6
+                "tolerance": 1e-4
             },
             "stage_fractions": {
                 "first_stage": {
@@ -23,9 +23,10 @@
         },
         "parallel": {
             "max_workers": 4,
-            "timeout": 1000
+            "timeout": 1500,
+            "solver_timeout": 120
         },
-        "parallel_solver_timeout": 60,
+        "parallel_solver_timeout": 120,
         "max_processes": 4,
         "cache_size": 1000,
         "solvers": {
@@ -38,44 +39,44 @@
             },
             "ga": {
                 "solver_specific": {
-                    "population_size": 200,
-                    "n_generations": 100,
+                    "population_size": 500,
+                    "n_generations": 200,
                     "mutation": {
-                        "eta": 20,
-                        "prob": 0.2
+                        "eta": 10,
+                        "prob": 0.3
                     },
                     "crossover": {
-                        "eta": 15,
-                        "prob": 0.8
+                        "eta": 10,
+                        "prob": 0.9
                     },
-                    "tournament_size": 4,
-                    "elite_size": 2,
+                    "tournament_size": 3,
+                    "elite_size": 10,
                     "adaptive": {
-                        "diversity_threshold": 0.1,
-                        "stagnation_threshold": 10,
-                        "mutation_boost": 2.0,
-                        "population_boost": 1.5,
-                        "tournament_reduction": 0.5
+                        "diversity_threshold": 0.05,
+                        "stagnation_threshold": 15,
+                        "mutation_boost": 3.0,
+                        "population_boost": 1.2,
+                        "tournament_reduction": 0.7
                     }
                 }
             },
             "adaptive_ga": {
                 "solver_specific": {
-                    "population_size": 50,
-                    "n_generations": 100,
-                    "initial_mutation_rate": 0.1,
-                    "initial_crossover_rate": 0.8,
-                    "min_mutation_rate": 0.05,
-                    "max_mutation_rate": 0.3,
-                    "min_crossover_rate": 0.6,
-                    "max_crossover_rate": 0.9,
-                    "adaptation_rate": 0.05
+                    "population_size": 200,
+                    "n_generations": 200,
+                    "initial_mutation_rate": 0.2,
+                    "initial_crossover_rate": 0.9,
+                    "min_mutation_rate": 0.1,
+                    "max_mutation_rate": 0.5,
+                    "min_crossover_rate": 0.7,
+                    "max_crossover_rate": 0.95,
+                    "adaptation_rate": 0.1
                 }
             },
             "pso": {
                 "solver_specific": {
-                    "n_particles": 50,
-                    "n_iterations": 100,
+                    "n_particles": 100,
+                    "n_iterations": 150,
                     "w": 0.7,
                     "c1": 1.5,
                     "c2": 1.5
@@ -83,7 +84,7 @@
             },
             "de": {
                 "solver_specific": {
-                    "population_size": 20,
+                    "population_size": 50,
                     "max_iterations": 1000,
                     "strategy": "best1bin",
                     "mutation": [0.5, 1.0],
