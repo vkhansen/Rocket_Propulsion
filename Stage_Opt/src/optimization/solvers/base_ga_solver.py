@@ -397,7 +397,7 @@ class BaseGASolver(BaseSolver):
                 
                 # Check if the best bootstrap solution is better than our current best
                 if self.best_bootstrap_solution is not None:
-                    bootstrap_fitness = self.objective_function(self.best_bootstrap_solution)
+                    bootstrap_fitness = self.evaluate_solution(self.best_bootstrap_solution)
                     if bootstrap_fitness > best_current_fitness:
                         new_population[0] = self.best_bootstrap_solution.copy()
                         logger.info(f"Restored better bootstrap solution with fitness {bootstrap_fitness}")
@@ -408,7 +408,7 @@ class BaseGASolver(BaseSolver):
                 
                 # Check if the best bootstrap solution is better
                 if self.best_bootstrap_solution is not None:
-                    bootstrap_fitness = self.objective_function(self.best_bootstrap_solution)
+                    bootstrap_fitness = self.evaluate_solution(self.best_bootstrap_solution)
                     if bootstrap_fitness > fitness_values[best_idx]:
                         new_population[0] = self.best_bootstrap_solution.copy()
                         logger.info(f"Restored better bootstrap solution with fitness {bootstrap_fitness}")
