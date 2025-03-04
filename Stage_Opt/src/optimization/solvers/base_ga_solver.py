@@ -25,145 +25,101 @@ class BaseGASolver(BaseSolver):
         self.n_stages = len(bounds)
         
     def initialize_population(self, other_solver_results=None):
-        """Initialize population with solutions that satisfy constraints.
+        """Initialize population with random solutions.
         
         Args:
-            other_solver_results: Optional dictionary of solutions from other solvers
-        
+            other_solver_results: Optional results from other solvers to bootstrap population
+            
         Returns:
-            List of initialized population solutions
+            Initialized population
         """
-        population = []
-        bootstrapped_count = 0
-        rejected_count = 0
-        
-        # If other solver results are provided, add them first
-        if other_solver_results is not None and isinstance(other_solver_results, dict):
-            logger.info(f"Initializing population with solutions from {len(other_solver_results)} other solvers")
-            for solver_name, result in other_solver_results.items():
-                if 'x' in result and result.get('success', False):
-                    solution = result['x']
-                    
-                    # Log the bootstrapped solution
-                    logger.debug(f"Bootstrapped solution from {solver_name}: {solution}")
-                    
-                    # Ensure solution meets constraints
-                    total = np.sum(solution)
-                    if total > 0:
-                        # Normalize to ensure total delta-v constraint is satisfied
-                        solution = np.array(solution, dtype=np.float64)
-                        solution *= self.TOTAL_DELTA_V / total
-                        
-                        # Ensure all values are within bounds
-                        for i in range(self.n_stages):
-                            lower, upper = self.bounds[i]
-                            solution[i] = np.clip(solution[i], lower, upper)
-                        
-                        # Verify solution quality by evaluating objective
-                        fitness, penalty, payload_fraction = objective_with_penalty(
-                            dv=solution,
-                            G0=self.G0,
-                            ISP=self.ISP,
-                            EPSILON=self.EPSILON,
-                            TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                            return_tuple=True
-                        )
-                        
-                        # Only add solutions with finite fitness
-                        if np.isfinite(fitness):
-                            population.append(solution)
-                            bootstrapped_count += 1
-                            logger.info(f"Added solution from {solver_name} to GA initial population with fitness {fitness:.6f}, penalty {penalty:.6f}, payload fraction {payload_fraction:.6f}")
+        try:
+            # Create initial population
+            population = np.zeros((self.pop_size, self.n_stages))
+            
+            # Determine how many solutions to bootstrap from other solvers
+            bootstrap_count = 0
+            if other_solver_results is not None and len(other_solver_results) > 0:
+                # Use at most 25% of the population for bootstrapping
+                bootstrap_count = min(len(other_solver_results), self.pop_size // 4)
+                logger.info(f"Bootstrapping {bootstrap_count} solutions from other solvers")
+                
+                # Sort other solver results by fitness (best first)
+                sorted_results = sorted(other_solver_results, key=lambda x: x.get('fitness', float('inf')))
+                
+                # Use the best solutions from other solvers
+                for i in range(bootstrap_count):
+                    if i < len(sorted_results):
+                        solution = sorted_results[i].get('solution')
+                        if solution is not None and len(solution) == self.n_stages:
+                            # Ensure the solution is valid
+                            if np.all(np.isfinite(solution)):
+                                # Add small random perturbation to avoid duplicates
+                                perturbation = np.random.normal(0, 0.01, self.n_stages)
+                                population[i] = solution + perturbation
+                                # Project to feasible space
+                                population[i] = self.project_to_feasible(population[i])
+                            else:
+                                logger.warning(f"Skipping non-finite bootstrapped solution: {solution}")
+                                bootstrap_count -= 1
                         else:
-                            rejected_count += 1
-                            logger.warning(f"Rejected bootstrapped solution from {solver_name} with infinite fitness: {fitness}")
-                    else:
-                        rejected_count += 1
-                        logger.warning(f"Rejected bootstrapped solution from {solver_name} with zero total delta-v")
-        
-        # Log how many bootstrapped solutions were added
-        if bootstrapped_count > 0 or rejected_count > 0:
-            logger.info(f"Bootstrapping summary: Added {bootstrapped_count} valid solutions, rejected {rejected_count} solutions")
-        
-        # Fill remaining population with random solutions
-        remaining = self.pop_size - len(population)
-        logger.info(f"Generating {remaining} random solutions to complete population")
-        
-        attempts = 0
-        max_attempts = remaining * 10  # Allow multiple attempts to find valid solutions
-        
-        while len(population) < self.pop_size and attempts < max_attempts:
-            attempts += 1
+                            logger.warning(f"Invalid bootstrapped solution: {solution}")
+                            bootstrap_count -= 1
             
-            # Generate random fractions that sum to 1
-            fractions = np.random.random(self.n_stages)
-            fractions /= np.sum(fractions)
+            # Generate remaining population randomly
+            remaining_count = self.pop_size - bootstrap_count
+            if remaining_count > 0:
+                random_population = self._generate_random_population(remaining_count)
+                population[bootstrap_count:] = random_population
             
-            # Scale by total ΔV and ensure bounds
-            solution = fractions * self.TOTAL_DELTA_V
-            for i in range(self.n_stages):
-                lower, upper = self.bounds[i]
-                solution[i] = np.clip(solution[i], lower, upper)
+            # Evaluate the population
+            fitness = np.zeros(self.pop_size)
+            feasibility = np.zeros(self.pop_size, dtype=bool)
+            violations = np.zeros(self.pop_size)
             
-            # Final normalization with high precision
-            total = np.sum(solution)
-            if total > 0:
-                solution = np.array(solution, dtype=np.float64)  # Higher precision
-                solution *= self.TOTAL_DELTA_V / total
+            for i in range(self.pop_size):
+                fitness[i] = self.evaluate(population[i])
+                feasibility[i], violations[i] = self.check_feasibility(population[i])
                 
-                # Verify and adjust for exact constraint
-                error = np.abs(np.sum(solution) - self.TOTAL_DELTA_V)
-                if error > 1e-10:
-                    # Distribute any remaining error proportionally
-                    adjustment = (self.TOTAL_DELTA_V - np.sum(solution)) / self.n_stages
-                    solution += adjustment
-                
-                # Verify solution quality for random solutions too
-                if attempts % 10 == 0:  # Only check every 10 attempts to save computation
-                    fitness, penalty, _ = objective_with_penalty(
-                        dv=solution,
-                        G0=self.G0,
-                        ISP=self.ISP,
-                        EPSILON=self.EPSILON,
-                        TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                        return_tuple=True
-                    )
-                    if not np.isfinite(fitness) or penalty > 1.0:  # Skip solutions with high penalties
-                        continue  # Skip this solution if fitness is not finite or penalty is high
-                
-                population.append(solution)
+                # Update best solution if better
+                self.update_best_solution(
+                    population[i], 
+                    fitness[i], 
+                    feasibility[i], 
+                    violations[i]
+                )
+            
+            return population, fitness, feasibility, violations
+            
+        except Exception as e:
+            logger.error(f"Error initializing population: {str(e)}")
+            # Fallback to completely random population
+            return self._generate_random_population(self.pop_size), \
+                   np.zeros(self.pop_size), \
+                   np.zeros(self.pop_size, dtype=bool), \
+                   np.zeros(self.pop_size)
+                   
+    def _generate_random_population(self, size):
+        """Generate a random population of given size.
         
-        # If we couldn't generate enough valid solutions, duplicate existing ones
-        while len(population) < self.pop_size:
-            if len(population) > 0:
-                # Duplicate a random solution with small perturbation
-                idx = np.random.randint(0, len(population))
-                solution = population[idx].copy()
-                
-                # Add small random perturbation
-                perturbation = np.random.normal(0, 0.01, size=self.n_stages)
-                solution += perturbation
-                
-                # Normalize to maintain total delta-v
-                total = np.sum(solution)
-                if total > 0:
-                    solution *= self.TOTAL_DELTA_V / total
-                
-                # Ensure all values are within bounds
-                for i in range(self.n_stages):
-                    lower, upper = self.bounds[i]
-                    solution[i] = np.clip(solution[i], lower, upper)
-                
-                population.append(solution)
-            else:
-                # If no valid solutions, create a uniform distribution as fallback
-                solution = np.ones(self.n_stages) * self.TOTAL_DELTA_V / self.n_stages
-                population.append(solution)
+        Args:
+            size: Number of individuals to generate
+            
+        Returns:
+            Random population
+        """
+        population = np.zeros((size, self.n_stages))
         
-        # Log population statistics
-        self.print_population_stats(population)
-        
-        return np.array(population)
+        for i in range(size):
+            # Generate random solution within bounds
+            for j in range(self.n_stages):
+                lower, upper = self.bounds[j]
+                population[i,j] = np.random.uniform(lower, upper)
+            
+            # Project to feasible space
+            population[i] = self.project_to_feasible(population[i])
+            
+        return population
 
     def print_population_stats(self, population, fitness_values=None):
         """Print statistics about the population."""

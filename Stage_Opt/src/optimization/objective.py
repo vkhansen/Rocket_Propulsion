@@ -88,66 +88,112 @@ def payload_fraction_objective(dv: np.ndarray,
         return float('inf')
 
 
-def objective_with_penalty(dv: np.ndarray,
-                           G0: float,
-                           ISP: np.ndarray,
-                           EPSILON: np.ndarray,
-                           TOTAL_DELTA_V: float,
-                           config: Dict = None,
-                           return_tuple: bool = False) -> Union[float, Tuple[float, float, float]]:
-    """Main objective function with continuous penalties for constraints."""
-
-    if config is None:
-        config = {}
-
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=False):
+    """Calculate objective function with penalty for constraint violations.
+    
+    Args:
+        dv: Delta-V distribution for each stage
+        G0: Gravitational constant
+        ISP: Specific impulse for each stage
+        EPSILON: Structural coefficient for each stage
+        TOTAL_DELTA_V: Total required delta-V
+        return_tuple: If True, return (objective, dv_constraint, physical_constraint)
+        
+    Returns:
+        Penalized objective value, or tuple if return_tuple=True
+    """
     try:
-        # Ensure arrays
-        dv = np.asarray(dv, dtype=float).flatten()
-        ISP = np.asarray(ISP, dtype=float)
-        EPSILON = np.asarray(EPSILON, dtype=float)
-
-        # Log the input values for debugging
-        logger.debug(f"objective_with_penalty input: dv={dv}, G0={G0}, ISP={ISP}, EPSILON={EPSILON}, TOTAL_DELTA_V={TOTAL_DELTA_V}")
-
-        # Calculate the negative payload fraction
-        stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
-        payload_fraction = calculate_payload_fraction(mass_ratios)
-
-        # Log the calculated values
-        logger.debug(f"stage_ratios={stage_ratios}, mass_ratios={mass_ratios}, payload_fraction={payload_fraction}")
-
-        # Reject if payload fraction is nonphysical
-        if payload_fraction <= 0:
-            logger.debug(f"Rejecting solution with nonphysical payload fraction: {payload_fraction}")
+        # Convert to numpy array if not already
+        dv = np.asarray(dv, dtype=np.float64)
+        ISP = np.asarray(ISP, dtype=np.float64)
+        EPSILON = np.asarray(EPSILON, dtype=np.float64)
+        
+        # Check for NaN or inf values
+        if not np.all(np.isfinite(dv)) or not np.all(np.isfinite(ISP)) or not np.all(np.isfinite(EPSILON)):
+            logger.error(f"Non-finite values detected: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
             if return_tuple:
                 return (float('inf'), float('inf'), float('inf'))
             return float('inf')
-
-        objective_value = -payload_fraction  # We minimize the negative => maximize fraction
-
-        # 1) Basic physical constraint: stage_ratios must be between 0 and 1
-        #    We'll treat any violation as a separate measure. 
-        below_zero_viol = np.sum(np.maximum(0.0, -stage_ratios))      # how far below 0 
-        above_one_viol  = np.sum(np.maximum(0.0, stage_ratios - 1.0)) # how far above 1
-        physical_constraint = (below_zero_viol + above_one_viol) / len(stage_ratios)
-
-        # 2) Delta-v constraint as a relative error from required total
+        
+        # Calculate total delta-v constraint violation
         total_dv = np.sum(dv)
-        dv_constraint = abs(total_dv - TOTAL_DELTA_V) / max(1e-8, TOTAL_DELTA_V)
-
-        # 3) Stage fraction constraints via new function
-        #    (this checks min/max fraction for 1st stage vs others, etc.)
-        fraction_violation = enforce_stage_constraints(dv,
-                                                       total_dv_required=TOTAL_DELTA_V,
-                                                       config=config)
-
-        # Log constraint violations
-        logger.debug(f"Constraint violations: physical={physical_constraint}, dv={dv_constraint}, fraction={fraction_violation}")
-
-        # Combine all constraints into a single penalty. 
-        # Using smaller penalty scales to make the optimization more forgiving
-        penalty_scale_phys = 5.0  # Reduced from 10
-        penalty_scale_dv   = 5.0  # Reduced from 10
+        dv_constraint = abs(total_dv - TOTAL_DELTA_V) / TOTAL_DELTA_V
+        
+        # Calculate stage fractions for logging
+        stage_fractions = dv / TOTAL_DELTA_V if TOTAL_DELTA_V > 0 else np.zeros_like(dv)
+        
+        # Check for negative values which would cause physics issues
+        if np.any(dv <= 0) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
+            logger.warning(f"Invalid physics parameters: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
+            if return_tuple:
+                return (float('inf'), dv_constraint, float('inf'))
+            return float('inf')
+        
+        # Calculate mass ratios for each stage
+        try:
+            exp_terms = np.exp(dv / (ISP * G0))
+            
+            # Check for numerical overflow
+            if np.any(~np.isfinite(exp_terms)):
+                logger.warning(f"Numerical overflow in exp_terms: {exp_terms}")
+                if return_tuple:
+                    return (float('inf'), dv_constraint, float('inf'))
+                return float('inf')
+                
+            # Calculate lambda (stage ratio) and mu (mass ratio)
+            lambda_values = 1.0 / exp_terms
+            mu_values = 1.0 / (lambda_values * (1.0 - EPSILON) + EPSILON)
+            
+            # Check for numerical issues
+            if np.any(~np.isfinite(lambda_values)) or np.any(~np.isfinite(mu_values)):
+                logger.warning(f"Numerical issues: lambda={lambda_values}, mu={mu_values}")
+                if return_tuple:
+                    return (float('inf'), dv_constraint, float('inf'))
+                return float('inf')
+                
+            # Calculate payload fraction (product of 1/mu values)
+            payload_fraction = np.prod(1.0 / mu_values)
+            
+            # Check for numerical issues
+            if not np.isfinite(payload_fraction) or payload_fraction <= 0:
+                logger.warning(f"Invalid payload fraction: {payload_fraction}")
+                if return_tuple:
+                    return (float('inf'), dv_constraint, float('inf'))
+                return float('inf')
+                
+            # Objective is negative payload fraction (for minimization)
+            objective_value = -payload_fraction
+            
+        except Exception as e:
+            logger.error(f"Physics calculation error: {str(e)}")
+            if return_tuple:
+                return (float('inf'), dv_constraint, float('inf'))
+            return float('inf')
+        
+        # Physical constraint violation
+        physical_constraint = 0.0
+        
+        # Check for invalid stage ratios
+        if np.any(lambda_values <= 0) or np.any(lambda_values >= 1):
+            physical_constraint += 1e3
+        
+        # Check for invalid mass ratios
+        if np.any(mu_values <= 1):
+            physical_constraint += 1e3
+        
+        # Stage fraction violations
+        fraction_violation = 0.0
+        
+        # Log the solution details
+        logger.debug(f"DV: {dv}, Total: {total_dv}, Target: {TOTAL_DELTA_V}")
+        logger.debug(f"Stage fractions: {stage_fractions}")
+        logger.debug(f"Lambda: {lambda_values}, Mu: {mu_values}")
+        logger.debug(f"Payload fraction: {payload_fraction}")
+        logger.debug(f"DV constraint: {dv_constraint}, Physical constraint: {physical_constraint}")
+        
+        # Penalty scaling factors
+        penalty_scale_phys = 1e3
+        penalty_scale_dv = 1e3
         penalty_scale_frac = 5.0  # Reduced from 10
 
         # Weighted sum of constraints

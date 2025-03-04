@@ -117,136 +117,113 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.error(f"Error logging generation stats: {e}")
             return float('inf'), float('inf'), 0.0
 
-    def solve(self, initial_guess: np.ndarray, bounds: List[Tuple[float, float]], other_solver_results: dict = None) -> dict:
-        """Solve using Genetic Algorithm.
+    def solve(self, initial_guess=None, bounds=None, other_solver_results=None):
+        """Solve the optimization problem using genetic algorithm.
         
         Args:
-            initial_guess: Initial solution vector
-            bounds: List of (min, max) tuples for each variable
-            other_solver_results: Optional dictionary of solutions from other solvers
-        
+            initial_guess: Initial solution vector (not used in GA)
+            bounds: List of (min, max) bounds for each variable
+            other_solver_results: Optional results from other solvers to bootstrap population
+            
         Returns:
-            Dictionary containing optimization results
+            Dictionary with optimization results
         """
         try:
-            logger.info(f"\nStarting {self.name} optimization...")
-            logger.info(f"Population size: {self.pop_size}")
-            logger.info(f"Number of generations: {self.n_generations}")
-            logger.info(f"Mutation rate: {self.mutation_rate}")
-            logger.info(f"Crossover rate: {self.crossover_rate}")
-            logger.info(f"Tournament size: {self.tournament_size}")
-            
-            # Log if we're using other solver results
-            if other_solver_results:
-                logger.info(f"Using {len(other_solver_results)} solutions from other solvers as seeds")
-            logger.info("=" * 50)
-            
-            # Setup problem and algorithm here (using pymoo if needed)
-            # For demonstration, using the base GA solver routine
-            start_time = time.time()
-            
-            # Initialize population with solutions from other solvers
-            self.population = self.initialize_population(other_solver_results)
-            if self.population is None:
-                raise ValueError("Failed to initialize population")
-            
-            # Main optimization loop
-            for gen in range(self.n_gen):
-                self.fitness_values = self.evaluate_population(self.population)
-                if self.fitness_values is None:
-                    raise ValueError("Failed to evaluate population")
+            # Set bounds if provided
+            if bounds is not None:
+                self.bounds = bounds
                 
-                gen_best_idx = np.argmax(self.fitness_values)
-                gen_best_fitness = self.fitness_values[gen_best_idx]
-                
-                if gen_best_fitness > self.best_fitness:
-                    self.best_fitness = gen_best_fitness
-                    self.best_solution = self.population[gen_best_idx].copy()
-                
-                avg_fitness = np.mean(self.fitness_values)
-                diversity = self.calculate_diversity(self.population)
-                
-                self.best_fitness_history.append(gen_best_fitness)
-                self.avg_fitness_history.append(avg_fitness)
-                self.diversity_history.append(diversity)
-                
-                logger.info(f"Generation {gen + 1}/{self.n_gen} - Best: {gen_best_fitness:.6f}, Avg: {avg_fitness:.6f}, Diversity: {diversity:.6f}")
-                
-                new_population = self.create_next_generation(self.population, self.fitness_values)
-                if new_population is None:
-                    raise ValueError("Failed to create next generation")
-                
-                self.population = new_population
+            # Initialize population
+            logger.info(f"Initializing population of size {self.pop_size}")
+            population, fitness, feasibility, violations = self.initialize_population(other_solver_results)
             
-            # Post-optimization feasibility enforcement
-            logger.info("Optimization completed, checking solution feasibility...")
-            
-            # Ensure we have a solution to work with
-            if self.best_solution is None:
-                logger.warning("No best solution found during optimization, using best from final population")
-                if self.population is not None and len(self.population) > 0:
-                    self.best_solution = self.population[np.argmax(self.fitness_values)].copy()
-                else:
-                    logger.error("No valid population available, using initial guess")
-                    self.best_solution = initial_guess.copy()
-            
-            # Project the best solution to ensure it satisfies constraints
-            logger.info(f"Original best solution: {self.best_solution}")
-            projected_solution = self.iterative_projection(self.best_solution)
-            logger.info(f"Projected solution: {projected_solution}")
-            
-            # Check if the projected solution is feasible
-            is_feasible, violation = self.check_feasibility(projected_solution)
-            logger.info(f"Projected solution feasibility: {is_feasible}, violation: {violation}")
-            
-            if is_feasible:
-                logger.info("Projected solution is feasible, using it as final result")
-                self.best_solution = projected_solution
-                success = True
-                message = "Optimization completed successfully with feasible solution"
-            else:
-                logger.warning(f"Projected solution still violates constraints: {violation}")
+            # Main GA loop
+            for generation in range(self.max_generations):
+                # Log progress
+                if generation % 10 == 0:
+                    self.log_generation_stats(generation, population, fitness, feasibility)
                 
-                # Try to find any feasible solution in the final population
-                found_feasible = False
-                for i, ind in enumerate(self.population):
-                    # Project each solution
-                    projected_ind = self.iterative_projection(ind)
-                    is_feasible, violation = self.check_feasibility(projected_ind)
-                    if is_feasible:
-                        logger.info(f"Found feasible solution in population at index {i}")
-                        self.best_solution = projected_ind.copy()
-                        found_feasible = True
-                        break
+                # Check for early termination
+                if self.best_fitness < self.target_fitness:
+                    logger.info(f"Target fitness reached at generation {generation}")
+                    break
+                    
+                # Create next generation
+                new_population = np.zeros_like(population)
+                new_fitness = np.zeros_like(fitness)
+                new_feasibility = np.zeros_like(feasibility)
+                new_violations = np.zeros_like(violations)
                 
-                if found_feasible:
-                    success = True
-                    message = "Found alternative feasible solution in population"
-                else:
-                    # If no feasible solution found, use the best projected solution anyway
-                    logger.warning("No feasible solution found in population, using best projected solution")
-                    self.best_solution = projected_solution
-                    success = False
-                    message = f"Solution violates constraints (violation={violation:.2e})"
+                # Elitism: keep best solutions
+                elite_count = max(1, int(self.pop_size * self.elitism_rate))
+                elite_indices = np.argsort(fitness)[:elite_count]
+                
+                for i, idx in enumerate(elite_indices):
+                    new_population[i] = population[idx]
+                    new_fitness[i] = fitness[idx]
+                    new_feasibility[i] = feasibility[idx]
+                    new_violations[i] = violations[idx]
+                
+                # Fill rest of population with offspring
+                for i in range(elite_count, self.pop_size):
+                    # Selection
+                    parent1_idx = self.tournament_selection(fitness, feasibility, violations)
+                    parent2_idx = self.tournament_selection(fitness, feasibility, violations)
+                    
+                    # Crossover
+                    if np.random.random() < self.crossover_rate:
+                        child = self.crossover(population[parent1_idx], population[parent2_idx])
+                    else:
+                        child = population[parent1_idx].copy()
+                    
+                    # Mutation
+                    if np.random.random() < self.mutation_rate:
+                        child = self.mutate(child)
+                    
+                    # Project to feasible space
+                    child = self.project_to_feasible(child)
+                    
+                    # Evaluate
+                    new_population[i] = child
+                    new_fitness[i] = self.evaluate(child)
+                    new_feasibility[i], new_violations[i] = self.check_feasibility(child)
+                    
+                    # Update best solution
+                    self.update_best_solution(
+                        child, 
+                        new_fitness[i], 
+                        new_feasibility[i], 
+                        new_violations[i]
+                    )
+                
+                # Update population
+                population = new_population
+                fitness = new_fitness
+                feasibility = new_feasibility
+                violations = new_violations
             
-            execution_time = time.time() - start_time
+            # Final log
+            self.log_generation_stats(self.max_generations, population, fitness, feasibility)
             
-            return self.process_results(
-                x=self.best_solution,
-                success=success,
-                message=message,
-                n_iterations=self.n_gen,
-                n_function_evals=self.n_gen * self.pop_size,
-                time=execution_time,
-                constraint_violation=violation if 'violation' in locals() else None
-            )
+            # Return results
+            return {
+                'x': self.best_solution,
+                'fun': self.best_fitness,
+                'success': True,
+                'message': 'Optimization terminated successfully',
+                'nfev': self.function_evaluations,
+                'nit': min(generation + 1, self.max_generations),
+                'is_feasible': self.best_is_feasible,
+                'violation': self.best_violation
+            }
+            
         except Exception as e:
-            logger.error(f"Error in GeneticAlgorithmSolver: {str(e)}")
-            return self.process_results(
-                x=initial_guess,
-                success=False,
-                message=str(e),
-                n_iterations=0,
-                n_function_evals=0,
-                time=0.0
-            )
+            logger.error(f"Error in GA solver: {str(e)}")
+            return {
+                'x': None,
+                'fun': float('inf'),
+                'success': False,
+                'message': f'Error in GA solver: {str(e)}',
+                'nfev': self.function_evaluations,
+                'nit': 0
+            }
