@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 from src.utils.config import logger
 from src.optimization.solvers.base_ga_solver import BaseGASolver
+import time
 
 class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
     """Adaptive Genetic Algorithm solver implementation."""
@@ -128,3 +129,101 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         except Exception as e:
             logger.error(f"Error in Adaptive GA optimization: {str(e)}")
             return None, None
+
+    def solve(self, initial_guess, bounds):
+        """Solve optimization problem.
+        
+        Args:
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) bounds for each variable
+            
+        Returns:
+            Dictionary containing optimization results
+        """
+        try:
+            logger.info(f"\nStarting {self.name} optimization...")
+            logger.info(f"Population size: {self.pop_size}")
+            logger.info(f"Number of generations: {self.n_gen}")
+            logger.info(f"Initial mutation rate: {self.mutation_rate}")
+            logger.info(f"Initial crossover rate: {self.crossover_rate}")
+            logger.info(f"Tournament size: {self.tournament_size}")
+            logger.info("=" * 50)
+            
+            start_time = time.time()
+            
+            # Run the adaptive GA optimization
+            self.best_solution, self.best_fitness = self.optimize()
+            
+            # Post-optimization feasibility enforcement
+            logger.info("Optimization completed, checking solution feasibility...")
+            
+            # Ensure we have a solution to work with
+            if self.best_solution is None:
+                logger.warning("No best solution found during optimization, using best from final population")
+                if self.population is not None and len(self.population) > 0:
+                    self.fitness_values = self.evaluate_population(self.population)
+                    self.best_solution = self.population[np.argmax(self.fitness_values)].copy()
+                else:
+                    logger.error("No valid population available, using initial guess")
+                    self.best_solution = initial_guess.copy()
+            
+            # Project the best solution to ensure it satisfies constraints
+            logger.info(f"Original best solution: {self.best_solution}")
+            projected_solution = self.iterative_projection(self.best_solution)
+            logger.info(f"Projected solution: {projected_solution}")
+            
+            # Check if the projected solution is feasible
+            is_feasible, violation = self.check_feasibility(projected_solution)
+            logger.info(f"Projected solution feasibility: {is_feasible}, violation: {violation}")
+            
+            if is_feasible:
+                logger.info("Projected solution is feasible, using it as final result")
+                self.best_solution = projected_solution
+                success = True
+                message = "Optimization completed successfully with feasible solution"
+            else:
+                logger.warning(f"Projected solution still violates constraints: {violation}")
+                
+                # Try to find any feasible solution in the final population
+                found_feasible = False
+                for i, ind in enumerate(self.population):
+                    # Project each solution
+                    projected_ind = self.iterative_projection(ind)
+                    is_feasible, violation = self.check_feasibility(projected_ind)
+                    if is_feasible:
+                        logger.info(f"Found feasible solution in population at index {i}")
+                        self.best_solution = projected_ind.copy()
+                        found_feasible = True
+                        break
+                
+                if found_feasible:
+                    success = True
+                    message = "Found alternative feasible solution in population"
+                else:
+                    # If no feasible solution found, use the best projected solution anyway
+                    logger.warning("No feasible solution found in population, using best projected solution")
+                    self.best_solution = projected_solution
+                    success = False
+                    message = f"Solution violates constraints (violation={violation:.2e})"
+            
+            execution_time = time.time() - start_time
+            
+            return self.process_results(
+                x=self.best_solution,
+                success=success,
+                message=message,
+                n_iterations=self.n_gen,
+                n_function_evals=self.n_gen * self.pop_size,
+                time=execution_time,
+                constraint_violation=violation if 'violation' in locals() else None
+            )
+        except Exception as e:
+            logger.error(f"Error in AdaptiveGeneticAlgorithmSolver: {str(e)}")
+            return self.process_results(
+                x=initial_guess,
+                success=False,
+                message=str(e),
+                n_iterations=0,
+                n_function_evals=0,
+                time=0.0
+            )
