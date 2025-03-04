@@ -94,7 +94,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                     # Calculate statistics
                     avg_fitness = np.mean(self.fitness_values)
                     diversity = self.calculate_diversity(self.population)
-                    improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100 if self.best_fitness != 0 else 0
+                    
+                    # Calculate improvement with proper handling of edge cases
+                    if np.isfinite(self.best_fitness) and np.isfinite(gen_best_fitness) and abs(self.best_fitness) > 1e-10:
+                        improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100
+                    else:
+                        improvement = 0.0
                     
                     # Log progress
                     logger.info(f"Generation {gen + 1}/{self.n_gen}:")
@@ -178,7 +183,12 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                     # Calculate statistics
                     avg_fitness = np.mean(self.fitness_values)
                     diversity = self.calculate_diversity(self.population)
-                    improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100 if self.best_fitness != 0 else 0
+                    
+                    # Calculate improvement with proper handling of edge cases
+                    if np.isfinite(self.best_fitness) and np.isfinite(gen_best_fitness) and abs(self.best_fitness) > 1e-10:
+                        improvement = ((gen_best_fitness - self.best_fitness) / abs(self.best_fitness)) * 100
+                    else:
+                        improvement = 0.0
                     
                     # Log progress
                     logger.info(f"Generation {gen + 1}/{self.n_gen}:")

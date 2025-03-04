@@ -89,36 +89,85 @@ class BaseSolver(ABC):
             return float('inf')
             
     def check_feasibility(self, x: np.ndarray) -> Tuple[bool, float]:
-        """Check if solution satisfies all constraints.
+        """Check if solution is feasible.
         
         Args:
             x: Solution vector
             
         Returns:
-            Tuple of (is_feasible, violation_measure)
+            Tuple of (is_feasible, violation)
         """
         try:
             # Ensure x is a 1D array
             x = np.asarray(x, dtype=np.float64).reshape(-1)
             
-            # Get objective components
-            _, dv_const, phys_const = objective_with_penalty(
-                dv=x,
-                G0=self.G0,
-                ISP=self.ISP,
-                EPSILON=self.EPSILON,
-                TOTAL_DELTA_V=self.TOTAL_DELTA_V,
-                return_tuple=True
-            )
+            # Check for NaN or inf values
+            if not np.all(np.isfinite(x)):
+                return False, float('inf')
             
-            total_violation = dv_const + phys_const
+            # Check if total delta-v is within tolerance
+            total_dv = np.sum(x)
+            dv_violation = abs(total_dv - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
+            
+            # Check if any stage is negative or exceeds bounds
+            for i, (lower, upper) in enumerate(self.bounds):
+                if x[i] < lower or x[i] > upper:
+                    return False, float('inf')
+            
+            # Check stage fraction constraints
+            stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
+            if stage_constraints:
+                first_stage = stage_constraints.get('first_stage', {})
+                other_stages = stage_constraints.get('other_stages', {})
+                
+                # First stage constraints
+                min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
+                max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                if x[0] < min_first or x[0] > max_first:
+                    return False, float('inf')
+                
+                # Other stages constraints
+                min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
+                max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                for i in range(1, self.n_stages):
+                    if x[i] < min_other or x[i] > max_other:
+                        return False, float('inf')
+            
+            # Use a more robust approach for physics constraints
+            try:
+                # Get objective components with a try-except to catch any numerical issues
+                _, dv_const, phys_const = objective_with_penalty(
+                    dv=x,
+                    G0=self.G0,
+                    ISP=self.ISP,
+                    EPSILON=self.EPSILON,
+                    TOTAL_DELTA_V=self.TOTAL_DELTA_V,
+                    return_tuple=True
+                )
+                
+                # Cap extremely large values to prevent inf
+                if not np.isfinite(dv_const):
+                    dv_const = 1e6
+                if not np.isfinite(phys_const):
+                    phys_const = 1e6
+                    
+                total_violation = dv_const + phys_const
+                
+                # Cap the total violation to prevent numerical issues
+                if total_violation > 1e6:
+                    total_violation = 1e6
+                
+            except Exception as e:
+                logger.warning(f"Error in physics constraint calculation: {str(e)}")
+                return False, 1e6
+            
             is_feasible = total_violation <= self.feasibility_threshold
             
             return is_feasible, total_violation
             
         except Exception as e:
             logger.error(f"Error checking feasibility: {str(e)}")
-            return False, float('inf')
+            return False, 1e6
             
     def update_best_solution(self, x: np.ndarray, score: float, 
                            is_feasible: bool, violation: float) -> bool:
@@ -151,87 +200,72 @@ class BaseSolver(ABC):
             logger.error(f"Error updating best solution: {str(e)}")
             return False
             
-    def iterative_projection(self, x: np.ndarray) -> np.ndarray:
-        """Project solution to feasible space using iterative water-filling approach.
+    def project_to_feasible(self, x: np.ndarray) -> np.ndarray:
+        """Project solution to feasible space.
         
-        This method uses a sophisticated water-filling algorithm to redistribute delta-v:
-        1. First clips values to their bounds
-        2. Identifies stages at their limits (fixed)
-        3. Redistributes remaining delta-v among unfixed stages
-        4. Repeats until convergence or max iterations reached
+        Args:
+            x: Solution vector
+            
+        Returns:
+            Projected solution
         """
         try:
-            x_proj = np.asarray(x, dtype=np.float64).reshape(-1)
+            # Ensure x is a 1D array of float64 for numerical stability
+            x = np.asarray(x, dtype=np.float64).reshape(-1)
             
-            for iteration in range(self.max_projection_iterations):
-                # Track which stages are fixed at their bounds
-                fixed_stages = np.zeros(self.n_stages, dtype=bool)
-                fixed_values = np.zeros(self.n_stages, dtype=np.float64)
-                
-                # First pass: Clip to bounds and identify fixed stages
-                for i in range(self.n_stages):
-                    lower, upper = self.bounds[i]
-                    if x_proj[i] <= lower:
-                        x_proj[i] = lower
-                        fixed_stages[i] = True
-                        fixed_values[i] = lower
-                    elif x_proj[i] >= upper:
-                        x_proj[i] = upper
-                        fixed_stages[i] = True
-                        fixed_values[i] = upper
-                
-                # Calculate remaining delta-v to distribute
-                fixed_dv = np.sum(fixed_values)
-                remaining_dv = self.TOTAL_DELTA_V - fixed_dv
-                unfixed_stages = ~fixed_stages
-                n_unfixed = np.sum(unfixed_stages)
-                
-                if n_unfixed == 0:
-                    # All stages are fixed - cannot satisfy constraints
-                    logger.warning("All stages fixed at bounds - cannot satisfy constraints")
-                    break
-                
-                # Calculate relative proportions for unfixed stages
-                if n_unfixed > 1:
-                    current_sum = np.sum(x_proj[unfixed_stages])
-                    if current_sum > 0:
-                        # Preserve relative proportions
-                        proportions = x_proj[unfixed_stages] / current_sum
-                    else:
-                        # Equal distribution if current sum is zero
-                        proportions = np.ones(n_unfixed) / n_unfixed
-                    
-                    # Redistribute remaining delta-v according to proportions
-                    x_proj[unfixed_stages] = remaining_dv * proportions
-                else:
-                    # Only one unfixed stage - assign all remaining delta-v
-                    x_proj[unfixed_stages] = remaining_dv
-                
-                # Check if solution is feasible
-                total = np.sum(x_proj)
-                rel_error = abs(total - self.TOTAL_DELTA_V) / self.TOTAL_DELTA_V
-                
-                if rel_error <= self.precision_threshold:
-                    break
-                
-                # Apply stage-specific constraints if defined
-                stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
-                if stage_constraints:
-                    first_stage = stage_constraints.get('first_stage', {})
-                    other_stages = stage_constraints.get('other_stages', {})
-                    
-                    # First stage constraints
-                    min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
-                    max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
-                    x_proj[0] = np.clip(x_proj[0], min_first, max_first)
-                    
-                    # Other stages constraints
-                    min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
-                    max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
-                    for i in range(1, self.n_stages):
-                        x_proj[i] = np.clip(x_proj[i], min_other, max_other)
+            # Check for NaN or inf values and replace with reasonable values
+            if not np.all(np.isfinite(x)):
+                logger.warning(f"Non-finite values in solution: {x}")
+                # Replace non-finite values with bounds midpoints
+                for i in range(len(x)):
+                    if not np.isfinite(x[i]):
+                        lower, upper = self.bounds[i]
+                        x[i] = (lower + upper) / 2.0
             
-            return x_proj
+            # Apply bounds constraints first
+            for i, (lower, upper) in enumerate(self.bounds):
+                x[i] = np.clip(x[i], lower, upper)
+            
+            # Scale to match total delta-v
+            total = np.sum(x)
+            if total > 0:
+                x = x * (self.TOTAL_DELTA_V / total)
+            else:
+                # If total is zero or negative, distribute equally
+                x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
+            
+            # Apply stage-specific constraints if defined
+            stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
+            if stage_constraints:
+                first_stage = stage_constraints.get('first_stage', {})
+                other_stages = stage_constraints.get('other_stages', {})
+                
+                # First stage constraints
+                min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
+                max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                x[0] = np.clip(x[0], min_first, max_first)
+                
+                # Other stages constraints
+                min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
+                max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                for i in range(1, self.n_stages):
+                    x[i] = np.clip(x[i], min_other, max_other)
+            
+            # Ensure the total is exactly TOTAL_DELTA_V
+            total = np.sum(x)
+            if abs(total - self.TOTAL_DELTA_V) > 1e-10:
+                # Distribute the difference proportionally
+                scale_factor = self.TOTAL_DELTA_V / total if total > 0 else 1.0
+                x = x * scale_factor
+                
+                # Final check for exact constraint
+                error = self.TOTAL_DELTA_V - np.sum(x)
+                if abs(error) > 1e-10:
+                    # Add a small correction to each stage
+                    correction = error / len(x)
+                    x += correction
+            
+            return x
             
         except Exception as e:
             logger.error(f"Error in projection: {str(e)}")
@@ -257,7 +291,7 @@ class BaseSolver(ABC):
                     population[i,j] = lower + samples[i,j] * (upper - lower)
                     
                 # Project to feasible space
-                population[i] = self.iterative_projection(population[i])
+                population[i] = self.project_to_feasible(population[i])
                     
             return population
             
@@ -276,7 +310,7 @@ class BaseSolver(ABC):
                 population[i,j] = np.random.uniform(lower, upper)
                 
             # Project to feasible space
-            population[i] = self.iterative_projection(population[i])
+            population[i] = self.project_to_feasible(population[i])
             
         return population
         
@@ -365,14 +399,15 @@ class BaseSolver(ABC):
             }
         
     @abstractmethod
-    def solve(self, initial_guess, bounds):
+    def solve(self, initial_guess, bounds, other_solver_results=None):
         """Solve optimization problem.
         
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) bounds for each variable
+            other_solver_results: Optional dictionary of solutions from other solvers
             
         Returns:
-            Tuple of (best solution, best objective value)
+            Dictionary containing optimization results
         """
         pass

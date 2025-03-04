@@ -94,14 +94,46 @@ class BasinHoppingOptimizer(BaseSolver):
             return_tuple=False
         )
         
-    def solve(self, initial_guess, bounds):
-        """Solve using Basin Hopping optimization."""
+    def solve(self, initial_guess, bounds, other_solver_results=None):
+        """Solve using Basin Hopping optimization.
+        
+        Args:
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) bounds for each variable
+            other_solver_results: Optional dictionary of solutions from other solvers
+            
+        Returns:
+            Dictionary containing optimization results
+        """
         try:
             logger.info("Starting Basin Hopping optimization...")
             start_time = time.time()
             
             # Generate feasible initial guess
             x0 = self.generate_initial_guess()
+            
+            # If we have results from other solvers, use the best one as initial guess
+            if other_solver_results is not None and len(other_solver_results) > 0:
+                logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping")
+                best_fitness = float('inf')
+                best_solution = None
+                
+                for solver_name, result in other_solver_results.items():
+                    if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == len(bounds):
+                        solution = result['x']
+                        payload_fraction = result.get('payload_fraction', 0)
+                        fitness = -payload_fraction if payload_fraction else float('inf')
+                        
+                        if fitness < best_fitness:
+                            best_fitness = fitness
+                            best_solution = solution
+                            logger.info(f"Using solution from {solver_name} as initial guess: {solution}")
+                
+                if best_solution is not None:
+                    x0 = best_solution.copy()
+                    logger.info(f"Using bootstrapped solution with fitness {best_fitness:.6f}")
+                else:
+                    logger.info("No valid solutions from other solvers, using generated initial guess")
             
             minimizer_kwargs = {
                 'method': 'L-BFGS-B',

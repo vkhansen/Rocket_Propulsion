@@ -195,7 +195,7 @@ class ParallelSolver:
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             
             # Run solver and return results
-            return solver.solve(initial_guess, bounds)
+            return solver.solve(initial_guess, bounds, other_solver_results=None)
         except Exception as e:
             logger.error(f"Error in solver {solver.__class__.__name__}: {str(e)}")
             return None

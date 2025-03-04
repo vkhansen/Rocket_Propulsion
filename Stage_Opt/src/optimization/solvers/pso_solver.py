@@ -21,8 +21,15 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.c1 = float(c1)  # Cognitive parameter
         self.c2 = float(c2)  # Social parameter
         
-    def initialize_swarm(self):
-        """Initialize particle swarm with positions and velocities."""
+    def initialize_swarm(self, other_solver_results=None):
+        """Initialize particle swarm with positions and velocities.
+        
+        Args:
+            other_solver_results: Optional dictionary of solutions from other solvers
+            
+        Returns:
+            Tuple of (positions, velocities) arrays
+        """
         self.logger.debug("Initializing PSO swarm...")
         
         positions = np.zeros((self.population_size, self.n_stages))
@@ -36,7 +43,38 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
         
-        for i in range(self.population_size):
+        # Check if we have solutions from other solvers to bootstrap
+        bootstrap_solutions = []
+        if other_solver_results is not None and len(other_solver_results) > 0:
+            self.logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping")
+            for solver_name, result in other_solver_results.items():
+                if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
+                    bootstrap_solutions.append(result['x'])
+                    self.logger.debug(f"Added bootstrap solution from {solver_name}: {result['x']}")
+            
+            self.logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
+        
+        # Determine how many particles to initialize from bootstrap solutions
+        n_bootstrap = min(len(bootstrap_solutions), self.population_size // 3)
+        
+        # Initialize first part of swarm with bootstrap solutions
+        for i in range(n_bootstrap):
+            # Select a random bootstrap solution
+            idx = np.random.randint(0, len(bootstrap_solutions))
+            bootstrap_solution = bootstrap_solutions[idx]
+            
+            # Add some noise to avoid exact copies (up to 5% variation)
+            noise = np.random.uniform(-0.05, 0.05, self.n_stages)
+            noisy_solution = bootstrap_solution * (1 + noise)
+            
+            # Ensure the solution is valid (sums to TOTAL_DELTA_V)
+            noisy_solution = noisy_solution * (self.TOTAL_DELTA_V / np.sum(noisy_solution))
+            
+            positions[i] = noisy_solution
+            self.logger.debug(f"Initialized particle {i} with bootstrap solution: {positions[i]}")
+        
+        # Initialize remaining particles with Dirichlet distribution
+        for i in range(n_bootstrap, self.population_size):
             # Generate balanced proportions using Dirichlet
             props = np.random.dirichlet(alpha)
             
@@ -113,8 +151,17 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         return new_velocity
 
-    def solve(self, initial_guess, bounds):
-        """Solve using Particle Swarm Optimization."""
+    def solve(self, initial_guess, bounds, other_solver_results=None):
+        """Solve using Particle Swarm Optimization.
+        
+        Args:
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) bounds for each variable
+            other_solver_results: Optional dictionary of solutions from other solvers
+            
+        Returns:
+            Dictionary containing optimization results
+        """
         try:
             # Setup logger at the start of solve() for multiprocessing support
             self.logger = setup_solver_logger("PSO")
@@ -122,7 +169,7 @@ class ParticleSwarmOptimizer(BaseSolver):
             start_time = time.time()
             
             # Initialize swarm
-            positions, velocities = self.initialize_swarm()
+            positions, velocities = self.initialize_swarm(other_solver_results)
             
             # Initialize personal and global best
             p_best_pos = positions.copy()
