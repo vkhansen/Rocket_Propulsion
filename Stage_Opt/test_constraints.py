@@ -2,120 +2,141 @@
 from src.optimization.objective import payload_fraction_objective, objective_with_penalty
 import numpy as np
 
-def format_test_output(test_name, inputs, result, expected):
-    print(f"\n{'='*70}")
-    print(f"TEST: {test_name}")
-    print(f"{'-'*70}")
-    print("INPUTS:")
-    for key, value in inputs.items():
-        print(f"  {key}: {value}")
-    print(f"\nRESULT: {result}")
-    print(f"EXPECTED: {expected}")
-    print(f"{'='*70}\n")
+def run_test(name, dv, G0, ISP, EPSILON, TOTAL_DELTA_V=None, description=None):
+    """Run a single test case and format its output."""
+    print(f"\n{'='*80}")
+    print(f"TEST {name}")
+    print(f"{'-'*80}")
+    
+    if description:
+        print(f"Description: {description}")
+    
+    print("\nInputs:")
+    print(f"  Delta-V:     {dv} m/s")
+    print(f"  ISP:         {ISP} s")
+    print(f"  Epsilon:     {EPSILON}")
+    print(f"  G0:          {G0} m/s²")
+    if TOTAL_DELTA_V is not None:
+        print(f"  Target ΔV:   {TOTAL_DELTA_V} m/s")
+        print(f"  Actual ΔV:   {np.sum(dv)} m/s")
+        print(f"  Difference:  {(np.sum(dv) - TOTAL_DELTA_V)/TOTAL_DELTA_V*100:.2f}%")
+    
+    if TOTAL_DELTA_V is None:
+        result = payload_fraction_objective(dv, G0, ISP, EPSILON)
+    else:
+        result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
+    
+    print(f"\nResult: {result}")
+    print(f"{'='*80}")
+    return result
 
 def main():
     G0 = 9.81
+    print("\nRunning constraint enforcement tests...")
     
-    print("\nStarting constraint enforcement tests...\n")
+    # Test Set 1: Basic Physical Constraints
+    print("\nTest Set 1: Basic Physical Constraints")
+    print("-" * 40)
     
-    # Test 1: Nonphysical payload fraction (extreme case)
-    dv = np.array([10000, 5000])  # Unrealistically high delta-v
-    ISP = np.array([300, 300])
-    EPSILON = np.array([0.1, 0.1])
+    # 1.1: Extreme nonphysical case
+    run_test("1.1 - Extreme Nonphysical",
+             dv=np.array([10000, 5000]),
+             G0=G0,
+             ISP=np.array([300, 300]),
+             EPSILON=np.array([0.1, 0.1]),
+             description="Should reject due to nonphysical payload fraction")
     
-    result = payload_fraction_objective(dv, G0, ISP, EPSILON)
-    format_test_output(
-        "Nonphysical Payload Fraction (Extreme)",
-        {"dv": dv, "ISP": ISP, "EPSILON": EPSILON, "G0": G0},
-        result,
-        "inf (should reject nonphysical payload fraction)"
-    )
+    # 1.2: Realistic case
+    run_test("1.2 - Realistic Case",
+             dv=np.array([5000, 3000]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.1, 0.08]),
+             description="Should accept with reasonable payload fraction")
     
-    # Test 2: Valid payload fraction (realistic case)
-    dv = np.array([5000, 3000])
-    ISP = np.array([300, 350])
-    EPSILON = np.array([0.1, 0.08])
+    # Test Set 2: Delta-V Constraints
+    print("\nTest Set 2: Delta-V Constraints")
+    print("-" * 40)
     
-    result = payload_fraction_objective(dv, G0, ISP, EPSILON)
-    format_test_output(
-        "Valid Payload Fraction (Realistic)",
-        {"dv": dv, "ISP": ISP, "EPSILON": EPSILON, "G0": G0},
-        result,
-        "negative finite value (should be physically realistic)"
-    )
+    # 2.1: Major violation
+    run_test("2.1 - Major DeltaV Violation",
+             dv=np.array([6000, 4000]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.1, 0.08]),
+             TOTAL_DELTA_V=8000,
+             description="Should reject (+25% over limit)")
     
-    # Test 3: Major constraint violation (25% over)
-    dv = np.array([6000, 4000])
-    TOTAL_DELTA_V = 8000
+    # 2.2: Minor violation
+    run_test("2.2 - Minor DeltaV Violation",
+             dv=np.array([4100, 4000]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.1, 0.08]),
+             TOTAL_DELTA_V=8000,
+             description="Should penalize but not reject (+1.25% over)")
     
-    result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-    format_test_output(
-        "Major DeltaV Constraint Violation",
-        {"dv": dv, "total_dv": TOTAL_DELTA_V, "violation": "25% over limit"},
-        result,
-        "inf (should reject major violation)"
-    )
+    # Test Set 3: Stage Balance
+    print("\nTest Set 3: Stage Balance")
+    print("-" * 40)
     
-    # Test 4: Minor constraint violation (1.25% over)
-    dv = np.array([4100, 4000])
-    TOTAL_DELTA_V = 8000
+    # 3.1: Extreme imbalance
+    run_test("3.1 - Extreme Imbalance",
+             dv=np.array([7500, 500]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.1, 0.08]),
+             TOTAL_DELTA_V=8000,
+             description="Should reject (93.75%/6.25% split)")
     
-    result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-    format_test_output(
-        "Minor DeltaV Constraint Violation",
-        {"dv": dv, "total_dv": TOTAL_DELTA_V, "violation": "1.25% over limit"},
-        result,
-        "finite but penalized value"
-    )
+    # 3.2: Optimal balance
+    run_test("3.2 - Optimal Balance",
+             dv=np.array([4500, 3500]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.1, 0.08]),
+             TOTAL_DELTA_V=8000,
+             description="Should accept (56.25%/43.75% split)")
     
-    # Test 5: Stage ratio imbalance (93.75%/6.25% split)
-    dv = np.array([7500, 500])
-    TOTAL_DELTA_V = 8000
+    # Test Set 4: Edge Cases
+    print("\nTest Set 4: Edge Cases")
+    print("-" * 40)
     
-    result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-    format_test_output(
-        "Extreme Stage Ratio Imbalance",
-        {"dv": dv, "total_dv": TOTAL_DELTA_V, "stage_split": "93.75%/6.25%"},
-        result,
-        "heavily penalized value or inf"
-    )
+    # 4.1: Very low ISP
+    run_test("4.1 - Low ISP",
+             dv=np.array([4000, 4000]),
+             G0=G0,
+             ISP=np.array([200, 200]),
+             EPSILON=np.array([0.1, 0.08]),
+             TOTAL_DELTA_V=8000,
+             description="Should handle poor efficiency")
     
-    # Test 6: Perfect solution (56.25%/43.75% split)
-    dv = np.array([4500, 3500])
-    TOTAL_DELTA_V = 8000
-    
-    result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-    format_test_output(
-        "Optimal Solution",
-        {"dv": dv, "total_dv": TOTAL_DELTA_V, "stage_split": "56.25%/43.75%"},
-        result,
-        "finite optimal value (should be best payload fraction)"
-    )
-    
-    # Test 7: Edge case with very low ISP
-    dv = np.array([4000, 4000])
-    ISP = np.array([200, 200])  # Very low ISP
-    TOTAL_DELTA_V = 8000
-    
-    result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-    format_test_output(
-        "Edge Case - Low ISP",
-        {"dv": dv, "ISP": ISP, "total_dv": TOTAL_DELTA_V},
-        result,
-        "should handle low ISP case appropriately"
-    )
-    
-    # Test 8: Edge case with high structural mass
-    EPSILON = np.array([0.2, 0.2])  # High structural coefficients
-    ISP = np.array([300, 350])  # Back to normal ISP
-    
-    result = objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V)
-    format_test_output(
-        "Edge Case - High Structural Mass",
-        {"dv": dv, "EPSILON": EPSILON, "total_dv": TOTAL_DELTA_V},
-        result,
-        "should handle high structural mass appropriately"
-    )
+    # 4.2: High structural mass
+    run_test("4.2 - High Structural Mass",
+             dv=np.array([4000, 4000]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.2, 0.2]),
+             TOTAL_DELTA_V=8000,
+             description="Should handle mass penalties")
+             
+    # 4.3: Extremely high ISP (unrealistic)
+    run_test("4.3 - Unrealistic ISP",
+             dv=np.array([4000, 4000]),
+             G0=G0,
+             ISP=np.array([1000, 1000]),
+             EPSILON=np.array([0.1, 0.08]),
+             TOTAL_DELTA_V=8000,
+             description="Should handle unrealistic efficiency")
+             
+    # 4.4: Near-zero structural mass
+    run_test("4.4 - Near-Zero Structure",
+             dv=np.array([4000, 4000]),
+             G0=G0,
+             ISP=np.array([300, 350]),
+             EPSILON=np.array([0.01, 0.01]),
+             TOTAL_DELTA_V=8000,
+             description="Should handle extremely light structure")
     
     print("\nAll tests completed!")
 
