@@ -352,6 +352,42 @@ class BaseSolver(ABC):
             # Fallback to equal distribution
             return np.full(self.n_stages, self.TOTAL_DELTA_V / self.n_stages)
         
+    def iterative_projection(self, x: np.ndarray, max_iterations: int = 5) -> np.ndarray:
+        """Apply projection iteratively to ensure constraints are met.
+        
+        This method applies the projection multiple times to ensure that
+        all constraints are satisfied, especially when there are competing
+        constraints that might be violated after a single projection.
+        
+        Args:
+            x: Solution vector
+            max_iterations: Maximum number of projection iterations
+            
+        Returns:
+            Projected solution that satisfies all constraints
+        """
+        try:
+            # Start with initial projection
+            projected = self.project_to_feasible(x)
+            
+            # Iteratively apply projection until convergence or max iterations
+            for i in range(max_iterations - 1):
+                prev_projected = projected.copy()
+                projected = self.project_to_feasible(projected)
+                
+                # Check if solution has converged
+                error = np.max(np.abs(projected - prev_projected))
+                if error < 1e-8:
+                    logger.debug(f"Projection converged after {i+1} iterations")
+                    break
+                    
+            return projected
+            
+        except Exception as e:
+            logger.error(f"Error in iterative projection: {str(e)}")
+            # Fallback to single projection
+            return self.project_to_feasible(x)
+            
     def initialize_population_lhs(self) -> np.ndarray:
         """Initialize population using Latin Hypercube Sampling."""
         try:

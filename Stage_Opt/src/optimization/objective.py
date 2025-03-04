@@ -166,11 +166,25 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
             
             # Add penalty for delta-v constraint
             penalty = penalty_coefficient * dv_constraint
+            penalized_objective = objective + penalty
+            
+            # Log detailed calculation for debugging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Calculation details:")
+                logger.debug(f"  dv = {dv}")
+                logger.debug(f"  stage_fractions = {stage_fractions}")
+                logger.debug(f"  exp_terms = {exp_terms}")
+                logger.debug(f"  lambda = {lambda_values}")
+                logger.debug(f"  mu = {mu_values}")
+                logger.debug(f"  payload_fraction = {payload_fraction}")
+                logger.debug(f"  objective = {objective}")
+                logger.debug(f"  dv_constraint = {dv_constraint}")
+                logger.debug(f"  penalized_objective = {penalized_objective}")
             
             # Return objective with penalty
             if return_tuple:
-                return (objective + penalty, dv_constraint, 0.0)
-            return objective + penalty
+                return (penalized_objective, dv_constraint, 0.0)
+            return penalized_objective
             
         except Exception as e:
             logger.warning(f"Error in physics calculations: {str(e)}")
