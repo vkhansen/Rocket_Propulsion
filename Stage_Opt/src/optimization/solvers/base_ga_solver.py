@@ -39,38 +39,88 @@ class BaseGASolver(BaseSolver):
             
             # Determine how many solutions to bootstrap from other solvers
             bootstrap_count = 0
-            if other_solver_results is not None and len(other_solver_results) > 0:
-                # Use at most 25% of the population for bootstrapping
-                bootstrap_count = min(len(other_solver_results), self.pop_size // 4)
-                logger.info(f"Bootstrapping {bootstrap_count} solutions from other solvers")
-                
-                # Sort other solver results by fitness (best first)
-                sorted_results = sorted(other_solver_results, key=lambda x: x.get('fitness', float('inf')))
-                
-                # Use the best solutions from other solvers
-                for i in range(bootstrap_count):
-                    if i < len(sorted_results):
-                        solution = sorted_results[i].get('solution')
-                        if solution is not None and len(solution) == self.n_stages:
-                            # Ensure the solution is valid
-                            if np.all(np.isfinite(solution)):
-                                # Add small random perturbation to avoid duplicates
-                                perturbation = np.random.normal(0, 0.01, self.n_stages)
-                                population[i] = solution + perturbation
-                                # Project to feasible space
-                                population[i] = self.project_to_feasible(population[i])
-                            else:
-                                logger.warning(f"Skipping non-finite bootstrapped solution: {solution}")
-                                bootstrap_count -= 1
-                        else:
-                            logger.warning(f"Invalid bootstrapped solution: {solution}")
-                            bootstrap_count -= 1
+            bootstrap_solutions = []
             
-            # Generate remaining population randomly
+            if other_solver_results is not None:
+                # Handle both list and dictionary formats
+                if isinstance(other_solver_results, dict):
+                    # Convert dictionary to list format
+                    other_solver_results = [
+                        {"solver": solver, "solution": result.get("solution"), "fitness": result.get("fitness")}
+                        for solver, result in other_solver_results.items()
+                        if result.get("solution") is not None
+                    ]
+                
+                if len(other_solver_results) > 0:
+                    # Use at most 30% of the population for bootstrapping
+                    max_bootstrap = min(len(other_solver_results), max(self.pop_size // 3, 5))
+                    logger.info(f"Processing {len(other_solver_results)} bootstrap solutions, will use up to {max_bootstrap}")
+                    
+                    # Sort other solver results by fitness (best first)
+                    sorted_results = sorted(
+                        other_solver_results, 
+                        key=lambda x: float('inf') if not isinstance(x.get('fitness'), (int, float)) else x.get('fitness', float('inf'))
+                    )
+                    
+                    # Validate and collect bootstrap solutions
+                    for result in sorted_results:
+                        solution = result.get('solution')
+                        
+                        # Skip if solution is None or not the right length
+                        if solution is None or len(solution) != self.n_stages:
+                            logger.warning(f"Skipping invalid bootstrap solution: {solution}")
+                            continue
+                            
+                        # Ensure the solution has finite values
+                        if not np.all(np.isfinite(solution)):
+                            logger.warning(f"Skipping non-finite bootstrap solution: {solution}")
+                            continue
+                            
+                        # Check if any values are too small
+                        min_dv_threshold = 10.0  # 10 m/s minimum delta-v
+                        if np.any(solution < min_dv_threshold):
+                            logger.warning(f"Bootstrap solution has very small delta-v values: {solution}")
+                            # Project to feasible space to fix small values
+                            solution = self.project_to_feasible(solution)
+                            
+                        # Add to bootstrap solutions
+                        bootstrap_solutions.append(solution)
+                        
+                        # Stop if we have enough
+                        if len(bootstrap_solutions) >= max_bootstrap:
+                            break
+                    
+                    bootstrap_count = len(bootstrap_solutions)
+                    logger.info(f"Using {bootstrap_count} valid bootstrap solutions")
+                    
+                    # Add bootstrap solutions to population with small perturbations
+                    for i in range(bootstrap_count):
+                        # Add small random perturbation to avoid duplicates
+                        perturbation = np.random.normal(0, 0.02, self.n_stages)
+                        population[i] = bootstrap_solutions[i] + perturbation
+                        # Project to feasible space
+                        population[i] = self.project_to_feasible(population[i])
+            
+            # Generate remaining population using different methods for diversity
             remaining_count = self.pop_size - bootstrap_count
             if remaining_count > 0:
-                random_population = self._generate_random_population(remaining_count)
-                population[bootstrap_count:] = random_population
+                logger.info(f"Generating {remaining_count} random solutions to complete population")
+                
+                # Use Latin Hypercube Sampling for 40% of remaining
+                lhs_count = min(remaining_count, max(self.pop_size // 5, 10))
+                if lhs_count > 0:
+                    try:
+                        lhs_population = self.initialize_population_lhs()[0:lhs_count]
+                        population[bootstrap_count:bootstrap_count+lhs_count] = lhs_population
+                    except Exception as e:
+                        logger.warning(f"Error using LHS sampling: {e}, falling back to uniform")
+                        lhs_count = 0
+                
+                # Use uniform random for the rest
+                uniform_count = remaining_count - lhs_count
+                if uniform_count > 0:
+                    uniform_population = self._generate_random_population(uniform_count)
+                    population[bootstrap_count+lhs_count:] = uniform_population
             
             # Evaluate the population
             fitness = np.zeros(self.pop_size)
@@ -78,6 +128,8 @@ class BaseGASolver(BaseSolver):
             violations = np.zeros(self.pop_size)
             
             for i in range(self.pop_size):
+                # Ensure solution is feasible before evaluation
+                population[i] = self.project_to_feasible(population[i])
                 fitness[i] = self.evaluate(population[i])
                 feasibility[i], violations[i] = self.check_feasibility(population[i])
                 
@@ -88,6 +140,9 @@ class BaseGASolver(BaseSolver):
                     feasibility[i], 
                     violations[i]
                 )
+            
+            # Log population statistics
+            self.print_population_stats(population, fitness)
             
             return population, fitness, feasibility, violations
             

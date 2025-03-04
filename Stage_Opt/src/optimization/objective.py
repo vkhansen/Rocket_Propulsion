@@ -92,32 +92,26 @@ def payload_fraction_objective(dv: np.ndarray,
         return float('inf')
 
 
-def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=False):
-    """Calculate objective function with penalty for constraint violations.
+def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coefficient=1e3, return_tuple=False):
+    """Objective function with penalty for constraints.
     
     Args:
-        dv: Delta-V distribution for each stage
+        dv: Delta-v values for each stage
         G0: Gravitational constant
-        ISP: Specific impulse for each stage
-        EPSILON: Structural coefficient for each stage
-        TOTAL_DELTA_V: Total required delta-V
-        return_tuple: If True, return (objective, dv_constraint, physical_constraint)
+        ISP: Specific impulse values for each stage
+        EPSILON: Structural coefficients for each stage
+        TOTAL_DELTA_V: Required total delta-v
+        penalty_coefficient: Coefficient for constraint penalty
+        return_tuple: If True, returns (objective, dv_constraint, physics_constraint)
         
     Returns:
-        Penalized objective value, or tuple if return_tuple=True
+        float: Objective value with penalties, or tuple if return_tuple=True
     """
     try:
-        # Convert to numpy array if not already
+        # Convert inputs to numpy arrays for vectorized operations
         dv = np.asarray(dv, dtype=np.float64)
         ISP = np.asarray(ISP, dtype=np.float64)
         EPSILON = np.asarray(EPSILON, dtype=np.float64)
-        
-        # Check for NaN or inf values
-        if not np.all(np.isfinite(dv)) or not np.all(np.isfinite(ISP)) or not np.all(np.isfinite(EPSILON)):
-            logger.error(f"Non-finite values detected: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
-            if return_tuple:
-                return (float('inf'), float('inf'), float('inf'))
-            return float('inf')
         
         # Calculate total delta-v constraint violation
         total_dv = np.sum(dv)
@@ -128,7 +122,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
         
         # Check for zero or negative values which would cause physics issues
         # We need a minimum delta-v for each stage to avoid physics calculation issues
-        min_dv_threshold = 1.0  # 1 m/s minimum delta-v per stage
+        min_dv_threshold = 10.0  # 10 m/s minimum delta-v per stage (increased from 1.0)
         if np.any(dv < min_dv_threshold) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
             logger.warning(f"Invalid physics parameters: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
             if return_tuple:
@@ -150,18 +144,18 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
             lambda_values = 1.0 / exp_terms
             mu_values = 1.0 / (lambda_values * (1.0 - EPSILON) + EPSILON)
             
-            # Check for numerical issues
-            if np.any(~np.isfinite(lambda_values)) or np.any(~np.isfinite(mu_values)):
-                logger.warning(f"Numerical issues: lambda={lambda_values}, mu={mu_values}")
+            # Check for invalid mu values
+            if np.any(~np.isfinite(mu_values)) or np.any(mu_values <= 0):
+                logger.warning(f"Invalid mu values: {mu_values}")
                 if return_tuple:
                     return (float('inf'), dv_constraint, float('inf'))
                 return float('inf')
             
-            # Calculate payload fraction (product of 1/mu for each stage)
+            # Calculate payload fraction (product of 1/mu)
             payload_fraction = np.prod(1.0 / mu_values)
             
-            # Check for numerical issues in payload fraction
-            if not np.isfinite(payload_fraction):
+            # Check for invalid payload fraction
+            if not np.isfinite(payload_fraction) or payload_fraction <= 0:
                 logger.warning(f"Invalid payload fraction: {payload_fraction}")
                 if return_tuple:
                     return (float('inf'), dv_constraint, float('inf'))
@@ -171,32 +165,19 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
             objective = -payload_fraction
             
             # Add penalty for delta-v constraint
-            penalty_factor = 100.0
-            penalized_objective = objective + penalty_factor * dv_constraint
+            penalty = penalty_coefficient * dv_constraint
             
-            # Log detailed calculation for debugging
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Calculation details:")
-                logger.debug(f"  dv = {dv}")
-                logger.debug(f"  stage_fractions = {stage_fractions}")
-                logger.debug(f"  exp_terms = {exp_terms}")
-                logger.debug(f"  lambda = {lambda_values}")
-                logger.debug(f"  mu = {mu_values}")
-                logger.debug(f"  payload_fraction = {payload_fraction}")
-                logger.debug(f"  objective = {objective}")
-                logger.debug(f"  dv_constraint = {dv_constraint}")
-                logger.debug(f"  penalized_objective = {penalized_objective}")
-            
+            # Return objective with penalty
             if return_tuple:
-                return (objective, dv_constraint, 0.0)
-            return penalized_objective
+                return (objective + penalty, dv_constraint, 0.0)
+            return objective + penalty
             
         except Exception as e:
-            logger.error(f"Error in physics calculation: {str(e)}")
+            logger.warning(f"Error in physics calculations: {str(e)}")
             if return_tuple:
                 return (float('inf'), dv_constraint, float('inf'))
             return float('inf')
-            
+        
     except Exception as e:
         logger.error(f"Error in objective function: {str(e)}")
         if return_tuple:

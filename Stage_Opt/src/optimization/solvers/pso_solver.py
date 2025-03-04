@@ -45,12 +45,26 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         # Check if we have solutions from other solvers to bootstrap
         bootstrap_solutions = []
-        if other_solver_results is not None and len(other_solver_results) > 0:
-            self.logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping")
-            for solver_name, result in other_solver_results.items():
-                if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
-                    bootstrap_solutions.append(result['x'])
-                    self.logger.debug(f"Added bootstrap solution from {solver_name}: {result['x']}")
+        
+        # Handle both dictionary format and list format for other_solver_results
+        if other_solver_results is not None:
+            if isinstance(other_solver_results, dict):
+                # Handle dictionary format (key: solver_name, value: result dict)
+                self.logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping (dict format)")
+                for solver_name, result in other_solver_results.items():
+                    if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
+                        bootstrap_solutions.append(result['x'])
+                        self.logger.debug(f"Added bootstrap solution from {solver_name}: {result['x']}")
+            elif isinstance(other_solver_results, list):
+                # Handle list format (list of dicts with 'solution' key)
+                self.logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping (list format)")
+                for result in other_solver_results:
+                    if isinstance(result, dict) and 'solution' in result:
+                        solution = result['solution']
+                        if np.all(np.isfinite(solution)) and len(solution) == self.n_stages:
+                            bootstrap_solutions.append(solution)
+                            solver_name = result.get('solver_name', 'unknown')
+                            self.logger.debug(f"Added bootstrap solution from {solver_name}: {solution}")
             
             self.logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
         

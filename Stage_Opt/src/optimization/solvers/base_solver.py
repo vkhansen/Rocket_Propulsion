@@ -270,7 +270,8 @@ class BaseSolver(ABC):
                 x[i] = np.clip(x[i], lower, upper)
             
             # Ensure each stage has a minimum delta-v value for physics calculations
-            min_dv_value = 1.0  # 1 m/s minimum
+            # Increased from 1.0 to 10.0 to avoid numerical issues
+            min_dv_value = 10.0  # 10 m/s minimum
             for i in range(len(x)):
                 if x[i] < min_dv_value:
                     x[i] = min_dv_value
@@ -296,8 +297,8 @@ class BaseSolver(ABC):
                     x[0] = np.clip(x[0], min_first, max_first)
                     
                     # Other stages constraints
-                    min_other = max(other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V, min_dv_value)
-                    max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                    min_other = max(other_stages.get('min_fraction', 0.05) * self.TOTAL_DELTA_V, min_dv_value)
+                    max_other = other_stages.get('max_fraction', 0.95) * self.TOTAL_DELTA_V
                     for i in range(1, self.n_stages):
                         x[i] = np.clip(x[i], min_other, max_other)
             else:
@@ -308,8 +309,8 @@ class BaseSolver(ABC):
                 x[0] = np.clip(x[0], min_first, max_first)
                 
                 # Other stages constraints
-                min_other = max(0.01 * self.TOTAL_DELTA_V, min_dv_value)
-                max_other = 1.0 * self.TOTAL_DELTA_V
+                min_other = max(0.05 * self.TOTAL_DELTA_V, min_dv_value)
+                max_other = 0.95 * self.TOTAL_DELTA_V
                 for i in range(1, self.n_stages):
                     x[i] = np.clip(x[i], min_other, max_other)
             
@@ -328,9 +329,21 @@ class BaseSolver(ABC):
                 # Final check for exact constraint
                 error = self.TOTAL_DELTA_V - np.sum(x)
                 if abs(error) > 1e-10:
-                    # Add a small correction to each stage
-                    correction = error / len(x)
-                    x += correction
+                    # Distribute error to stages above minimum threshold
+                    above_min = [i for i in range(len(x)) if x[i] > min_dv_value * 1.1]
+                    if above_min:
+                        # Distribute error to stages that are well above minimum
+                        correction = error / len(above_min)
+                        for i in above_min:
+                            x[i] += correction
+                    else:
+                        # If all stages are near minimum, adjust the largest one
+                        largest_idx = np.argmax(x)
+                        x[largest_idx] += error
+            
+            # Final validation - log warning if any stage is still too small
+            if np.any(x < min_dv_value * 0.99):
+                logger.warning(f"After projection, some stages still have very small delta-v: {x}")
             
             return x
             
@@ -338,7 +351,7 @@ class BaseSolver(ABC):
             logger.error(f"Error in projection: {str(e)}")
             # Fallback to equal distribution
             return np.full(self.n_stages, self.TOTAL_DELTA_V / self.n_stages)
-            
+        
     def initialize_population_lhs(self) -> np.ndarray:
         """Initialize population using Latin Hypercube Sampling."""
         try:
