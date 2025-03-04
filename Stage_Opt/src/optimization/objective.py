@@ -82,30 +82,17 @@ def enforce_stage_constraints(dv_array, total_dv_required, config=None):
     return total_violation
 
 def calculate_mass_ratios(stage_ratios, EPSILON):
-    """Calculate mass ratios from stage ratios.
+    """Calculate mass ratios from stage ratios, assuming each stage is dropped."""
+    stage_ratios = np.asarray(stage_ratios, dtype=float)
+    EPSILON = np.asarray(EPSILON, dtype=float)
     
-    Args:
-        stage_ratios (np.ndarray): Stage ratios (λ = mf/m0) for each stage
-        EPSILON (np.ndarray): Structural coefficients for each stage
+    mass_ratios = np.zeros_like(stage_ratios)
+    for i in range(len(stage_ratios)):
+        # Standard "drop the stage" leftover fraction:
+        # (lambda_i - epsilon_i) / (1 - epsilon_i)
+        mass_ratios[i] = (stage_ratios[i] - EPSILON[i]) / (1.0 - EPSILON[i])
         
-    Returns:
-        np.ndarray: Mass ratios (μ) for each stage
-    """
-    try:
-        # Convert inputs to numpy arrays
-        stage_ratios = np.asarray(stage_ratios, dtype=float)
-        EPSILON = np.asarray(EPSILON, dtype=float)
-        
-        # Calculate mass ratios using corrected formula for mf/m0
-        mass_ratios = np.zeros_like(stage_ratios)
-        for i in range(len(stage_ratios)):
-            mass_ratios[i] = 1.0 / (stage_ratios[i] * (1.0 - EPSILON[i]) + EPSILON[i])
-            
-        return mass_ratios
-        
-    except Exception as e:
-        logger.error(f"Error calculating mass ratios: {str(e)}")
-        return np.ones_like(stage_ratios)
+    return mass_ratios
 
 def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=False) -> Union[float, Tuple[float, float, float]]:
     """Calculate objective value with penalties for constraint violations.
