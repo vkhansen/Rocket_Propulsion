@@ -55,8 +55,7 @@ def calculate_mass_ratios(stage_ratios, EPSILON):
         # Calculate mass ratios using corrected formula for mf/m0
         mass_ratios = np.zeros_like(stage_ratios)
         for i in range(len(stage_ratios)):
-            mass_ratios[i] = 1.0 / (stage_ratios[i] * (1.0 - EPSILON[i]) + EPSILON[i])
-            
+            mass_ratios[i] = (stage_ratios[i] - EPSILON[i]) / (1.0 - EPSILON[i])            
         return mass_ratios
         
     except Exception as e:
