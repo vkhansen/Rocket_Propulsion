@@ -53,6 +53,10 @@ class BaseSolver(ABC):
         self.best_is_feasible = False
         self.best_violation = float('inf')
         
+        # Bootstrap solution tracking
+        self.best_bootstrap_solution = None
+        self.best_bootstrap_fitness = float('inf')
+        
         logger.debug(f"Initialized {self.name} with {self.n_stages} stages")
         
         # Initialize cache
@@ -190,6 +194,30 @@ class BaseSolver(ABC):
             logger.error(f"Error checking feasibility: {str(e)}")
             return False, 1e6
             
+    def is_worse_than_bootstrap(self, score: float, is_feasible: bool) -> bool:
+        """Check if a solution is worse than the best bootstrap solution.
+        
+        Args:
+            score: Objective value
+            is_feasible: Whether solution is feasible
+            
+        Returns:
+            True if solution is worse than the best bootstrap solution
+        """
+        # If we don't have a bootstrap solution, nothing to compare against
+        if self.best_bootstrap_solution is None:
+            return False
+            
+        # If bootstrap solution is feasible but current solution is not, it's worse
+        if self.best_bootstrap_fitness < float('inf') and not is_feasible:
+            return True
+            
+        # If both are feasible or both are infeasible, compare scores
+        if score > self.best_bootstrap_fitness:
+            return True
+            
+        return False
+        
     def update_best_solution(self, x: np.ndarray, score: float, 
                            is_feasible: bool, violation: float) -> bool:
         """Update best solution if improvement found.
@@ -205,6 +233,12 @@ class BaseSolver(ABC):
         """
         try:
             x = np.asarray(x, dtype=np.float64).reshape(-1)
+            
+            # Check if solution is worse than bootstrap solution
+            if self.is_worse_than_bootstrap(score, is_feasible):
+                # Reject solutions worse than bootstrap
+                logger.debug(f"Rejecting solution worse than bootstrap: score={score:.6f}, feasible={is_feasible}")
+                return False
             
             # Track statistics
             if is_feasible:

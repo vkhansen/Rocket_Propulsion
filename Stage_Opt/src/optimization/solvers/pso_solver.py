@@ -45,6 +45,8 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         # Check if we have solutions from other solvers to bootstrap
         bootstrap_solutions = []
+        best_bootstrap_solution = None
+        best_bootstrap_fitness = float('inf')
         
         # Handle both dictionary format and list format for other_solver_results
         if other_solver_results is not None:
@@ -54,6 +56,13 @@ class ParticleSwarmOptimizer(BaseSolver):
                 for solver_name, result in other_solver_results.items():
                     if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
                         bootstrap_solutions.append(result['x'])
+                        
+                        # Track best bootstrap solution
+                        fitness = result.get('fitness', float('inf'))
+                        if fitness < best_bootstrap_fitness:
+                            best_bootstrap_solution = result['x'].copy()
+                            best_bootstrap_fitness = fitness
+                            
                         self.logger.debug(f"Added bootstrap solution from {solver_name}: {result['x']}")
             elif isinstance(other_solver_results, list):
                 # Handle list format (list of dicts with 'solution' key)
@@ -63,9 +72,22 @@ class ParticleSwarmOptimizer(BaseSolver):
                         solution = result['solution']
                         if np.all(np.isfinite(solution)) and len(solution) == self.n_stages:
                             bootstrap_solutions.append(solution)
+                            
+                            # Track best bootstrap solution
+                            fitness = result.get('fitness', float('inf'))
+                            if fitness < best_bootstrap_fitness:
+                                best_bootstrap_solution = solution.copy()
+                                best_bootstrap_fitness = fitness
+                                
                             solver_name = result.get('solver_name', 'unknown')
                             self.logger.debug(f"Added bootstrap solution from {solver_name}: {solution}")
             
+            # Store the best bootstrap solution in the base solver for solution rejection
+            if best_bootstrap_solution is not None:
+                self.best_bootstrap_solution = best_bootstrap_solution
+                self.best_bootstrap_fitness = best_bootstrap_fitness
+                self.logger.info(f"Stored best bootstrap solution with fitness {best_bootstrap_fitness}")
+                
             self.logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
         
         # Determine how many particles to initialize from bootstrap solutions

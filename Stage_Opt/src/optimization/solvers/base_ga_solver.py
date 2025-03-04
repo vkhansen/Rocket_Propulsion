@@ -72,8 +72,14 @@ class BaseGASolver(BaseSolver):
                         best_fitness = best_result.get('fitness', float('inf'))
                         
                         if best_solution is not None and len(best_solution) == self.n_stages and np.all(np.isfinite(best_solution)):
+                            # Store in both the GA solver instance and the base solver instance
                             self.best_bootstrap_solution = best_solution.copy()
                             self.best_bootstrap_fitness = best_fitness
+                            
+                            # Also update the base solver attributes for solution rejection
+                            self.best_bootstrap_solution = best_solution.copy()
+                            self.best_bootstrap_fitness = best_fitness
+                            
                             logger.info(f"Stored best bootstrap solution from {best_result.get('solver_name', 'unknown')} "
                                       f"with fitness {best_fitness}")
                     
