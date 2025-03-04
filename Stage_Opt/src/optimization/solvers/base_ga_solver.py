@@ -23,6 +23,9 @@ class BaseGASolver(BaseSolver):
         self.population = None
         self.fitness_values = None
         self.n_stages = len(bounds)
+        # Store the best bootstrap solution
+        self.best_bootstrap_solution = None
+        self.best_bootstrap_fitness = float('-inf')
         
     def initialize_population(self, other_solver_results=None):
         """Initialize population with random solutions.
@@ -61,6 +64,18 @@ class BaseGASolver(BaseSolver):
                         other_solver_results, 
                         key=lambda x: float('inf') if not isinstance(x.get('fitness'), (int, float)) else x.get('fitness', float('inf'))
                     )
+                    
+                    # Store the best bootstrap solution for preservation throughout generations
+                    if len(sorted_results) > 0:
+                        best_result = sorted_results[0]
+                        best_solution = best_result.get('solution')
+                        best_fitness = best_result.get('fitness', float('inf'))
+                        
+                        if best_solution is not None and len(best_solution) == self.n_stages and np.all(np.isfinite(best_solution)):
+                            self.best_bootstrap_solution = best_solution.copy()
+                            self.best_bootstrap_fitness = best_fitness
+                            logger.info(f"Stored best bootstrap solution from {best_result.get('solver_name', 'unknown')} "
+                                      f"with fitness {best_fitness}")
                     
                     # Validate and collect bootstrap solutions
                     for result in sorted_results:
@@ -377,15 +392,30 @@ class BaseGASolver(BaseSolver):
                 feasible_fitness = fitness_values[feasible_indices]
                 best_feasible_idx = feasible_indices[np.argmax(feasible_fitness)]
                 new_population[0] = population[best_feasible_idx].copy()
-                logger.debug(f"Preserved best feasible solution with fitness {fitness_values[best_feasible_idx]}")
+                best_current_fitness = fitness_values[best_feasible_idx]
+                logger.debug(f"Preserved best feasible solution with fitness {best_current_fitness}")
+                
+                # Check if the best bootstrap solution is better than our current best
+                if self.best_bootstrap_solution is not None:
+                    bootstrap_fitness = self.objective_function(self.best_bootstrap_solution)
+                    if bootstrap_fitness > best_current_fitness:
+                        new_population[0] = self.best_bootstrap_solution.copy()
+                        logger.info(f"Restored better bootstrap solution with fitness {bootstrap_fitness}")
             else:
                 # If no feasible solutions, preserve best overall
                 best_idx = np.argmax(fitness_values)
                 new_population[0] = population[best_idx].copy()
                 
-                # Project this solution to make it feasible
-                new_population[0] = self.iterative_projection(new_population[0])
-                logger.debug(f"No feasible solutions found, preserving and projecting best overall")
+                # Check if the best bootstrap solution is better
+                if self.best_bootstrap_solution is not None:
+                    bootstrap_fitness = self.objective_function(self.best_bootstrap_solution)
+                    if bootstrap_fitness > fitness_values[best_idx]:
+                        new_population[0] = self.best_bootstrap_solution.copy()
+                        logger.info(f"Restored better bootstrap solution with fitness {bootstrap_fitness}")
+                    else:
+                        # Project this solution to make it feasible
+                        new_population[0] = self.iterative_projection(new_population[0])
+                        logger.debug(f"No feasible solutions found, preserving and projecting best overall")
             
             # Create rest of new population
             for i in range(1, len(population), 2):
