@@ -668,14 +668,27 @@ class BaseGASolver(BaseSolver):
             )
 
     def is_worse_than_bootstrap(self, fitness, is_feasible):
-        """Check if a solution is worse than the best bootstrap solution."""
+        """Check if a solution is worse than the best bootstrap solution.
+        
+        Args:
+            fitness: GA fitness value (negative of objective value)
+            is_feasible: Whether solution is feasible
+            
+        Returns:
+            True if solution is worse than the best bootstrap solution
+        """
         if self.best_bootstrap_solution is None:
             return False
         
-        if not is_feasible:
+        # If bootstrap solution is feasible but current solution is not, it's worse
+        if self.best_bootstrap_fitness > float('-inf') and not is_feasible:
             return True
         
-        if fitness < self.best_bootstrap_fitness:
+        # If both are feasible, compare payload fractions
+        # In GA, fitness is negative of objective, so higher fitness means higher payload fraction
+        # Therefore, if fitness is less than bootstrap fitness, it's worse
+        if is_feasible and fitness < self.best_bootstrap_fitness:
+            logger.info(f"Rejecting solution with worse payload fraction: current={-fitness:.6f}, bootstrap={-self.best_bootstrap_fitness:.6f}")
             return True
         
         return False

@@ -212,8 +212,10 @@ class BaseSolver(ABC):
         if self.best_bootstrap_fitness < float('inf') and not is_feasible:
             return True
             
-        # If both are feasible or both are infeasible, compare scores
-        if score > self.best_bootstrap_fitness:
+        # If both are feasible, compare payload fractions (which is the negative of the score)
+        # Lower score means higher payload fraction, so a higher score is worse
+        if is_feasible and score > self.best_bootstrap_fitness:
+            logger.info(f"Rejecting solution with worse payload fraction: current={-score:.6f}, bootstrap={-self.best_bootstrap_fitness:.6f}")
             return True
             
         return False
