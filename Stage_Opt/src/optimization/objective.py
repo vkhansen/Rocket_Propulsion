@@ -16,15 +16,21 @@ def payload_fraction_objective(dv: np.ndarray, G0: float, ISP: np.ndarray, EPSIL
         EPSILON: Array of structural coefficients for each stage
         
     Returns:
-        float: Negative payload fraction (for minimization)
+        float: Negative payload fraction (for minimization) or large penalty for invalid solutions
     """
     try:
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
         payload_fraction = calculate_payload_fraction(mass_ratios)
+        
+        # Hard constraint: reject nonphysical payload fractions
+        if payload_fraction <= 0:
+            logger.warning(f"Rejecting solution with nonphysical payload fraction: {payload_fraction}")
+            return float('inf')  # Strong rejection of invalid solutions
+            
         return float(-payload_fraction)  # Negative for minimization
     except Exception as e:
         logger.error(f"Error in objective calculation: {str(e)}")
-        return 1e6  # Large penalty for failed calculations
+        return float('inf')  # Strong rejection of invalid solutions
 
 def enforce_stage_constraints(dv_array, total_dv_required, config=None):
     """Enforce stage constraints and return constraint violation value.
@@ -121,6 +127,14 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
         
         # Calculate payload fraction
         payload_fraction = calculate_payload_fraction(mass_ratios)
+        
+        # Hard constraint: reject nonphysical payload fractions
+        if payload_fraction <= 0:
+            logger.warning(f"Rejecting solution with nonphysical payload fraction: {payload_fraction}")
+            if return_tuple:
+                return (float('inf'), float('inf'), float('inf'))
+            return float('inf')
+            
         objective = -payload_fraction  # Negative for minimization
         
         # Calculate constraint violations with relative scaling
@@ -139,9 +153,9 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
             return (objective, dv_constraint, physical_constraint)
         else:
             # Return penalized scalar objective with adaptive penalties
-            # Use smaller penalties for small violations to help solvers navigate the space
-            dv_penalty = 100.0 if dv_constraint > 0.1 else 10.0
-            physical_penalty = 100.0 if physical_constraint > 0.1 else 10.0
+            # Use stronger penalties to enforce constraints more strictly
+            dv_penalty = float('inf') if dv_constraint > 0.1 else 1000.0
+            physical_penalty = float('inf') if physical_constraint > 0.1 else 1000.0
             
             return objective + dv_penalty * dv_constraint + physical_penalty * physical_constraint
         
