@@ -339,6 +339,7 @@ class GeneticAlgorithmSolver(BaseGASolver):
             Dictionary with optimization results
         """
         try:
+            start_time = time.time()
             # Set bounds if provided
             if bounds is not None:
                 self.bounds = bounds
@@ -443,29 +444,25 @@ class GeneticAlgorithmSolver(BaseGASolver):
                 logger.warning(f"No feasible solution found. Returning best infeasible solution with fitness {self.best_fitness}")
             
             # Return results
-            return {
-                'x': self.best_solution,
-                'fun': self.best_fitness,
-                'success': True,
-                'message': 'Optimization terminated successfully',
-                'nfev': self.function_evaluations,
-                'nit': min(generation + 1, self.max_generations),
-                'is_feasible': self.best_is_feasible,
-                'violation': self.best_violation
-            }
+            return self.process_results(
+                x=self.best_solution,
+                success=True,
+                message='Optimization terminated successfully',
+                n_iterations=min(generation + 1, self.max_generations),
+                n_function_evals=self.function_evaluations,
+                time=time.time() - start_time
+            )
             
         except Exception as e:
             logger.error(f"Error in GA solver: {str(e)}")
-            return {
-                'x': None,
-                'fun': float('inf'),
-                'success': False,
-                'message': f'Error in GA solver: {str(e)}',
-                'nfev': self.function_evaluations,
-                'nit': 0,
-                'is_feasible': False,
-                'violation': float('inf')
-            }
+            return self.process_results(
+                x=initial_guess if initial_guess is not None else np.zeros(len(self.bounds)),
+                success=False,
+                message=f'Error in GA solver: {str(e)}',
+                n_iterations=0,
+                n_function_evals=self.function_evaluations,
+                time=0.0
+            )
 
     def evaluate(self, solution):
         """Evaluate a single solution.
