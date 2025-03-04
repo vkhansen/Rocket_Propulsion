@@ -47,6 +47,12 @@ class BaseSolver(ABC):
         self.best_feasible = None
         self.best_feasible_score = float('inf')
         
+        # Best solution tracking
+        self.best_solution = None
+        self.best_fitness = float('inf')
+        self.best_is_feasible = False
+        self.best_violation = float('inf')
+        
         logger.debug(f"Initialized {self.name} with {self.n_stages} stages")
         
         # Initialize cache
@@ -200,14 +206,36 @@ class BaseSolver(ABC):
         try:
             x = np.asarray(x, dtype=np.float64).reshape(-1)
             
+            # Track statistics
             if is_feasible:
                 self.n_feasible += 1
+            else:
+                self.n_infeasible += 1
+            
+            # Update best feasible solution if this is feasible and better
+            if is_feasible:
                 if score < self.best_feasible_score:
                     self.best_feasible = x.copy()
                     self.best_feasible_score = score
-                    return True
-            else:
-                self.n_infeasible += 1
+                    
+                    # Also update best overall solution if this is the best feasible one
+                    if not hasattr(self, 'best_solution') or not hasattr(self, 'best_fitness') or \
+                       self.best_solution is None or not self.best_is_feasible or score < self.best_fitness:
+                        self.best_solution = x.copy()
+                        self.best_fitness = score
+                        self.best_is_feasible = True
+                        self.best_violation = violation
+                        return True
+            
+            # If we don't have a feasible solution yet, or this infeasible solution is better than our current best
+            if not hasattr(self, 'best_solution') or self.best_solution is None or \
+               (not is_feasible and not self.best_is_feasible and score < self.best_fitness) or \
+               (not self.best_is_feasible and is_feasible):
+                self.best_solution = x.copy()
+                self.best_fitness = score
+                self.best_is_feasible = is_feasible
+                self.best_violation = violation
+                return True
                 
             return False
             
@@ -402,8 +430,10 @@ class BaseSolver(ABC):
                         'Lambda': float(sr)
                     })
             
-            # Update success flag based on both optimizer success and constraint feasibility
-            success = success and is_feasible
+            # Only update success flag if the solution is not feasible
+            # This preserves the success flag from the solver if it's already True
+            if not is_feasible:
+                success = False
             
             # Update message if constraints are violated
             if not is_feasible:

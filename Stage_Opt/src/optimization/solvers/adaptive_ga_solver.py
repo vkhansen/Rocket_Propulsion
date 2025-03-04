@@ -33,6 +33,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             self.max_mutation_rate = solver_params.get('max_mutation_rate', 0.4)
             self.min_crossover_rate = solver_params.get('min_crossover_rate', 0.3)
             self.max_crossover_rate = solver_params.get('max_crossover_rate', 1.0)
+            self.max_projection_iterations = solver_params.get('max_projection_iterations', 100)
         else:
             # Default adaptive parameters
             self.min_pop_size = 50
@@ -41,6 +42,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             self.max_mutation_rate = 0.4
             self.min_crossover_rate = 0.3
             self.max_crossover_rate = 1.0
+            self.max_projection_iterations = 100
         
         # Initialize tracking variables
         self.generations_without_improvement = 0
@@ -224,10 +226,13 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                 logger.warning("No best solution found during optimization, using best from final population")
                 if self.population is not None and len(self.population) > 0:
                     self.fitness_values = self.evaluate_population(self.population)
-                    self.best_solution = self.population[np.argmax(self.fitness_values)].copy()
+                    best_idx = np.argmax(self.fitness_values)
+                    self.best_solution = self.population[best_idx].copy()
+                    self.best_fitness = self.fitness_values[best_idx]
                 else:
                     logger.error("No valid population available, using initial guess")
                     self.best_solution = initial_guess.copy()
+                    self.best_fitness = self.evaluate_solution(self.best_solution)
             
             # Project the best solution to ensure it satisfies constraints
             logger.info(f"Original best solution: {self.best_solution}")
@@ -256,10 +261,10 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                         logger.info(f"Found feasible solution in population at index {i}")
                         self.best_solution = projected_ind.copy()
                         found_feasible = True
+                        success = True  # Set success to True since we found a feasible solution
                         break
                 
                 if found_feasible:
-                    success = True
                     message = "Found alternative feasible solution in population"
                 else:
                     # If no feasible solution found, use the best projected solution anyway
@@ -272,7 +277,7 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             
             return self.process_results(
                 x=self.best_solution,
-                success=success,
+                success=success,  # This should be True if we found a feasible solution
                 message=message,
                 n_iterations=self.n_gen,
                 n_function_evals=self.n_gen * self.pop_size,
@@ -323,3 +328,46 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
         except Exception as e:
             logger.error(f"Error in evaluate: {str(e)}")
             return float('-inf')
+
+    def iterative_projection(self, x: np.ndarray) -> np.ndarray:
+        """Iteratively project solution to feasible space until convergence.
+        
+        Args:
+            x: Solution vector
+            
+        Returns:
+            Projected solution
+        """
+        try:
+            # Ensure x is a 1D array
+            x = np.asarray(x, dtype=np.float64).reshape(-1)
+            
+            # Initialize variables
+            prev_x = x.copy()
+            current_x = x.copy()
+            max_iterations = self.max_projection_iterations
+            converged = False
+            
+            # Iteratively apply projection
+            for i in range(max_iterations):
+                # Apply projection
+                current_x = self.project_to_feasible(current_x)
+                
+                # Check for convergence
+                if np.allclose(current_x, prev_x, rtol=1e-6, atol=1e-6):
+                    converged = True
+                    logger.debug(f"Projection converged after {i+1} iterations")
+                    break
+                    
+                # Update previous solution
+                prev_x = current_x.copy()
+            
+            if not converged:
+                logger.warning(f"Projection did not converge after {max_iterations} iterations")
+                
+            return current_x
+            
+        except Exception as e:
+            logger.error(f"Error in iterative projection: {str(e)}")
+            # Fallback to simple projection
+            return self.project_to_feasible(x)

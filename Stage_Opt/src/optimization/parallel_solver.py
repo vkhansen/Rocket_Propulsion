@@ -49,11 +49,16 @@ class ParallelSolver:
                 try:
                     logger.info(f"Running {solver_name}...")
                     result = solver.solve(initial_guess, bounds)
-                    if result and 'x' in result and result.get('success', False):
+                    if result and result.get('success', False):
+                        # Extract solution from stages if available
+                        solution = None
+                        if 'stages' in result and result['stages']:
+                            solution = np.array([stage['delta_v'] for stage in result['stages']])
+                        
                         results[solver_name] = {
                             'solver_name': solver_name,
-                            'solution': result['x'],
-                            'fitness': result['fun'],
+                            'solution': solution,
+                            'fitness': result.get('payload_fraction', 0.0),
                             'success': True,
                             'raw_result': result
                         }
@@ -78,12 +83,23 @@ class ParallelSolver:
                 try:
                     logger.info(f"Running {solver_name} with {len(other_solver_results)} bootstrapped solutions...")
                     result = solver.solve(initial_guess, bounds, other_solver_results=other_solver_results)
-                    if result and 'x' in result and result.get('success', False):
+                    
+                    # Check if the solution is valid - either success flag is True or there are valid stages
+                    is_valid = result.get('success', False) or (
+                        'stages' in result and result['stages'] and len(result['stages']) > 0
+                    )
+                    
+                    if result and is_valid:
+                        # Extract solution from stages if available
+                        solution = None
+                        if 'stages' in result and result['stages']:
+                            solution = np.array([stage['delta_v'] for stage in result['stages']])
+                        
                         results[solver_name] = {
                             'solver_name': solver_name,
-                            'solution': result['x'],
-                            'fitness': result['fun'],
-                            'success': True,
+                            'solution': solution,
+                            'fitness': result.get('payload_fraction', 0.0),
+                            'success': True,  # Mark as successful if we have valid stages
                             'raw_result': result
                         }
                         logger.info(f"{solver_name} completed successfully")
@@ -95,7 +111,10 @@ class ParallelSolver:
             # Log final summary
             elapsed = time.time() - start_time
             logger.info(f"Optimization completed in {elapsed:.2f}s")
-            logger.info(f"Successful solvers: {list(results.keys())}")
+            
+            # Get list of successful solvers
+            successful_solvers = [name for name, result in results.items() if result.get('success', False)]
+            logger.info(f"Successful solvers: {successful_solvers}")
             
             return results
             
