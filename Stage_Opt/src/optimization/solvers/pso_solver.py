@@ -73,19 +73,25 @@ class ParticleSwarmOptimizer(BaseSolver):
         
         # Initialize first part of swarm with bootstrap solutions
         for i in range(n_bootstrap):
-            # Select a random bootstrap solution
-            idx = np.random.randint(0, len(bootstrap_solutions))
-            bootstrap_solution = bootstrap_solutions[idx]
-            
-            # Add some noise to avoid exact copies (up to 5% variation)
-            noise = np.random.uniform(-0.05, 0.05, self.n_stages)
-            noisy_solution = bootstrap_solution * (1 + noise)
-            
-            # Ensure the solution is valid (sums to TOTAL_DELTA_V)
-            noisy_solution = noisy_solution * (self.TOTAL_DELTA_V / np.sum(noisy_solution))
-            
-            positions[i] = noisy_solution
-            self.logger.debug(f"Initialized particle {i} with bootstrap solution: {positions[i]}")
+            if i == 0 and len(bootstrap_solutions) > 0:
+                # Keep the best solution exactly as is without any noise
+                best_solution = bootstrap_solutions[0]
+                positions[i] = best_solution.copy()
+                self.logger.info(f"Preserving best bootstrap solution exactly: {positions[i]}")
+            else:
+                # Select a random bootstrap solution
+                idx = np.random.randint(0, len(bootstrap_solutions))
+                bootstrap_solution = bootstrap_solutions[idx]
+                
+                # Add some noise to avoid exact copies (reduced from 5% to 0.5% variation)
+                noise = np.random.uniform(-0.005, 0.005, self.n_stages)
+                noisy_solution = bootstrap_solution * (1 + noise)
+                
+                # Ensure the solution is valid (sums to TOTAL_DELTA_V)
+                noisy_solution = noisy_solution * (self.TOTAL_DELTA_V / np.sum(noisy_solution))
+                
+                positions[i] = noisy_solution
+                self.logger.debug(f"Initialized particle {i} with bootstrap solution: {positions[i]}")
         
         # Initialize remaining particles with Dirichlet distribution
         for i in range(n_bootstrap, self.population_size):

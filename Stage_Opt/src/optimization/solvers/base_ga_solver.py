@@ -77,7 +77,7 @@ class BaseGASolver(BaseSolver):
                             continue
                             
                         # Check if any values are too small
-                        min_dv_threshold = 10.0  # 10 m/s minimum delta-v
+                        min_dv_threshold = 50.0  # 50 m/s minimum delta-v
                         if np.any(solution < min_dv_threshold):
                             logger.warning(f"Bootstrap solution has very small delta-v values: {solution}")
                             # Project to feasible space to fix small values
@@ -95,11 +95,18 @@ class BaseGASolver(BaseSolver):
                     
                     # Add bootstrap solutions to population with small perturbations
                     for i in range(bootstrap_count):
-                        # Add small random perturbation to avoid duplicates
-                        perturbation = np.random.normal(0, 0.02, self.n_stages)
-                        population[i] = bootstrap_solutions[i] + perturbation
-                        # Project to feasible space
-                        population[i] = self.project_to_feasible(population[i])
+                        # First, add the exact bootstrap solution without perturbation
+                        if i == 0:
+                            # Keep the best solution exactly as is
+                            population[i] = bootstrap_solutions[i].copy()
+                            logger.info(f"Preserving best bootstrap solution exactly: {population[i]}")
+                        else:
+                            # Add very small random perturbation to avoid duplicates
+                            # Reduced perturbation from 0.02 to 0.005 (0.5% variation)
+                            perturbation = np.random.normal(0, 0.005, self.n_stages)
+                            population[i] = bootstrap_solutions[i] * (1 + perturbation)
+                            # Project to feasible space
+                            population[i] = self.project_to_feasible(population[i])
             
             # Generate remaining population using different methods for diversity
             remaining_count = self.pop_size - bootstrap_count
