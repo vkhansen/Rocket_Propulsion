@@ -516,10 +516,21 @@ class BaseGASolver(BaseSolver):
                     # Update best solution
                     gen_best_idx = np.argmax(self.fitness_values)
                     gen_best_fitness = self.fitness_values[gen_best_idx]
+                    gen_best_solution = self.population[gen_best_idx].copy()
                     
-                    if gen_best_fitness > self.best_fitness:
-                        self.best_fitness = gen_best_fitness
-                        self.best_solution = self.population[gen_best_idx].copy()
+                    # Check feasibility
+                    is_feasible, violation = self.check_feasibility(gen_best_solution)
+                    
+                    # Check if solution is worse than bootstrap solution
+                    if not self.is_worse_than_bootstrap(gen_best_fitness, is_feasible):
+                        if gen_best_fitness > self.best_fitness:
+                            self.best_fitness = gen_best_fitness
+                            self.best_solution = gen_best_solution.copy()
+                            
+                            # Also update the base solver's best solution
+                            self.update_best_solution(gen_best_solution, gen_best_fitness, is_feasible, violation)
+                    else:
+                        logger.info(f"Rejecting solution worse than bootstrap: score={gen_best_fitness:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}, feasible={is_feasible}")
                     
                     # Calculate statistics
                     avg_fitness = np.mean(self.fitness_values)
@@ -580,10 +591,21 @@ class BaseGASolver(BaseSolver):
                     # Update best solution
                     gen_best_idx = np.argmax(self.fitness_values)
                     gen_best_fitness = self.fitness_values[gen_best_idx]
+                    gen_best_solution = self.population[gen_best_idx].copy()
                     
-                    if gen_best_fitness > self.best_fitness:
-                        self.best_fitness = gen_best_fitness
-                        self.best_solution = self.population[gen_best_idx].copy()
+                    # Check feasibility
+                    is_feasible, violation = self.check_feasibility(gen_best_solution)
+                    
+                    # Check if solution is worse than bootstrap solution
+                    if not self.is_worse_than_bootstrap(gen_best_fitness, is_feasible):
+                        if gen_best_fitness > self.best_fitness:
+                            self.best_fitness = gen_best_fitness
+                            self.best_solution = gen_best_solution.copy()
+                            
+                            # Also update the base solver's best solution
+                            self.update_best_solution(gen_best_solution, gen_best_fitness, is_feasible, violation)
+                    else:
+                        logger.info(f"Rejecting solution worse than bootstrap: score={gen_best_fitness:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}, feasible={is_feasible}")
                     
                     # Calculate statistics
                     avg_fitness = np.mean(self.fitness_values)
@@ -644,3 +666,16 @@ class BaseGASolver(BaseSolver):
                 n_function_evals=0,
                 time=0.0
             )
+
+    def is_worse_than_bootstrap(self, fitness, is_feasible):
+        """Check if a solution is worse than the best bootstrap solution."""
+        if self.best_bootstrap_solution is None:
+            return False
+        
+        if not is_feasible:
+            return True
+        
+        if fitness < self.best_bootstrap_fitness:
+            return True
+        
+        return False

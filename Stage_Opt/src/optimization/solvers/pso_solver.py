@@ -287,6 +287,14 @@ class ParticleSwarmOptimizer(BaseSolver):
                     positions[i] = new_position
                     score = self.evaluate_solution(positions[i])
                     
+                    # Check feasibility
+                    is_feasible, violation = self.check_feasibility(positions[i])
+                    
+                    # Check if solution is worse than bootstrap solution
+                    if self.is_worse_than_bootstrap(score, is_feasible):
+                        self.logger.info(f"Rejecting solution worse than bootstrap: score={score:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}, feasible={is_feasible}")
+                        continue
+                    
                     # Update personal best
                     if score < p_best_scores[i]:
                         p_best_scores[i] = score
@@ -301,6 +309,9 @@ class ParticleSwarmOptimizer(BaseSolver):
                             g_best_pos = positions[i].copy()
                             improved = True
                             stall_count = 0
+                            
+                            # Also update the base solver's best solution
+                            self.update_best_solution(positions[i], score, is_feasible, violation)
                 
                 # Update velocities
                 for i in range(self.population_size):
