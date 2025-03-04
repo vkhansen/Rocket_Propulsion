@@ -34,19 +34,58 @@ class BaseGASolver(BaseSolver):
         
         # If other solver results are provided, add them first
         if other_solver_results is not None:
+            logger.info(f"Initializing population with {len(other_solver_results)} bootstrapped solutions")
             for solver_name, result in other_solver_results.items():
                 if 'x' in result and result.get('success', False):
                     solution = result['x']
+                    
+                    # Log the bootstrapped solution
+                    logger.debug(f"Bootstrapped solution from {solver_name}: {solution}")
+                    
                     # Ensure solution meets constraints
                     total = np.sum(solution)
                     if total > 0:
+                        # Normalize to ensure total delta-v constraint is satisfied
                         solution = np.array(solution, dtype=np.float64)
                         solution *= self.TOTAL_DELTA_V / total
-                        population.append(solution)
-                        logger.info(f"Added solution from {solver_name} to GA initial population")
+                        
+                        # Ensure all values are within bounds
+                        for i in range(self.n_stages):
+                            lower, upper = self.bounds[i]
+                            solution[i] = np.clip(solution[i], lower, upper)
+                        
+                        # Verify solution quality by evaluating objective
+                        fitness = objective_with_penalty(
+                            dv=solution,
+                            G0=self.G0,
+                            ISP=self.ISP,
+                            EPSILON=self.EPSILON,
+                            TOTAL_DELTA_V=self.TOTAL_DELTA_V
+                        )
+                        
+                        # Only add solutions with finite fitness
+                        if np.isfinite(fitness):
+                            population.append(solution)
+                            logger.info(f"Added solution from {solver_name} to GA initial population with fitness {fitness}")
+                        else:
+                            logger.warning(f"Rejected bootstrapped solution from {solver_name} with infinite fitness")
+                    else:
+                        logger.warning(f"Rejected bootstrapped solution from {solver_name} with zero total delta-v")
+        
+        # Log how many bootstrapped solutions were added
+        if other_solver_results is not None:
+            logger.info(f"Added {len(population)} valid bootstrapped solutions to population")
         
         # Fill remaining population with random solutions
-        while len(population) < self.pop_size:
+        remaining = self.pop_size - len(population)
+        logger.info(f"Generating {remaining} random solutions to complete population")
+        
+        attempts = 0
+        max_attempts = remaining * 10  # Allow multiple attempts to find valid solutions
+        
+        while len(population) < self.pop_size and attempts < max_attempts:
+            attempts += 1
+            
             # Generate random fractions that sum to 1
             fractions = np.random.random(self.n_stages)
             fractions /= np.sum(fractions)
@@ -69,9 +108,44 @@ class BaseGASolver(BaseSolver):
                     # Distribute any remaining error proportionally
                     adjustment = (self.TOTAL_DELTA_V - np.sum(solution)) / self.n_stages
                     solution += adjustment
-                    
-            population.append(solution)
+                
+                # Verify solution quality for random solutions too
+                if attempts % 10 == 0:  # Only check every 10 attempts to save computation
+                    fitness = objective_with_penalty(
+                        dv=solution,
+                        G0=self.G0,
+                        ISP=self.ISP,
+                        EPSILON=self.EPSILON,
+                        TOTAL_DELTA_V=self.TOTAL_DELTA_V
+                    )
+                    if not np.isfinite(fitness):
+                        continue  # Skip this solution if fitness is not finite
+                
+                population.append(solution)
         
+        # If we couldn't generate enough valid solutions, duplicate existing ones
+        while len(population) < self.pop_size:
+            if len(population) > 0:
+                # Duplicate a random solution with small perturbation
+                idx = np.random.randint(0, len(population))
+                solution = population[idx].copy()
+                
+                # Add small random perturbation
+                perturbation = np.random.normal(0, 0.01, size=self.n_stages)
+                solution += perturbation
+                
+                # Normalize to maintain total delta-v
+                total = np.sum(solution)
+                if total > 0:
+                    solution *= self.TOTAL_DELTA_V / total
+                
+                population.append(solution)
+            else:
+                # If no valid solutions, create a uniform distribution as fallback
+                solution = np.ones(self.n_stages) * self.TOTAL_DELTA_V / self.n_stages
+                population.append(solution)
+        
+        logger.info(f"Initialized population with {len(population)} solutions")
         return np.array(population[:self.pop_size])
 
     def evaluate_population(self, population):

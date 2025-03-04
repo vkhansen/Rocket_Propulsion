@@ -106,12 +106,19 @@ def objective_with_penalty(dv: np.ndarray,
         ISP = np.asarray(ISP, dtype=float)
         EPSILON = np.asarray(EPSILON, dtype=float)
 
+        # Log the input values for debugging
+        logger.debug(f"objective_with_penalty input: dv={dv}, G0={G0}, ISP={ISP}, EPSILON={EPSILON}, TOTAL_DELTA_V={TOTAL_DELTA_V}")
+
         # Calculate the negative payload fraction
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
         payload_fraction = calculate_payload_fraction(mass_ratios)
 
+        # Log the calculated values
+        logger.debug(f"stage_ratios={stage_ratios}, mass_ratios={mass_ratios}, payload_fraction={payload_fraction}")
+
         # Reject if payload fraction is nonphysical
         if payload_fraction <= 0:
+            logger.debug(f"Rejecting solution with nonphysical payload fraction: {payload_fraction}")
             if return_tuple:
                 return (float('inf'), float('inf'), float('inf'))
             return float('inf')
@@ -134,19 +141,27 @@ def objective_with_penalty(dv: np.ndarray,
                                                        total_dv_required=TOTAL_DELTA_V,
                                                        config=config)
 
+        # Log constraint violations
+        logger.debug(f"Constraint violations: physical={physical_constraint}, dv={dv_constraint}, fraction={fraction_violation}")
+
         # Combine all constraints into a single penalty. 
-        # You can tune these scales so the solver doesn't get stuck:
-        # For example, bigger penalty_scale => solver tries harder to fix constraint violations.
-        penalty_scale_phys = 10
-        penalty_scale_dv   = 10
-        penalty_scale_frac = 10
+        # Using smaller penalty scales to make the optimization more forgiving
+        penalty_scale_phys = 5.0  # Reduced from 10
+        penalty_scale_dv   = 5.0  # Reduced from 10
+        penalty_scale_frac = 5.0  # Reduced from 10
 
         # Weighted sum of constraints
-        # More sophisticated approaches might weight them differently, 
-        # or do a piecewise approach. 
         total_penalty = penalty_scale_phys * physical_constraint \
                         + penalty_scale_dv   * dv_constraint       \
                         + penalty_scale_frac * fraction_violation
+
+        # Log the penalty and final objective
+        logger.debug(f"Total penalty: {total_penalty}, Objective value: {objective_value}")
+
+        # If the penalty is very large, cap it to avoid numerical issues
+        if total_penalty > 1e6:
+            logger.debug(f"Capping very large penalty: {total_penalty} to 1e6")
+            total_penalty = 1e6
 
         penalized_objective = objective_value + total_penalty
 
