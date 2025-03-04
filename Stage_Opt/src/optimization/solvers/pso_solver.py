@@ -207,8 +207,14 @@ class ParticleSwarmOptimizer(BaseSolver):
                     # Update position with velocity
                     new_position = positions[i] + velocities[i]
                     
-                    # Project position to feasible space using improved method
-                    new_position = self.iterative_projection(new_position)
+                    # Enforce minimum delta-v value for each stage (increased from 10.0 to 50.0)
+                    min_dv_value = 50.0  # 50 m/s minimum to avoid very small stages
+                    for j in range(self.n_stages):
+                        if new_position[j] < min_dv_value:
+                            new_position[j] = min_dv_value
+                    
+                    # Project position to feasible space using improved method with multiple iterations
+                    new_position = self.iterative_projection(new_position, max_iterations=5)
                     
                     # Enforce stage balance constraints
                     total_dv = np.sum(new_position)
@@ -235,6 +241,19 @@ class ParticleSwarmOptimizer(BaseSolver):
                             self.logger.debug("Using equal redistribution due to near-zero sum")
                         new_position[other_stages] += excess * props
                         self.logger.debug(f"After rebalance: {new_position}")
+                    
+                    # Final check for minimum delta-v values
+                    for j in range(self.n_stages):
+                        if new_position[j] < min_dv_value:
+                            # If a stage is still below minimum, try to redistribute from largest stage
+                            largest_idx = np.argmax(new_position)
+                            if largest_idx != j and new_position[largest_idx] > min_dv_value * 2:
+                                # Only redistribute if largest stage has enough to spare
+                                deficit = min_dv_value - new_position[j]
+                                new_position[j] = min_dv_value
+                                new_position[largest_idx] -= deficit
+                                # Final projection to ensure constraints
+                                new_position = self.project_to_feasible(new_position)
                     
                     # Update position and evaluate
                     positions[i] = new_position

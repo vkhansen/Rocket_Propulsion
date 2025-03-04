@@ -135,6 +135,12 @@ class DifferentialEvolutionSolver(BaseSolver):
         for j in range(self.n_stages):
             mutant[j] += F_scaled[j] * (b[j] - c[j])
         
+        # Enforce minimum delta-v value for each stage (increased from 10.0 to 50.0)
+        min_dv_value = 50.0  # 50 m/s minimum to avoid very small stages
+        for j in range(self.n_stages):
+            if mutant[j] < min_dv_value:
+                mutant[j] = min_dv_value
+        
         # Enforce stage balance constraints
         total_dv = np.sum(mutant)
         max_stage_dv = 0.8 * total_dv  # No stage should exceed 80% of total
@@ -157,8 +163,21 @@ class DifferentialEvolutionSolver(BaseSolver):
                 props = np.ones(len(other_stages)) / len(other_stages)
             mutant[other_stages] += excess * props
         
-        # Project to feasible space
-        mutant = self.iterative_projection(mutant)
+        # Project to feasible space with multiple iterations for better constraint satisfaction
+        mutant = self.iterative_projection(mutant, max_iterations=5)
+        
+        # Final check for minimum delta-v values
+        for j in range(self.n_stages):
+            if mutant[j] < min_dv_value:
+                # If a stage is still below minimum, try to redistribute from largest stage
+                largest_idx = np.argmax(mutant)
+                if largest_idx != j and mutant[largest_idx] > min_dv_value * 2:
+                    # Only redistribute if largest stage has enough to spare
+                    deficit = min_dv_value - mutant[j]
+                    mutant[j] = min_dv_value
+                    mutant[largest_idx] -= deficit
+                    # Final projection to ensure constraints
+                    mutant = self.project_to_feasible(mutant)
         
         return mutant
 
