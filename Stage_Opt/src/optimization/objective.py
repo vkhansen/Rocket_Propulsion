@@ -122,7 +122,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
         
         # Check for zero or negative values which would cause physics issues
         # We need a minimum delta-v for each stage to avoid physics calculation issues
-        min_dv_threshold = 10.0  # 10 m/s minimum delta-v per stage (increased from 1.0)
+        min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage (increased from 10.0)
         if np.any(dv < min_dv_threshold) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
             logger.warning(f"Invalid physics parameters: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
             if return_tuple:
@@ -183,8 +183,8 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
             
             # Return objective with penalty
             if return_tuple:
-                return (penalized_objective, dv_constraint, 0.0)
-            return penalized_objective
+                return (objective + penalty, dv_constraint, 0.0)
+            return objective + penalty
             
         except Exception as e:
             logger.warning(f"Error in physics calculations: {str(e)}")

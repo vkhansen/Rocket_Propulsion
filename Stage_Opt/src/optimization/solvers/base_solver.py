@@ -270,80 +270,134 @@ class BaseSolver(ABC):
                 x[i] = np.clip(x[i], lower, upper)
             
             # Ensure each stage has a minimum delta-v value for physics calculations
-            # Increased from 1.0 to 10.0 to avoid numerical issues
-            min_dv_value = 10.0  # 10 m/s minimum
+            # Increased from 10.0 to 50.0 to avoid numerical issues
+            min_dv_value = 50.0  # 50 m/s minimum
             for i in range(len(x)):
                 if x[i] < min_dv_value:
                     x[i] = min_dv_value
             
-            # Scale to match total delta-v
-            total = np.sum(x)
-            if total > 0:
-                x = x * (self.TOTAL_DELTA_V / total)
-            else:
-                # If total is zero or negative, distribute equally
-                x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
+            # Get stage fraction constraints from config
+            stage_constraints = {}
+            first_stage_min = 0.15
+            first_stage_max = 0.80
+            other_stages_min = 0.15
+            other_stages_max = 0.90
             
-            # Apply stage-specific constraints if defined
             if self.config is not None:
-                stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
-                if stage_constraints:
-                    first_stage = stage_constraints.get('first_stage', {})
-                    other_stages = stage_constraints.get('other_stages', {})
-                    
-                    # First stage constraints
-                    min_first = max(first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V, min_dv_value)
-                    max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
-                    x[0] = np.clip(x[0], min_first, max_first)
-                    
-                    # Other stages constraints
-                    min_other = max(other_stages.get('min_fraction', 0.05) * self.TOTAL_DELTA_V, min_dv_value)
-                    max_other = other_stages.get('max_fraction', 0.95) * self.TOTAL_DELTA_V
-                    for i in range(1, self.n_stages):
-                        x[i] = np.clip(x[i], min_other, max_other)
-            else:
-                # Use default constraints if config is None
-                # First stage constraints
-                min_first = max(0.15 * self.TOTAL_DELTA_V, min_dv_value)
-                max_first = 0.80 * self.TOTAL_DELTA_V
-                x[0] = np.clip(x[0], min_first, max_first)
+                constraints = self.config.get('constraints', {})
+                stage_fractions = constraints.get('stage_fractions', {})
                 
-                # Other stages constraints
-                min_other = max(0.05 * self.TOTAL_DELTA_V, min_dv_value)
-                max_other = 0.95 * self.TOTAL_DELTA_V
-                for i in range(1, self.n_stages):
-                    x[i] = np.clip(x[i], min_other, max_other)
+                if stage_fractions:
+                    first_stage = stage_fractions.get('first_stage', {})
+                    other_stages = stage_fractions.get('other_stages', {})
+                    
+                    first_stage_min = first_stage.get('min_fraction', 0.15)
+                    first_stage_max = first_stage.get('max_fraction', 0.80)
+                    other_stages_min = other_stages.get('min_fraction', 0.15)
+                    other_stages_max = other_stages.get('max_fraction', 0.90)
             
-            # Ensure the total is exactly TOTAL_DELTA_V
+            # Apply stage fraction constraints
             total = np.sum(x)
-            if abs(total - self.TOTAL_DELTA_V) > 1e-10:
-                # Distribute the difference proportionally
-                scale_factor = self.TOTAL_DELTA_V / total if total > 0 else 1.0
+            
+            # First stage constraints
+            min_first = max(first_stage_min * self.TOTAL_DELTA_V, min_dv_value)
+            max_first = first_stage_max * self.TOTAL_DELTA_V
+            
+            # Enforce first stage constraints
+            if x[0] < min_first:
+                deficit = min_first - x[0]
+                x[0] = min_first
+                
+                # Distribute deficit proportionally from other stages
+                other_stages_total = np.sum(x[1:])
+                if other_stages_total > deficit * 1.1:  # Ensure we have enough to distribute
+                    scale_factor = (other_stages_total - deficit) / other_stages_total
+                    x[1:] *= scale_factor
+                else:
+                    # If other stages don't have enough, adjust total
+                    logger.warning(f"Cannot maintain exact total delta-v while enforcing first stage minimum")
+            
+            if x[0] > max_first:
+                excess = x[0] - max_first
+                x[0] = max_first
+                
+                # Distribute excess proportionally to other stages
+                x[1:] += excess * (x[1:] / np.sum(x[1:])) if np.sum(x[1:]) > 0 else excess / (len(x) - 1)
+            
+            # Other stages constraints
+            for i in range(1, len(x)):
+                min_other = max(other_stages_min * self.TOTAL_DELTA_V, min_dv_value)
+                max_other = other_stages_max * self.TOTAL_DELTA_V
+                
+                if x[i] < min_other:
+                    deficit = min_other - x[i]
+                    x[i] = min_other
+                    
+                    # Try to take from largest stage
+                    largest_idx = np.argmax(x)
+                    if largest_idx != i and x[largest_idx] > min_other * 1.1:
+                        x[largest_idx] -= deficit
+                    else:
+                        logger.warning(f"Cannot maintain exact total delta-v while enforcing stage {i+1} minimum")
+                
+                if x[i] > max_other:
+                    excess = x[i] - max_other
+                    x[i] = max_other
+                    
+                    # Distribute excess to other stages
+                    other_indices = [j for j in range(len(x)) if j != i]
+                    x[other_indices] += excess * (x[other_indices] / np.sum(x[other_indices])) if np.sum(x[other_indices]) > 0 else excess / (len(x) - 1)
+            
+            # Scale to match total delta-v after applying all constraints
+            total = np.sum(x)
+            if total > 0 and abs(total - self.TOTAL_DELTA_V) > 1e-10:
+                scale_factor = self.TOTAL_DELTA_V / total
                 x = x * scale_factor
                 
-                # After scaling, ensure minimum values are still maintained
-                for i in range(len(x)):
-                    if x[i] < min_dv_value:
-                        x[i] = min_dv_value
+                # Check if scaling violated any constraints and fix if needed
+                if x[0] < min_first:
+                    x[0] = min_first
+                elif x[0] > max_first:
+                    x[0] = max_first
+                    
+                for i in range(1, len(x)):
+                    if x[i] < min_other:
+                        x[i] = min_other
+                    elif x[i] > max_other:
+                        x[i] = max_other
                 
-                # Final check for exact constraint
+                # Final adjustment to match total delta-v exactly
                 error = self.TOTAL_DELTA_V - np.sum(x)
                 if abs(error) > 1e-10:
-                    # Distribute error to stages above minimum threshold
-                    above_min = [i for i in range(len(x)) if x[i] > min_dv_value * 1.1]
-                    if above_min:
-                        # Distribute error to stages that are well above minimum
-                        correction = error / len(above_min)
-                        for i in above_min:
+                    # Find stages that aren't at their limits
+                    non_limit_stages = []
+                    for i in range(len(x)):
+                        min_val = min_first if i == 0 else min_other
+                        max_val = max_first if i == 0 else max_other
+                        if x[i] > min_val * 1.01 and x[i] < max_val * 0.99:
+                            non_limit_stages.append(i)
+                    
+                    if non_limit_stages:
+                        # Distribute error to non-limit stages
+                        correction = error / len(non_limit_stages)
+                        for i in non_limit_stages:
                             x[i] += correction
                     else:
-                        # If all stages are near minimum, adjust the largest one
+                        # If all stages are at limits, adjust the largest one
                         largest_idx = np.argmax(x)
                         x[largest_idx] += error
             
-            # Final validation - log warning if any stage is still too small
-            if np.any(x < min_dv_value * 0.99):
-                logger.warning(f"After projection, some stages still have very small delta-v: {x}")
+            # Final validation - log warning if constraints are still violated
+            total = np.sum(x)
+            if abs(total - self.TOTAL_DELTA_V) > 1e-8:
+                logger.warning(f"After projection, total delta-v ({total}) differs from required ({self.TOTAL_DELTA_V})")
+            
+            if x[0] < min_first * 0.99 or x[0] > max_first * 1.01:
+                logger.warning(f"After projection, first stage ({x[0]}) violates constraints ({min_first}-{max_first})")
+            
+            for i in range(1, len(x)):
+                if x[i] < min_other * 0.99 or x[i] > max_other * 1.01:
+                    logger.warning(f"After projection, stage {i+1} ({x[i]}) violates constraints ({min_other}-{max_other})")
             
             return x
             
@@ -351,7 +405,7 @@ class BaseSolver(ABC):
             logger.error(f"Error in projection: {str(e)}")
             # Fallback to equal distribution
             return np.full(self.n_stages, self.TOTAL_DELTA_V / self.n_stages)
-        
+            
     def iterative_projection(self, x: np.ndarray, max_iterations: int = 5) -> np.ndarray:
         """Apply projection iteratively to ensure constraints are met.
         
