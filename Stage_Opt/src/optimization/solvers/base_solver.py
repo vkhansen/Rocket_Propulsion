@@ -194,34 +194,6 @@ class BaseSolver(ABC):
             logger.error(f"Error checking feasibility: {str(e)}")
             return False, 1e6
             
-    def is_worse_than_bootstrap(self, score: float, is_feasible: bool) -> bool:
-        """Check if a solution is worse than the best bootstrap solution.
-        
-        Args:
-            score: Objective value (negative payload fraction, lower is better)
-            is_feasible: Whether solution is feasible
-            
-        Returns:
-            True if solution is worse than the best bootstrap solution
-        """
-        # If no bootstrap solution, nothing to compare against
-        if self.best_bootstrap_solution is None:
-            return False
-            
-        # If bootstrap solution is feasible but current solution is not, it's worse
-        if self.best_bootstrap_fitness < float('inf') and not is_feasible:
-            return True
-            
-        # Compare payload fractions
-        # Score is negative payload fraction, so higher score means worse payload fraction
-        if is_feasible and score > self.best_bootstrap_fitness:
-            current_payload_fraction = -score
-            bootstrap_payload_fraction = -self.best_bootstrap_fitness
-            logger.info(f"Rejecting solution with worse payload fraction: current={current_payload_fraction:.6f}, bootstrap={bootstrap_payload_fraction:.6f}")
-            return True
-            
-        return False
-        
     def update_best_solution(self, x: np.ndarray, score: float, 
                            is_feasible: bool, violation: float) -> bool:
         """Update best solution if improvement found.
@@ -238,12 +210,6 @@ class BaseSolver(ABC):
         try:
             x = np.asarray(x, dtype=np.float64).reshape(-1)
             
-            # Check if solution is worse than bootstrap solution
-            if self.is_worse_than_bootstrap(score, is_feasible):
-                # Reject solutions worse than bootstrap
-                logger.debug(f"Rejecting solution worse than bootstrap: score={score:.6f}, feasible={is_feasible}")
-                return False
-            
             # Track statistics
             if is_feasible:
                 self.n_feasible += 1
@@ -254,6 +220,34 @@ class BaseSolver(ABC):
             current_payload_fraction = -score if is_feasible else -float('inf')
             best_feasible_payload_fraction = -self.best_feasible_score if self.best_feasible is not None else -float('inf')
             best_overall_payload_fraction = -self.best_fitness if self.best_solution is not None else -float('inf')
+            
+            # Enhanced logging to track solution comparison
+            logger.debug(f"Evaluating solution: payload_fraction={current_payload_fraction:.6f}, feasible={is_feasible}, violation={violation:.6f}")
+            logger.debug(f"Solution vector: {x}")
+            
+            if self.best_solution is not None:
+                logger.debug(f"Current best: payload_fraction={best_overall_payload_fraction:.6f}, feasible={self.best_is_feasible}, violation={self.best_violation:.6f}")
+                logger.debug(f"Current best vector: {self.best_solution}")
+                
+                # Log comparison details
+                if is_feasible and self.best_is_feasible:
+                    logger.debug(f"Comparing feasible solutions: current={current_payload_fraction:.6f} vs best={best_overall_payload_fraction:.6f}")
+                    if current_payload_fraction > best_overall_payload_fraction:
+                        logger.debug(f"IMPROVEMENT: Better feasible solution found (+{current_payload_fraction - best_overall_payload_fraction:.6f})")
+                    else:
+                        logger.debug(f"REJECTED: Current solution is worse than best (-{best_overall_payload_fraction - current_payload_fraction:.6f})")
+                elif is_feasible and not self.best_is_feasible:
+                    logger.debug(f"IMPROVEMENT: First feasible solution found or replacing infeasible best")
+                elif not is_feasible and self.best_is_feasible:
+                    logger.debug(f"REJECTED: Current solution is infeasible while best is feasible")
+                else:  # both infeasible
+                    logger.debug(f"Comparing infeasible solutions: current violation={violation:.6f} vs best={self.best_violation:.6f}")
+                    if violation < self.best_violation:
+                        logger.debug(f"IMPROVEMENT: Better infeasible solution found (violation reduced by {self.best_violation - violation:.6f})")
+                    else:
+                        logger.debug(f"REJECTED: Current infeasible solution has higher violation (+{violation - self.best_violation:.6f})")
+            else:
+                logger.debug(f"No existing best solution, will accept current solution")
             
             # Update best feasible solution if this is feasible and has better payload fraction
             if is_feasible:
@@ -272,7 +266,7 @@ class BaseSolver(ABC):
                         return True
             
             # If we don't have a feasible solution yet, or this infeasible solution is better than our current best
-            if self.best_solution is None or \
+            elif self.best_solution is None or \
                (not is_feasible and not self.best_is_feasible and score < self.best_fitness) or \
                (not self.best_is_feasible and is_feasible):
                 self.best_solution = x.copy()
@@ -332,12 +326,13 @@ class BaseSolver(ABC):
         """Process bootstrap solutions from other solvers.
         
         This method extracts the best solution from other solvers for solution rejection.
+        It also creates perturbed versions of bootstrap solutions to improve exploration.
         
         Args:
             other_solver_results: Results from other solvers, can be dict or list format
             
         Returns:
-            List of valid bootstrap solutions
+            List of valid bootstrap solutions including perturbed variants
         """
         bootstrap_solutions = []
         
@@ -360,6 +355,9 @@ class BaseSolver(ABC):
         best_solution = None
         best_payload_fraction = -float('inf')  # Higher payload fraction is better
         best_solver = "unknown"
+        
+        # Collect valid solutions
+        valid_solutions = []
         
         for result in other_solver_results:
             if not isinstance(result, dict):
@@ -386,13 +384,13 @@ class BaseSolver(ABC):
                 
             # Calculate payload fraction for comparison
             try:
-                stage_ratios = calculate_stage_ratios(
+                stage_ratios, mass_ratios = calculate_stage_ratios(
                     dv=solution,
                     G0=self.G0,
                     ISP=self.ISP,
                     EPSILON=self.EPSILON
                 )
-                payload_fraction = calculate_payload_fraction(stage_ratios)
+                payload_fraction = calculate_payload_fraction(mass_ratios)
                 
                 # Update best bootstrap solution if it has better payload fraction
                 if payload_fraction > best_payload_fraction:
@@ -400,12 +398,56 @@ class BaseSolver(ABC):
                     best_payload_fraction = payload_fraction
                     best_solver = solver_name
                     logger.debug(f"Found better bootstrap solution from {solver_name} with payload fraction {payload_fraction:.6f}")
+                
+                # Add to valid solutions list with payload fraction info
+                valid_solutions.append({
+                    'solution': solution.copy(),
+                    'payload_fraction': payload_fraction,
+                    'solver_name': solver_name
+                })
+                
             except Exception as e:
                 logger.warning(f"Error calculating payload fraction for bootstrap solution: {e}")
                 continue
+        
+        # Sort valid solutions by payload fraction (best first)
+        valid_solutions.sort(key=lambda x: -x['payload_fraction'])  # Negative for descending order
+        
+        # Add original solutions to bootstrap solutions
+        for sol_info in valid_solutions:
+            bootstrap_solutions.append(sol_info['solution'])
+            logger.debug(f"Added bootstrap solution from {sol_info['solver_name']} with payload fraction {sol_info['payload_fraction']:.6f}")
+        
+        # Generate perturbed versions of the best solutions
+        if valid_solutions:
+            # Use at most the top 3 solutions for perturbation
+            top_solutions = valid_solutions[:min(3, len(valid_solutions))]
+            
+            # Create multiple perturbed versions with different perturbation levels
+            perturbation_levels = [0.01, 0.03, 0.05, 0.10]  # 1%, 3%, 5%, 10% perturbation
+            
+            for sol_info in top_solutions:
+                original_solution = sol_info['solution']
+                original_pf = sol_info['payload_fraction']
                 
-            # Add to bootstrap solutions
-            bootstrap_solutions.append(solution)
+                for level in perturbation_levels:
+                    # Create multiple perturbed versions at each level
+                    for i in range(2):  # 2 variants per level
+                        # Generate random perturbation
+                        perturbation = np.random.uniform(-level, level, self.n_stages)
+                        perturbed_solution = original_solution * (1 + perturbation)
+                        
+                        # Ensure the solution still sums to TOTAL_DELTA_V
+                        perturbed_solution = perturbed_solution * (self.TOTAL_DELTA_V / np.sum(perturbed_solution))
+                        
+                        # Project to feasible space to ensure all constraints are met
+                        perturbed_solution = self.project_to_feasible(perturbed_solution)
+                        
+                        # Check if the perturbed solution is feasible
+                        is_feasible, _ = self.check_feasibility(perturbed_solution)
+                        if is_feasible:
+                            bootstrap_solutions.append(perturbed_solution)
+                            logger.debug(f"Added perturbed bootstrap solution (level={level:.2f}) based on solution with PF={original_pf:.6f}")
         
         # Store best bootstrap solution
         if best_solution is not None:
@@ -413,6 +455,7 @@ class BaseSolver(ABC):
             # Store negative payload fraction as fitness (since optimization minimizes)
             self.best_bootstrap_fitness = -best_payload_fraction
             logger.info(f"Using best bootstrap solution from {best_solver} with payload fraction {best_payload_fraction:.6f}")
+            logger.info(f"Generated {len(bootstrap_solutions)} bootstrap solutions including perturbed variants")
             
         return bootstrap_solutions
         

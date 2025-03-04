@@ -79,8 +79,16 @@ def payload_fraction_objective(dv: np.ndarray,
                                EPSILON: np.ndarray) -> float:
     """Calculate the objective value (negative payload fraction)."""
     try:
+        # Log inputs for debugging
+        logger.debug(f"payload_fraction_objective inputs: dv={dv}, G0={G0}")
+        logger.debug(f"ISP={ISP}, EPSILON={EPSILON}")
+        
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+        logger.debug(f"Calculated stage_ratios={stage_ratios}, mass_ratios={mass_ratios}")
+        
         payload_fraction = calculate_payload_fraction(mass_ratios)
+        logger.debug(f"Calculated payload_fraction={payload_fraction}")
+        
         if payload_fraction <= 0:
             # Hard reject
             logger.warning(f"Rejecting solution with nonphysical payload fraction: {payload_fraction}")
