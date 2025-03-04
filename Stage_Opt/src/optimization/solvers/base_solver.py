@@ -241,6 +241,12 @@ class BaseSolver(ABC):
             for i, (lower, upper) in enumerate(self.bounds):
                 x[i] = np.clip(x[i], lower, upper)
             
+            # Ensure each stage has a minimum delta-v value for physics calculations
+            min_dv_value = 1.0  # 1 m/s minimum
+            for i in range(len(x)):
+                if x[i] < min_dv_value:
+                    x[i] = min_dv_value
+            
             # Scale to match total delta-v
             total = np.sum(x)
             if total > 0:
@@ -257,24 +263,24 @@ class BaseSolver(ABC):
                     other_stages = stage_constraints.get('other_stages', {})
                     
                     # First stage constraints
-                    min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
+                    min_first = max(first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V, min_dv_value)
                     max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
                     x[0] = np.clip(x[0], min_first, max_first)
                     
                     # Other stages constraints
-                    min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
+                    min_other = max(other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V, min_dv_value)
                     max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
                     for i in range(1, self.n_stages):
                         x[i] = np.clip(x[i], min_other, max_other)
             else:
                 # Use default constraints if config is None
                 # First stage constraints
-                min_first = 0.15 * self.TOTAL_DELTA_V
+                min_first = max(0.15 * self.TOTAL_DELTA_V, min_dv_value)
                 max_first = 0.80 * self.TOTAL_DELTA_V
                 x[0] = np.clip(x[0], min_first, max_first)
                 
                 # Other stages constraints
-                min_other = 0.01 * self.TOTAL_DELTA_V
+                min_other = max(0.01 * self.TOTAL_DELTA_V, min_dv_value)
                 max_other = 1.0 * self.TOTAL_DELTA_V
                 for i in range(1, self.n_stages):
                     x[i] = np.clip(x[i], min_other, max_other)
@@ -285,6 +291,11 @@ class BaseSolver(ABC):
                 # Distribute the difference proportionally
                 scale_factor = self.TOTAL_DELTA_V / total if total > 0 else 1.0
                 x = x * scale_factor
+                
+                # After scaling, ensure minimum values are still maintained
+                for i in range(len(x)):
+                    if x[i] < min_dv_value:
+                        x[i] = min_dv_value
                 
                 # Final check for exact constraint
                 error = self.TOTAL_DELTA_V - np.sum(x)

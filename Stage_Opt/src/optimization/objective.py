@@ -122,8 +122,10 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
         # Calculate stage fractions for logging
         stage_fractions = dv / TOTAL_DELTA_V if TOTAL_DELTA_V > 0 else np.zeros_like(dv)
         
-        # Check for negative values which would cause physics issues
-        if np.any(dv <= 0) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
+        # Check for zero or negative values which would cause physics issues
+        # We need a minimum delta-v for each stage to avoid physics calculation issues
+        min_dv_threshold = 1.0  # 1 m/s minimum delta-v per stage
+        if np.any(dv < min_dv_threshold) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
             logger.warning(f"Invalid physics parameters: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
             if return_tuple:
                 return (float('inf'), dv_constraint, float('inf'))
@@ -150,74 +152,49 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, return_tuple=Fal
                 if return_tuple:
                     return (float('inf'), dv_constraint, float('inf'))
                 return float('inf')
-                
-            # Calculate payload fraction (product of 1/mu values)
+            
+            # Calculate payload fraction (product of 1/mu for each stage)
             payload_fraction = np.prod(1.0 / mu_values)
             
-            # Check for numerical issues
-            if not np.isfinite(payload_fraction) or payload_fraction <= 0:
+            # Check for numerical issues in payload fraction
+            if not np.isfinite(payload_fraction):
                 logger.warning(f"Invalid payload fraction: {payload_fraction}")
                 if return_tuple:
                     return (float('inf'), dv_constraint, float('inf'))
                 return float('inf')
-                
+            
             # Objective is negative payload fraction (for minimization)
-            objective_value = -payload_fraction
+            objective = -payload_fraction
+            
+            # Add penalty for delta-v constraint
+            penalty_factor = 100.0
+            penalized_objective = objective + penalty_factor * dv_constraint
+            
+            # Log detailed calculation for debugging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Calculation details:")
+                logger.debug(f"  dv = {dv}")
+                logger.debug(f"  stage_fractions = {stage_fractions}")
+                logger.debug(f"  exp_terms = {exp_terms}")
+                logger.debug(f"  lambda = {lambda_values}")
+                logger.debug(f"  mu = {mu_values}")
+                logger.debug(f"  payload_fraction = {payload_fraction}")
+                logger.debug(f"  objective = {objective}")
+                logger.debug(f"  dv_constraint = {dv_constraint}")
+                logger.debug(f"  penalized_objective = {penalized_objective}")
+            
+            if return_tuple:
+                return (objective, dv_constraint, 0.0)
+            return penalized_objective
             
         except Exception as e:
-            logger.error(f"Physics calculation error: {str(e)}")
+            logger.error(f"Error in physics calculation: {str(e)}")
             if return_tuple:
                 return (float('inf'), dv_constraint, float('inf'))
             return float('inf')
-        
-        # Physical constraint violation
-        physical_constraint = 0.0
-        
-        # Check for invalid stage ratios
-        if np.any(lambda_values <= 0) or np.any(lambda_values >= 1):
-            physical_constraint += 1e3
-        
-        # Check for invalid mass ratios
-        if np.any(mu_values <= 1):
-            physical_constraint += 1e3
-        
-        # Stage fraction violations
-        fraction_violation = 0.0
-        
-        # Log the solution details
-        logger.debug(f"DV: {dv}, Total: {total_dv}, Target: {TOTAL_DELTA_V}")
-        logger.debug(f"Stage fractions: {stage_fractions}")
-        logger.debug(f"Lambda: {lambda_values}, Mu: {mu_values}")
-        logger.debug(f"Payload fraction: {payload_fraction}")
-        logger.debug(f"DV constraint: {dv_constraint}, Physical constraint: {physical_constraint}")
-        
-        # Penalty scaling factors
-        penalty_scale_phys = 1e3
-        penalty_scale_dv = 1e3
-        penalty_scale_frac = 5.0  # Reduced from 10
-
-        # Weighted sum of constraints
-        total_penalty = penalty_scale_phys * physical_constraint \
-                        + penalty_scale_dv   * dv_constraint       \
-                        + penalty_scale_frac * fraction_violation
-
-        # Log the penalty and final objective
-        logger.debug(f"Total penalty: {total_penalty}, Objective value: {objective_value}")
-
-        # If the penalty is very large, cap it to avoid numerical issues
-        if total_penalty > 1e6:
-            logger.debug(f"Capping very large penalty: {total_penalty} to 1e6")
-            total_penalty = 1e6
-
-        penalized_objective = objective_value + total_penalty
-
-        if return_tuple:
-            return (penalized_objective, dv_constraint, physical_constraint)
-        else:
-            return penalized_objective
-
+            
     except Exception as e:
-        logger.error(f"Error in objective calculation: {str(e)}")
+        logger.error(f"Error in objective function: {str(e)}")
         if return_tuple:
             return (float('inf'), float('inf'), float('inf'))
         return float('inf')

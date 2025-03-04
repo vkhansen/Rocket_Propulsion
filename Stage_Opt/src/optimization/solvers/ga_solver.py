@@ -43,7 +43,7 @@ class GeneticAlgorithmSolver(BaseGASolver):
             stagnation_generations = solver_params.get('stagnation_generations', stagnation_generations)
             stagnation_threshold = solver_params.get('stagnation_threshold', stagnation_threshold)
         
-        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds,
+        super().__init__(G0, ISP, EPSILON, TOTAL_DELTA_V, bounds, config,
                          pop_size=pop_size, n_gen=n_gen, mutation_rate=mutation_rate,
                          crossover_rate=crossover_rate, tournament_size=tournament_size)
         
@@ -54,14 +54,24 @@ class GeneticAlgorithmSolver(BaseGASolver):
         self.stagnation_threshold = float(stagnation_threshold)
         
         # GA specific parameters
-        self.pop_size = int(config.get('ga', {}).get('population_size', 50))
-        self.max_generations = int(config.get('ga', {}).get('max_generations', 100))
-        self.crossover_rate = float(config.get('ga', {}).get('crossover_rate', 0.8))
-        self.mutation_rate = float(config.get('ga', {}).get('mutation_rate', 0.2))
-        self.mutation_strength = float(config.get('ga', {}).get('mutation_strength', 0.1))
-        self.tournament_size = int(config.get('ga', {}).get('tournament_size', 3))
-        self.elitism_rate = float(config.get('ga', {}).get('elitism_rate', 0.1))
-        self.target_fitness = float(config.get('ga', {}).get('target_fitness', -1.0))
+        if config is not None:
+            self.pop_size = int(config.get('ga', {}).get('population_size', 50))
+            self.max_generations = int(config.get('ga', {}).get('max_generations', 100))
+            self.crossover_rate = float(config.get('ga', {}).get('crossover_rate', 0.8))
+            self.mutation_rate = float(config.get('ga', {}).get('mutation_rate', 0.2))
+            self.mutation_strength = float(config.get('ga', {}).get('mutation_strength', 0.1))
+            self.tournament_size = int(config.get('ga', {}).get('tournament_size', 3))
+            self.elitism_rate = float(config.get('ga', {}).get('elitism_rate', 0.1))
+            self.target_fitness = float(config.get('ga', {}).get('target_fitness', -1.0))
+        else:
+            self.pop_size = 50
+            self.max_generations = 100
+            self.crossover_rate = 0.8
+            self.mutation_rate = 0.2
+            self.mutation_strength = 0.1
+            self.tournament_size = 3
+            self.elitism_rate = 0.1
+            self.target_fitness = -1.0
         
         # Tracking variables
         self.best_solution = None
@@ -133,6 +143,101 @@ class GeneticAlgorithmSolver(BaseGASolver):
         except Exception as e:
             logger.error(f"Error logging generation stats: {e}")
             return float('inf'), float('inf'), 0.0
+
+    def log_generation_stats(self, generation, population, fitness, feasibility):
+        """Log statistics for current generation.
+        
+        Args:
+            generation: Current generation number
+            population: Current population
+            fitness: Fitness values for population
+            feasibility: Feasibility flags for population
+            
+        Returns:
+            None
+        """
+        try:
+            if population is None or len(population) == 0:
+                logger.warning("Cannot log generation stats: population is empty")
+                return
+                
+            # Calculate statistics
+            valid_fitness = fitness[np.isfinite(fitness)]
+            if len(valid_fitness) == 0:
+                logger.warning("No valid fitness values to log")
+                return
+                
+            best_idx = np.argmin(fitness)
+            best_fitness = fitness[best_idx]
+            avg_fitness = np.mean(valid_fitness)
+            diversity = self.calculate_diversity(population)
+            n_feasible = np.sum(feasibility)
+            
+            # Calculate improvement
+            if len(self.best_fitness_history) > 0:
+                prev_best = self.best_fitness_history[-1]
+                if np.isfinite(prev_best) and np.isfinite(best_fitness):
+                    improvement = (prev_best - best_fitness) / abs(prev_best) * 100 if prev_best != 0 else 0
+                else:
+                    improvement = 0
+            else:
+                improvement = 0
+                
+            # Store history
+            self.best_fitness_history.append(best_fitness)
+            self.avg_fitness_history.append(avg_fitness)
+            self.diversity_history.append(diversity)
+            
+            # Log statistics
+            logger.info(f"Generation {generation}/{self.max_generations}:")
+            logger.info(f"  Best Fitness: {best_fitness:.6f}")
+            logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
+            logger.info(f"  Diversity: {diversity:.6f}")
+            logger.info(f"  Feasible Solutions: {n_feasible}/{len(population)} ({n_feasible/len(population)*100:.1f}%)")
+            logger.info(f"  Improvement: {improvement:+.2f}%")
+            
+            # Check for potential issues
+            if diversity < self.min_diversity:
+                logger.warning("  Low diversity detected - possible premature convergence")
+                
+            if len(self.best_fitness_history) > self.stagnation_generations:
+                recent_history = self.best_fitness_history[-self.stagnation_generations:]
+                if all(np.isfinite(recent_history)):
+                    recent_improvement = abs((recent_history[0] - recent_history[-1]) / recent_history[0]) if recent_history[0] != 0 else 0
+                    if recent_improvement < self.stagnation_threshold:
+                        logger.warning("  Optimization appears to be stagnating")
+            
+        except Exception as e:
+            logger.error(f"Error logging generation stats: {str(e)}")
+
+    def calculate_diversity(self, population):
+        """Calculate diversity of the population.
+        
+        Args:
+            population: Current population
+            
+        Returns:
+            Diversity measure (standard deviation of solutions)
+        """
+        try:
+            if population is None or len(population) < 2:
+                return 0.0
+            
+            # Calculate standard deviation across all dimensions
+            std_devs = np.std(population, axis=0)
+            
+            # Normalize by the bounds range for each dimension
+            bounds_ranges = np.array([upper - lower for lower, upper in self.bounds])
+            normalized_std_devs = std_devs / bounds_ranges
+            
+            # Average across all dimensions
+            diversity = float(np.mean(normalized_std_devs))
+            
+            return diversity
+            
+        except Exception as e:
+            logger.error(f"Error calculating diversity: {str(e)}")
+            return 0.0
 
     def tournament_selection(self, fitness, feasibility, violations):
         """Select parent using tournament selection.
