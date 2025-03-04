@@ -9,7 +9,7 @@ from pathlib import Path
 
 # Import our modules
 from src.utils.data import load_input_data
-from src.optimization.physics import calculate_mass_ratios, calculate_payload_fraction
+from src.optimization.physics import calculate_stage_ratios, calculate_payload_fraction
 from src.optimization.objective import payload_fraction_objective, objective_with_penalty
 from src.optimization.solvers.slsqp_solver import SLSQPSolver
 from src.optimization.solvers.basin_hopping_solver import BasinHoppingOptimizer
@@ -34,19 +34,58 @@ logger.addHandler(test_handler)
 class TestPayloadOptimization(unittest.TestCase):
     """Test cases for payload optimization functions."""
 
+    @classmethod
+    def setUpClass(cls):
+        """Create test input data file."""
+        cls.test_data = {
+            "parameters": {
+                "G0": 9.81,
+                "TOTAL_DELTA_V": 9300,
+                "constraints": {
+                    "total_dv": {
+                        "tolerance": 1e-6
+                    },
+                    "stage_fractions": {
+                        "first_stage": {
+                            "min_fraction": 0.15,
+                            "max_fraction": 0.80
+                        },
+                        "other_stages": {
+                            "min_fraction": 0.01,
+                            "max_fraction": 1.0
+                        }
+                    }
+                }
+            },
+            "stages": [
+                {
+                    "ISP": 300,
+                    "EPSILON": 0.06
+                },
+                {
+                    "ISP": 348,
+                    "EPSILON": 0.04
+                }
+            ]
+        }
+        
+        # Create temporary input file
+        cls.temp_dir = tempfile.mkdtemp()
+        cls.input_file = os.path.join(cls.temp_dir, 'input_data.json')
+        with open(cls.input_file, 'w', encoding='utf-8') as f:
+            json.dump(cls.test_data, f, indent=4)
+
     def setUp(self):
         """Set up test cases."""
         # Load test data
-        with open('input_data.json', encoding='utf-8') as f:
-            data = json.load(f)
-            parameters = data['parameters']
-            stages = data['stages']
+        parameters, stages = load_input_data(self.input_file)
             
         self.G0 = parameters['G0']
         self.TOTAL_DELTA_V = parameters['TOTAL_DELTA_V']
         self.ISP = [stage['ISP'] for stage in stages]
         self.EPSILON = [stage['EPSILON'] for stage in stages]
         self.n_stages = len(stages)
+        self.constraints = parameters.get('constraints', {})
         
         # Initial guess: equal split of delta-V
         self.initial_guess = np.array([self.TOTAL_DELTA_V / self.n_stages] * self.n_stages)
@@ -60,7 +99,8 @@ class TestPayloadOptimization(unittest.TestCase):
                 'max_iterations': 1000,
                 'population_size': 100,
                 'mutation_rate': 0.1,
-                'crossover_rate': 0.8
+                'crossover_rate': 0.8,
+                'constraints': self.constraints
             },
             'basin_hopping': {
                 'n_iterations': 100,
@@ -77,10 +117,16 @@ class TestPayloadOptimization(unittest.TestCase):
             }
         }
 
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up temporary files."""
+        import shutil
+        shutil.rmtree(cls.temp_dir)
+
     def test_load_input_data(self):
         """Test loading input data from JSON file."""
         logger.info("Starting input data loading test")
-        parameters, stages = load_input_data('input_data.json')
+        parameters, stages = load_input_data(self.input_file)
         
         logger.debug(f"Loaded parameters: {parameters}")
         logger.debug(f"Loaded stages: {stages}")
@@ -418,6 +464,91 @@ class TestPayloadOptimization(unittest.TestCase):
         # Verify Lambda values
         for stage in result['stages']:
             self.assertTrue(0 < stage['Lambda'] < 1)
+
+    def test_invalid_payload_fraction(self):
+        """Test rejection of solutions with invalid payload fractions."""
+        logger.info("Testing invalid payload fraction handling")
+        
+        # Test case 1: Zero payload fraction
+        zero_dv = np.zeros(self.n_stages)
+        result = payload_fraction_objective(zero_dv, self.G0, self.ISP, self.EPSILON)
+        self.assertEqual(result, float('inf'), "Zero payload fraction should return infinity")
+        
+        # Test case 2: Negative payload fraction
+        negative_dv = -np.ones(self.n_stages) * 1000
+        result = payload_fraction_objective(negative_dv, self.G0, self.ISP, self.EPSILON)
+        self.assertEqual(result, float('inf'), "Negative payload fraction should return infinity")
+
+    def test_stage_ratio_constraints(self):
+        """Test stage ratio constraints."""
+        logger.info("Testing stage ratio constraints")
+        
+        # Test case 1: First stage too small
+        small_first = np.array([500] + [self.TOTAL_DELTA_V/2]*(self.n_stages-1))
+        result = objective_with_penalty(small_first, self.G0, self.ISP, self.EPSILON, 
+                                     self.TOTAL_DELTA_V)
+        self.assertGreater(result, 1e6, "Small first stage should be heavily penalized")
+        
+        # Test case 2: First stage too large
+        large_first = np.array([self.TOTAL_DELTA_V*0.9] + [100]*(self.n_stages-1))
+        result = objective_with_penalty(large_first, self.G0, self.ISP, self.EPSILON,
+                                     self.TOTAL_DELTA_V)
+        self.assertGreater(result, 1e6, "Large first stage should be heavily penalized")
+
+    def test_total_dv_constraint(self):
+        """Test total delta-V constraint."""
+        logger.info("Testing total delta-V constraint")
+        
+        # Test case 1: Total dV too low
+        low_dv = np.array([1000]*self.n_stages)
+        result = objective_with_penalty(low_dv, self.G0, self.ISP, self.EPSILON,
+                                    self.TOTAL_DELTA_V)
+        self.assertGreater(result, 1e6, "Low total dV should be heavily penalized")
+        
+        # Test case 2: Total dV too high
+        high_dv = np.array([self.TOTAL_DELTA_V]*self.n_stages)
+        result = objective_with_penalty(high_dv, self.G0, self.ISP, self.EPSILON,
+                                    self.TOTAL_DELTA_V)
+        self.assertGreater(result, 1e6, "High total dV should be heavily penalized")
+
+    def test_mass_ratio_calculation(self):
+        """Test mass ratio calculations."""
+        logger.info("Testing mass ratio calculations")
+        
+        # Test reasonable stage dV distribution
+        dv = np.array([5000, 4300])  # Example for 2-stage rocket
+        stage_ratios, mass_ratios = calculate_stage_ratios(dv, self.G0, self.ISP, self.EPSILON)
+        
+        # Verify stage ratios are physical (between 0 and 1)
+        for ratio in stage_ratios:
+            self.assertGreater(ratio, 0.0, "Stage ratio should be positive")
+            self.assertLess(ratio, 1.0, "Stage ratio should be less than 1.0")
+            
+        # Verify mass ratios are physical
+        for ratio in mass_ratios:
+            self.assertGreater(ratio, 0.0, "Mass ratio should be positive")
+            self.assertLess(ratio, 1.0, "Mass ratio should be less than 1.0")
+
+    def test_payload_fraction_calculation(self):
+        """Test payload fraction calculation."""
+        logger.info("Testing payload fraction calculation")
+        
+        # Test with typical values
+        dv = np.array([5000, 4300])  # Example for 2-stage rocket
+        stage_ratios, mass_ratios = calculate_stage_ratios(dv, self.G0, self.ISP, self.EPSILON)
+        payload_fraction = calculate_payload_fraction(mass_ratios)
+        
+        # Verify payload fraction is physical (between 0 and 1)
+        self.assertGreater(payload_fraction, 0.0, "Payload fraction should be positive")
+        self.assertLess(payload_fraction, 1.0, "Payload fraction should be less than 1.0")
+        
+        # Test with edge case values
+        edge_dv = np.array([7000, 2300])  # More extreme distribution
+        edge_stage_ratios, edge_mass_ratios = calculate_stage_ratios(edge_dv, self.G0, self.ISP, self.EPSILON)
+        edge_payload_fraction = calculate_payload_fraction(edge_mass_ratios)
+        
+        self.assertGreater(edge_payload_fraction, 0.0, "Edge case payload fraction should be positive")
+        self.assertLess(edge_payload_fraction, 1.0, "Edge case payload fraction should be less than 1.0")
 
 class TestCSVOutputs(unittest.TestCase):
     """Test cases for CSV output functionality."""
