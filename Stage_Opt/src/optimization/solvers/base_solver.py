@@ -115,20 +115,35 @@ class BaseSolver(ABC):
                     return False, float('inf')
             
             # Check stage fraction constraints
-            stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
-            if stage_constraints:
-                first_stage = stage_constraints.get('first_stage', {})
-                other_stages = stage_constraints.get('other_stages', {})
-                
+            if self.config is not None:
+                stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
+                if stage_constraints:
+                    first_stage = stage_constraints.get('first_stage', {})
+                    other_stages = stage_constraints.get('other_stages', {})
+                    
+                    # First stage constraints
+                    min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
+                    max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                    if x[0] < min_first or x[0] > max_first:
+                        return False, float('inf')
+                    
+                    # Other stages constraints
+                    min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
+                    max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                    for i in range(1, self.n_stages):
+                        if x[i] < min_other or x[i] > max_other:
+                            return False, float('inf')
+            else:
+                # Use default constraints if config is None
                 # First stage constraints
-                min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
-                max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                min_first = 0.15 * self.TOTAL_DELTA_V
+                max_first = 0.80 * self.TOTAL_DELTA_V
                 if x[0] < min_first or x[0] > max_first:
                     return False, float('inf')
                 
                 # Other stages constraints
-                min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
-                max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                min_other = 0.01 * self.TOTAL_DELTA_V
+                max_other = 1.0 * self.TOTAL_DELTA_V
                 for i in range(1, self.n_stages):
                     if x[i] < min_other or x[i] > max_other:
                         return False, float('inf')
@@ -235,19 +250,32 @@ class BaseSolver(ABC):
                 x = np.full_like(x, self.TOTAL_DELTA_V / len(x))
             
             # Apply stage-specific constraints if defined
-            stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
-            if stage_constraints:
-                first_stage = stage_constraints.get('first_stage', {})
-                other_stages = stage_constraints.get('other_stages', {})
-                
+            if self.config is not None:
+                stage_constraints = self.config.get('constraints', {}).get('stage_fractions', {})
+                if stage_constraints:
+                    first_stage = stage_constraints.get('first_stage', {})
+                    other_stages = stage_constraints.get('other_stages', {})
+                    
+                    # First stage constraints
+                    min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
+                    max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                    x[0] = np.clip(x[0], min_first, max_first)
+                    
+                    # Other stages constraints
+                    min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
+                    max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                    for i in range(1, self.n_stages):
+                        x[i] = np.clip(x[i], min_other, max_other)
+            else:
+                # Use default constraints if config is None
                 # First stage constraints
-                min_first = first_stage.get('min_fraction', 0.15) * self.TOTAL_DELTA_V
-                max_first = first_stage.get('max_fraction', 0.80) * self.TOTAL_DELTA_V
+                min_first = 0.15 * self.TOTAL_DELTA_V
+                max_first = 0.80 * self.TOTAL_DELTA_V
                 x[0] = np.clip(x[0], min_first, max_first)
                 
                 # Other stages constraints
-                min_other = other_stages.get('min_fraction', 0.01) * self.TOTAL_DELTA_V
-                max_other = other_stages.get('max_fraction', 1.0) * self.TOTAL_DELTA_V
+                min_other = 0.01 * self.TOTAL_DELTA_V
+                max_other = 1.0 * self.TOTAL_DELTA_V
                 for i in range(1, self.n_stages):
                     x[i] = np.clip(x[i], min_other, max_other)
             

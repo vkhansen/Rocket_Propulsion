@@ -53,6 +53,23 @@ class GeneticAlgorithmSolver(BaseGASolver):
         self.stagnation_generations = int(stagnation_generations)
         self.stagnation_threshold = float(stagnation_threshold)
         
+        # GA specific parameters
+        self.pop_size = int(config.get('ga', {}).get('population_size', 50))
+        self.max_generations = int(config.get('ga', {}).get('max_generations', 100))
+        self.crossover_rate = float(config.get('ga', {}).get('crossover_rate', 0.8))
+        self.mutation_rate = float(config.get('ga', {}).get('mutation_rate', 0.2))
+        self.mutation_strength = float(config.get('ga', {}).get('mutation_strength', 0.1))
+        self.tournament_size = int(config.get('ga', {}).get('tournament_size', 3))
+        self.elitism_rate = float(config.get('ga', {}).get('elitism_rate', 0.1))
+        self.target_fitness = float(config.get('ga', {}).get('target_fitness', -1.0))
+        
+        # Tracking variables
+        self.best_solution = None
+        self.best_fitness = float('inf')
+        self.best_is_feasible = False
+        self.best_violation = float('inf')
+        self.function_evaluations = 0
+        
         # Initialize history tracking
         self.best_fitness_history = []
         self.avg_fitness_history = []
@@ -117,6 +134,94 @@ class GeneticAlgorithmSolver(BaseGASolver):
             logger.error(f"Error logging generation stats: {e}")
             return float('inf'), float('inf'), 0.0
 
+    def tournament_selection(self, fitness, feasibility, violations):
+        """Select parent using tournament selection.
+        
+        Args:
+            fitness: Array of fitness values
+            feasibility: Array of feasibility flags
+            violations: Array of constraint violations
+            
+        Returns:
+            Index of selected parent
+        """
+        # Select tournament participants
+        tournament_size = min(self.tournament_size, len(fitness))
+        participants = np.random.choice(len(fitness), tournament_size, replace=False)
+        
+        # First prioritize feasible solutions
+        feasible_participants = [i for i in participants if feasibility[i]]
+        
+        if feasible_participants:
+            # If there are feasible solutions, select the best one
+            feasible_fitness = [fitness[i] for i in feasible_participants]
+            best_idx = np.argmin(feasible_fitness)  # Minimization
+            return feasible_participants[best_idx]
+        else:
+            # If no feasible solutions, select the one with lowest violation
+            participant_violations = [violations[i] for i in participants]
+            best_idx = np.argmin(participant_violations)
+            return participants[best_idx]
+            
+    def crossover(self, parent1, parent2):
+        """Perform crossover between two parents.
+        
+        Args:
+            parent1: First parent solution
+            parent2: Second parent solution
+            
+        Returns:
+            Child solution
+        """
+        # Blend crossover (BLX-alpha)
+        alpha = 0.3
+        child = np.zeros_like(parent1)
+        
+        for i in range(len(parent1)):
+            # Calculate range with alpha extension
+            min_val = min(parent1[i], parent2[i])
+            max_val = max(parent1[i], parent2[i])
+            range_i = max_val - min_val
+            
+            # Extended range
+            min_bound = min_val - alpha * range_i
+            max_bound = max_val + alpha * range_i
+            
+            # Generate child value within extended range
+            child[i] = np.random.uniform(min_bound, max_bound)
+            
+        return child
+        
+    def mutate(self, solution):
+        """Mutate a solution.
+        
+        Args:
+            solution: Solution to mutate
+            
+        Returns:
+            Mutated solution
+        """
+        mutated = solution.copy()
+        
+        # Determine how many genes to mutate
+        n_mutations = max(1, int(self.mutation_strength * len(solution)))
+        
+        # Select genes to mutate
+        mutation_indices = np.random.choice(len(solution), n_mutations, replace=False)
+        
+        for idx in mutation_indices:
+            # Get bounds for this gene
+            lower, upper = self.bounds[idx]
+            
+            # Gaussian mutation
+            sigma = (upper - lower) * 0.1  # 10% of range as standard deviation
+            mutated[idx] += np.random.normal(0, sigma)
+            
+            # Ensure bounds
+            mutated[idx] = np.clip(mutated[idx], lower, upper)
+            
+        return mutated
+
     def solve(self, initial_guess=None, bounds=None, other_solver_results=None):
         """Solve the optimization problem using genetic algorithm.
         
@@ -138,6 +243,7 @@ class GeneticAlgorithmSolver(BaseGASolver):
             population, fitness, feasibility, violations = self.initialize_population(other_solver_results)
             
             # Main GA loop
+            generation = 0
             for generation in range(self.max_generations):
                 # Log progress
                 if generation % 10 == 0:
@@ -227,3 +333,18 @@ class GeneticAlgorithmSolver(BaseGASolver):
                 'nfev': self.function_evaluations,
                 'nit': 0
             }
+
+    def evaluate(self, solution):
+        """Evaluate a single solution.
+        
+        Args:
+            solution: Solution vector to evaluate
+            
+        Returns:
+            Objective value
+        """
+        try:
+            return self.evaluate_solution(solution)
+        except Exception as e:
+            logger.error(f"Error in evaluate: {str(e)}")
+            return float('-inf')

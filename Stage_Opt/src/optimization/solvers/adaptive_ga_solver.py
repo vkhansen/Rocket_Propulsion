@@ -157,10 +157,13 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             start_time = time.time()
             
             # Run the adaptive GA optimization with other solver results
-            self.population = self.initialize_population(other_solver_results)
-            if self.population is None:
+            population_result = self.initialize_population(other_solver_results)
+            if population_result is None:
                 raise ValueError("Failed to initialize population")
                 
+            # Unpack the population result
+            self.population, self.fitness_values, feasibility, violations = population_result
+            
             # Main optimization loop
             for gen in range(self.n_gen):
                 try:
@@ -286,3 +289,37 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                 n_function_evals=0,
                 time=0.0
             )
+
+    def calculate_diversity(self, population):
+        """Calculate population diversity."""
+        try:
+            if population is None or len(population) < 2:
+                return 0.0
+                
+            # Calculate mean and std of population
+            pop_mean = np.mean(population, axis=0)
+            pop_std = np.std(population, axis=0)
+            
+            # Normalize by bounds range
+            bounds_range = np.array([upper - lower for lower, upper in self.bounds])
+            normalized_std = np.mean(pop_std / bounds_range)
+            
+            return float(normalized_std)
+        except Exception as e:
+            logger.error(f"Error calculating diversity: {str(e)}")
+            return 0.0
+            
+    def evaluate(self, solution):
+        """Evaluate a single solution.
+        
+        Args:
+            solution: Solution vector to evaluate
+            
+        Returns:
+            Objective value
+        """
+        try:
+            return self.evaluate_solution(solution)
+        except Exception as e:
+            logger.error(f"Error in evaluate: {str(e)}")
+            return float('-inf')

@@ -31,7 +31,7 @@ class BaseGASolver(BaseSolver):
             other_solver_results: Optional results from other solvers to bootstrap population
             
         Returns:
-            Initialized population
+            Tuple of (population, fitness, feasibility, violations)
         """
         try:
             # Create initial population
@@ -94,11 +94,26 @@ class BaseGASolver(BaseSolver):
         except Exception as e:
             logger.error(f"Error initializing population: {str(e)}")
             # Fallback to completely random population
-            return self._generate_random_population(self.pop_size), \
-                   np.zeros(self.pop_size), \
-                   np.zeros(self.pop_size, dtype=bool), \
-                   np.zeros(self.pop_size)
-                   
+            population = self._generate_random_population(self.pop_size)
+            fitness = np.zeros(self.pop_size)
+            feasibility = np.zeros(self.pop_size, dtype=bool)
+            violations = np.zeros(self.pop_size)
+            
+            # Evaluate the fallback population
+            for i in range(self.pop_size):
+                fitness[i] = self.evaluate(population[i])
+                feasibility[i], violations[i] = self.check_feasibility(population[i])
+                
+                # Update best solution if better
+                self.update_best_solution(
+                    population[i], 
+                    fitness[i], 
+                    feasibility[i], 
+                    violations[i]
+                )
+                
+            return population, fitness, feasibility, violations
+
     def _generate_random_population(self, size):
         """Generate a random population of given size.
         
@@ -393,18 +408,13 @@ class BaseGASolver(BaseSolver):
         """Run genetic algorithm optimization."""
         try:
             # Initialize population
-            self.population = self.initialize_population()
+            self.population, self.fitness_values, _, _ = self.initialize_population()
             if self.population is None:
                 raise ValueError("Failed to initialize population")
                 
             # Main optimization loop
             for gen in range(self.n_gen):
                 try:
-                    # Evaluate population
-                    self.fitness_values = self.evaluate_population(self.population)
-                    if self.fitness_values is None:
-                        raise ValueError("Failed to evaluate population")
-                    
                     # Update best solution
                     gen_best_idx = np.argmax(self.fitness_values)
                     gen_best_fitness = self.fitness_values[gen_best_idx]
@@ -462,18 +472,13 @@ class BaseGASolver(BaseSolver):
             start_time = time.time()
             
             # Initialize population with solutions from other solvers
-            self.population = self.initialize_population(other_solver_results)
+            self.population, self.fitness_values, _, _ = self.initialize_population(other_solver_results)
             if self.population is None:
                 raise ValueError("Failed to initialize population")
                 
             # Main optimization loop
             for gen in range(self.n_gen):
                 try:
-                    # Evaluate population
-                    self.fitness_values = self.evaluate_population(self.population)
-                    if self.fitness_values is None:
-                        raise ValueError("Failed to evaluate population")
-                    
                     # Update best solution
                     gen_best_idx = np.argmax(self.fitness_values)
                     gen_best_fitness = self.fitness_values[gen_best_idx]
