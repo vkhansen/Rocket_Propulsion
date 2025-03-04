@@ -37,11 +37,21 @@ def generate_report(results, config, filename="optimization_report.json"):
                         'execution_time': 0.0
                     }
                 
+                # Get constraint_violation directly from result (not raw_result)
+                constraint_violation = result.get('constraint_violation', float('inf'))
+                if constraint_violation is None:
+                    constraint_violation = 0.0
+                
+                # Get payload_fraction directly from result (not raw_result)
+                payload_fraction = result.get('payload_fraction', 0.0)
+                if payload_fraction is None:
+                    payload_fraction = 0.0
+                
                 method_report = {
                     'success': bool(result.get('success', False)),
                     'message': str(result.get('message', '')),
-                    'payload_fraction': float(result.get('payload_fraction', 0.0)),
-                    'constraint_violation': float(result.get('constraint_violation', float('inf'))),
+                    'payload_fraction': float(payload_fraction),
+                    'constraint_violation': float(constraint_violation),
                     'execution_metrics': {
                         'iterations': int(execution_metrics.get('iterations', 0)),
                         'function_evaluations': int(execution_metrics.get('function_evaluations', 0)),
@@ -50,7 +60,7 @@ def generate_report(results, config, filename="optimization_report.json"):
                     'stages': []
                 }
                 
-                # Process stage results
+                # Process stage results - get directly from result (not raw_result)
                 stages = result.get('stages', [])
                 if isinstance(stages, list):
                     for stage in stages:
@@ -64,7 +74,7 @@ def generate_report(results, config, filename="optimization_report.json"):
                 
                 report['results'][method] = method_report
                 
-                # Track successful solvers - only check success flag, not constraint violation
+                # Track successful solvers - only check success flag
                 if method_report['success']:
                     successful_solvers.append(method)
                 

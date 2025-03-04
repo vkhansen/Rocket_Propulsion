@@ -60,6 +60,11 @@ class ParallelSolver:
                             'solution': solution,
                             'fitness': result.get('payload_fraction', 0.0),
                             'success': True,
+                            'payload_fraction': result.get('payload_fraction', 0.0),
+                            'constraint_violation': result.get('constraint_violation', 0.0),
+                            'message': result.get('message', ''),
+                            'execution_metrics': result.get('execution_metrics', {}),
+                            'stages': result.get('stages', []),
                             'raw_result': result
                         }
                         logger.info(f"{solver_name} completed successfully")
@@ -100,6 +105,11 @@ class ParallelSolver:
                             'solution': solution,
                             'fitness': result.get('payload_fraction', 0.0),
                             'success': True,  # Mark as successful if we have valid stages
+                            'payload_fraction': result.get('payload_fraction', 0.0),
+                            'constraint_violation': result.get('constraint_violation', 0.0),
+                            'message': result.get('message', ''),
+                            'execution_metrics': result.get('execution_metrics', {}),
+                            'stages': result.get('stages', []),
                             'raw_result': result
                         }
                         logger.info(f"{solver_name} completed successfully")
