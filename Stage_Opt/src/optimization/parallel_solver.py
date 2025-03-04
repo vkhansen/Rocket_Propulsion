@@ -216,6 +216,15 @@ class ParallelSolver:
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             
+            # Log detailed information about bootstrapped solutions
+            logger.info(f"Bootstrapping {solver.__class__.__name__} with solutions from {len(other_solver_results)} other solvers")
+            for solver_name, result in other_solver_results.items():
+                if 'x' in result and result.get('success', False):
+                    solution = result['x']
+                    logger.info(f"  - {solver_name}: solution={solution}, fitness={-result.get('payload_fraction', 0)}")
+                else:
+                    logger.info(f"  - {solver_name}: No valid solution available")
+            
             # Run solver with other solver results
             return solver.solve(initial_guess, bounds, other_solver_results)
         except Exception as e:

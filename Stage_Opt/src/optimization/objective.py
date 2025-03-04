@@ -38,8 +38,8 @@ def enforce_stage_constraints(dv_array: np.ndarray,
     # Fallback defaults if not in config
     min_fraction_first = first_stage_cfg.get('min_fraction', 0.15)
     max_fraction_first = first_stage_cfg.get('max_fraction', 0.80)
-    min_fraction_other = other_stages_cfg.get('min_fraction', 0.01)
-    max_fraction_other = other_stages_cfg.get('max_fraction', 1.0)
+    min_fraction_other = other_stages_cfg.get('min_fraction', 0.1)
+    max_fraction_other = other_stages_cfg.get('max_fraction', 0.6)
 
     # Compute fractions if total_dv > 0
     if total_dv > 0:

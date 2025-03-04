@@ -31,6 +31,8 @@ class BaseGASolver(BaseSolver):
             other_solver_results: Optional list of solutions from other solvers
         """
         population = []
+        bootstrapped_count = 0
+        rejected_count = 0
         
         # If other solver results are provided, add them first
         if other_solver_results is not None:
@@ -66,15 +68,18 @@ class BaseGASolver(BaseSolver):
                         # Only add solutions with finite fitness
                         if np.isfinite(fitness):
                             population.append(solution)
+                            bootstrapped_count += 1
                             logger.info(f"Added solution from {solver_name} to GA initial population with fitness {fitness}")
                         else:
-                            logger.warning(f"Rejected bootstrapped solution from {solver_name} with infinite fitness")
+                            rejected_count += 1
+                            logger.warning(f"Rejected bootstrapped solution from {solver_name} with infinite fitness: {fitness}")
                     else:
+                        rejected_count += 1
                         logger.warning(f"Rejected bootstrapped solution from {solver_name} with zero total delta-v")
         
         # Log how many bootstrapped solutions were added
         if other_solver_results is not None:
-            logger.info(f"Added {len(population)} valid bootstrapped solutions to population")
+            logger.info(f"Bootstrapping summary: Added {bootstrapped_count} valid solutions, rejected {rejected_count} solutions")
         
         # Fill remaining population with random solutions
         remaining = self.pop_size - len(population)
@@ -146,7 +151,43 @@ class BaseGASolver(BaseSolver):
                 population.append(solution)
         
         logger.info(f"Initialized population with {len(population)} solutions")
+        self.print_population_stats(population)
         return np.array(population[:self.pop_size])
+
+    def print_population_stats(self, population, fitness_values=None):
+        """Print statistics about the population."""
+        try:
+            if population is None or len(population) == 0:
+                logger.info("Population is empty or None")
+                return
+                
+            # Calculate basic statistics
+            pop_mean = np.mean(population, axis=0)
+            pop_std = np.std(population, axis=0)
+            pop_min = np.min(population, axis=0)
+            pop_max = np.max(population, axis=0)
+            
+            logger.info(f"Population statistics (size={len(population)}):")
+            logger.info(f"  Mean: {pop_mean}")
+            logger.info(f"  Std Dev: {pop_std}")
+            logger.info(f"  Min: {pop_min}")
+            logger.info(f"  Max: {pop_max}")
+            
+            # If fitness values are provided, print fitness statistics
+            if fitness_values is not None and len(fitness_values) > 0:
+                valid_fitness = fitness_values[np.isfinite(fitness_values)]
+                if len(valid_fitness) > 0:
+                    logger.info(f"Fitness statistics:")
+                    logger.info(f"  Mean: {np.mean(valid_fitness)}")
+                    logger.info(f"  Std Dev: {np.std(valid_fitness)}")
+                    logger.info(f"  Min: {np.min(valid_fitness)}")
+                    logger.info(f"  Max: {np.max(valid_fitness)}")
+                    logger.info(f"  Valid fitness values: {len(valid_fitness)}/{len(fitness_values)}")
+                else:
+                    logger.warning("No valid fitness values in population")
+            
+        except Exception as e:
+            logger.error(f"Error printing population statistics: {str(e)}")
 
     def evaluate_population(self, population):
         """Evaluate fitness for entire population."""
@@ -367,6 +408,9 @@ class BaseGASolver(BaseSolver):
                     logger.info(f"  Population Diversity: {diversity:.6f}")
                     logger.info(f"  Improvement: {improvement:+.2f}%")
                     
+                    # Print population statistics
+                    self.print_population_stats(self.population, self.fitness_values)
+                    
                     # Create next generation
                     new_population = self.create_next_generation(self.population, self.fitness_values)
                     if new_population is None:
@@ -432,6 +476,9 @@ class BaseGASolver(BaseSolver):
                     logger.info(f"  Avg Fitness: {avg_fitness:.6f}")
                     logger.info(f"  Population Diversity: {diversity:.6f}")
                     logger.info(f"  Improvement: {improvement:+.2f}%")
+                    
+                    # Print population statistics
+                    self.print_population_stats(self.population, self.fitness_values)
                     
                     # Create next generation
                     new_population = self.create_next_generation(self.population, self.fitness_values)
