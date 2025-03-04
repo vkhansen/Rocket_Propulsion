@@ -24,10 +24,29 @@ class BaseGASolver(BaseSolver):
         self.fitness_values = None
         self.n_stages = len(bounds)
         
-    def initialize_population(self):
-        """Initialize population with solutions that satisfy constraints."""
+    def initialize_population(self, other_solver_results=None):
+        """Initialize population with solutions that satisfy constraints.
+        
+        Args:
+            other_solver_results: Optional list of solutions from other solvers
+        """
         population = []
-        for _ in range(self.pop_size):
+        
+        # If other solver results are provided, add them first
+        if other_solver_results is not None:
+            for solver_name, result in other_solver_results.items():
+                if 'x' in result and result.get('success', False):
+                    solution = result['x']
+                    # Ensure solution meets constraints
+                    total = np.sum(solution)
+                    if total > 0:
+                        solution = np.array(solution, dtype=np.float64)
+                        solution *= self.TOTAL_DELTA_V / total
+                        population.append(solution)
+                        logger.info(f"Added solution from {solver_name} to GA initial population")
+        
+        # Fill remaining population with random solutions
+        while len(population) < self.pop_size:
             # Generate random fractions that sum to 1
             fractions = np.random.random(self.n_stages)
             fractions /= np.sum(fractions)
@@ -52,7 +71,8 @@ class BaseGASolver(BaseSolver):
                     solution += adjustment
                     
             population.append(solution)
-        return np.array(population)
+        
+        return np.array(population[:self.pop_size])
 
     def evaluate_population(self, population):
         """Evaluate fitness for entire population."""
@@ -292,13 +312,22 @@ class BaseGASolver(BaseSolver):
             logger.error(f"Error in GA solver: {str(e)}")
             return None, None
 
-    def solve(self, initial_guess, bounds):
-        """Run genetic algorithm optimization."""
+    def solve(self, initial_guess, bounds, other_solver_results=None):
+        """Run genetic algorithm optimization.
+        
+        Args:
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) tuples for each variable
+            other_solver_results: Optional dictionary of solutions from other solvers
+        
+        Returns:
+            Dictionary containing optimization results
+        """
         try:
             start_time = time.time()
             
-            # Initialize population
-            self.population = self.initialize_population()
+            # Initialize population with solutions from other solvers
+            self.population = self.initialize_population(other_solver_results)
             if self.population is None:
                 raise ValueError("Failed to initialize population")
                 

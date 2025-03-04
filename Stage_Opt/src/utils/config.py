@@ -66,24 +66,20 @@ console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
 
 # Debug file handler - for detailed debug information
-debug_handler = RotatingFileHandler(
-    os.path.join(OUTPUT_DIR, "debug.log"),
-    maxBytes=10*1024*1024,  # 10MB
-    backupCount=5,
-    mode='w'
-)
+# Use a process-specific debug log file to avoid conflicts in multiprocessing
+pid = os.getpid()
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+debug_log_path = os.path.join(OUTPUT_DIR, f"debug_{pid}_{timestamp}.log")
+debug_handler = logging.FileHandler(debug_log_path, mode='w')
 debug_handler.setLevel(logging.DEBUG)
 detailed_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 debug_handler.setFormatter(detailed_formatter)
 logger.addHandler(debug_handler)
 
 # Error file handler - for warnings and errors
-error_handler = RotatingFileHandler(
-    os.path.join(OUTPUT_DIR, "error.log"),
-    maxBytes=5*1024*1024,  # 5MB
-    backupCount=3,
-    mode='w'
-)
+# Use a process-specific error log file to avoid conflicts in multiprocessing
+error_log_path = os.path.join(OUTPUT_DIR, f"error_{pid}_{timestamp}.log")
+error_handler = logging.FileHandler(error_log_path, mode='w')
 error_handler.setLevel(logging.WARNING)
 error_handler.setFormatter(detailed_formatter)
 logger.addHandler(error_handler)

@@ -39,42 +39,132 @@ class ParallelSolver:
             start_time = time.time()
             results = {}
             
-            # Use context manager for proper cleanup
-            with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-                try:
-                    # Submit all tasks
-                    future_to_solver = {
-                        executor.submit(self._run_solver, solver, initial_guess, bounds): solver.__class__.__name__
-                        for solver in solvers
-                    }
+            # Separate GA solvers from other solvers
+            ga_solvers = []
+            other_solvers = []
+            
+            for solver in solvers:
+                if 'GA' in solver.__class__.__name__:
+                    ga_solvers.append(solver)
+                else:
+                    other_solvers.append(solver)
                     
-                    # Process results as they complete
-                    for future in concurrent.futures.as_completed(future_to_solver.keys(), timeout=self.timeout):
-                        solver_name = future_to_solver[future]
-                        try:
-                            result = future.result(timeout=0)  # Non-blocking since future is done
-                            if result is not None:
-                                results[solver_name] = result
-                                logger.info(f"{solver_name} completed successfully")
-                            else:
-                                logger.warning(f"{solver_name} failed to find valid solution")
-                        except concurrent.futures.TimeoutError:
-                            logger.warning(f"{solver_name} timed out")
-                            future.cancel()
-                        except Exception as e:
-                            logger.error(f"Error in {solver_name}: {str(e)}")
-                        finally:
-                            # Ensure process is terminated
-                            if not future.done():
+            logger.info(f"Found {len(ga_solvers)} GA solvers and {len(other_solvers)} other solvers")
+            
+            # Run non-GA solvers first
+            if other_solvers:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                    try:
+                        # Submit all non-GA tasks
+                        future_to_solver = {
+                            executor.submit(self._run_solver, solver, initial_guess, bounds): solver.__class__.__name__
+                            for solver in other_solvers
+                        }
+                        
+                        # Process results as they complete
+                        for future in concurrent.futures.as_completed(future_to_solver.keys(), timeout=self.timeout):
+                            solver_name = future_to_solver[future]
+                            try:
+                                result = future.result(timeout=0)  # Non-blocking since future is done
+                                if result is not None:
+                                    results[solver_name] = result
+                                    logger.info(f"{solver_name} completed successfully")
+                                else:
+                                    logger.warning(f"{solver_name} failed to find valid solution")
+                            except concurrent.futures.TimeoutError:
+                                logger.warning(f"{solver_name} timed out")
                                 future.cancel()
-                                
-                except concurrent.futures.TimeoutError:
-                    logger.error(f"Global timeout reached after {self.timeout}s")
-                except Exception as e:
-                    logger.error(f"Error during parallel execution: {str(e)}")
-                finally:
-                    # Force shutdown of executor
-                    executor.shutdown(wait=False)
+                            except Exception as e:
+                                logger.error(f"Error in {solver_name}: {str(e)}")
+                            finally:
+                                # Ensure process is terminated
+                                if not future.done():
+                                    future.cancel()
+                                    
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"Global timeout reached after {self.timeout}s")
+                    except Exception as e:
+                        logger.error(f"Error during parallel execution: {str(e)}")
+                    finally:
+                        # Force shutdown of executor
+                        executor.shutdown(wait=False)
+            
+            # Run GA solvers with results from other solvers
+            if ga_solvers and results:
+                logger.info(f"Running GA solvers with bootstrapped solutions from {len(results)} other solvers")
+                with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                    try:
+                        # Submit all GA tasks with other solver results
+                        future_to_solver = {
+                            executor.submit(self._run_solver_with_results, solver, initial_guess, bounds, results): solver.__class__.__name__
+                            for solver in ga_solvers
+                        }
+                        
+                        # Process results as they complete
+                        for future in concurrent.futures.as_completed(future_to_solver.keys(), timeout=self.timeout):
+                            solver_name = future_to_solver[future]
+                            try:
+                                result = future.result(timeout=0)  # Non-blocking since future is done
+                                if result is not None:
+                                    results[solver_name] = result
+                                    logger.info(f"{solver_name} completed successfully")
+                                else:
+                                    logger.warning(f"{solver_name} failed to find valid solution")
+                            except concurrent.futures.TimeoutError:
+                                logger.warning(f"{solver_name} timed out")
+                                future.cancel()
+                            except Exception as e:
+                                logger.error(f"Error in {solver_name}: {str(e)}")
+                            finally:
+                                # Ensure process is terminated
+                                if not future.done():
+                                    future.cancel()
+                                    
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"Global timeout reached after {self.timeout}s")
+                    except Exception as e:
+                        logger.error(f"Error during parallel execution: {str(e)}")
+                    finally:
+                        # Force shutdown of executor
+                        executor.shutdown(wait=False)
+            elif ga_solvers:
+                # Run GA solvers without other solver results
+                logger.info("Running GA solvers without bootstrapped solutions")
+                with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                    try:
+                        # Submit all GA tasks without other solver results
+                        future_to_solver = {
+                            executor.submit(self._run_solver, solver, initial_guess, bounds): solver.__class__.__name__
+                            for solver in ga_solvers
+                        }
+                        
+                        # Process results as they complete
+                        for future in concurrent.futures.as_completed(future_to_solver.keys(), timeout=self.timeout):
+                            solver_name = future_to_solver[future]
+                            try:
+                                result = future.result(timeout=0)  # Non-blocking since future is done
+                                if result is not None:
+                                    results[solver_name] = result
+                                    logger.info(f"{solver_name} completed successfully")
+                                else:
+                                    logger.warning(f"{solver_name} failed to find valid solution")
+                            except concurrent.futures.TimeoutError:
+                                logger.warning(f"{solver_name} timed out")
+                                future.cancel()
+                            except Exception as e:
+                                logger.error(f"Error in {solver_name}: {str(e)}")
+                            finally:
+                                # Ensure process is terminated
+                                if not future.done():
+                                    future.cancel()
+                                    
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"Global timeout reached after {self.timeout}s")
+                    except Exception as e:
+                        logger.error(f"Error during parallel execution: {str(e)}")
+                    finally:
+                        # Force shutdown of executor
+                        executor.shutdown(wait=False)
                     
             # Log final summary
             elapsed = time.time() - start_time
@@ -105,6 +195,29 @@ class ParallelSolver:
             
             # Run solver and return results
             return solver.solve(initial_guess, bounds)
+        except Exception as e:
+            logger.error(f"Error in solver {solver.__class__.__name__}: {str(e)}")
+            return None
+            
+    def _run_solver_with_results(self, solver, initial_guess, bounds, other_solver_results):
+        """Run a solver with results from other solvers.
+        
+        Args:
+            solver: Solver instance
+            initial_guess: Initial solution vector
+            bounds: List of (min, max) bounds for each variable
+            other_solver_results: Dictionary of results from other solvers
+            
+        Returns:
+            dict: Solver results if successful, None otherwise
+        """
+        try:
+            # Set up process signal handlers
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            
+            # Run solver with other solver results
+            return solver.solve(initial_guess, bounds, other_solver_results)
         except Exception as e:
             logger.error(f"Error in solver {solver.__class__.__name__}: {str(e)}")
             return None

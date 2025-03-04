@@ -23,6 +23,9 @@ def enforce_stage_constraints(dv_array: np.ndarray,
 
     # Calculate total Delta-V
     total_dv = np.sum(dv_array)
+    # DEBUG prints/logs
+    logger.debug(f"dv_array={dv_array}, sum={np.sum(dv_array)}")
+    
     # If within tolerance, treat it as zero violation
     dv_violation_raw = abs(total_dv - total_dv_required)
     dv_violation = 0.0 if dv_violation_raw <= tolerance else dv_violation_raw
@@ -43,6 +46,9 @@ def enforce_stage_constraints(dv_array: np.ndarray,
         stage_fractions = dv_array / total_dv
     else:
         stage_fractions = np.zeros_like(dv_array)
+    
+    # DEBUG prints/logs
+    logger.debug(f"fractions={stage_fractions}")
 
     total_violation = dv_violation
 
@@ -131,9 +137,9 @@ def objective_with_penalty(dv: np.ndarray,
         # Combine all constraints into a single penalty. 
         # You can tune these scales so the solver doesn't get stuck:
         # For example, bigger penalty_scale => solver tries harder to fix constraint violations.
-        penalty_scale_phys = 1000.0
-        penalty_scale_dv   = 1000.0
-        penalty_scale_frac = 1000.0
+        penalty_scale_phys = 10
+        penalty_scale_dv   = 10
+        penalty_scale_frac = 10
 
         # Weighted sum of constraints
         # More sophisticated approaches might weight them differently, 
