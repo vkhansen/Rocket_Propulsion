@@ -23,9 +23,6 @@ class BaseGASolver(BaseSolver):
         self.population = None
         self.fitness_values = None
         self.n_stages = len(bounds)
-        # Store the best bootstrap solution
-        self.best_bootstrap_solution = None
-        self.best_bootstrap_fitness = float('-inf')
         
     def initialize_population(self, other_solver_results=None):
         """Initialize population with random solutions.
@@ -40,94 +37,33 @@ class BaseGASolver(BaseSolver):
             # Create initial population
             population = np.zeros((self.pop_size, self.n_stages))
             
-            # Determine how many solutions to bootstrap from other solvers
-            bootstrap_count = 0
-            bootstrap_solutions = []
+            # Process bootstrap solutions using the base class method
+            bootstrap_solutions = self.process_bootstrap_solutions(other_solver_results)
+            logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
             
-            if other_solver_results is not None:
-                # Handle both list and dictionary formats
-                if isinstance(other_solver_results, dict):
-                    # Convert dictionary to list format
-                    other_solver_results = [
-                        {"solver": solver, "solution": result.get("solution"), "fitness": result.get("fitness")}
-                        for solver, result in other_solver_results.items()
-                        if result.get("solution") is not None
-                    ]
-                
-                if len(other_solver_results) > 0:
-                    # Use at most 30% of the population for bootstrapping
-                    max_bootstrap = min(len(other_solver_results), max(self.pop_size // 3, 5))
-                    logger.info(f"Processing {len(other_solver_results)} bootstrap solutions, will use up to {max_bootstrap}")
+            # Determine how many solutions to use from bootstrap (up to 30% of population)
+            bootstrap_count = min(len(bootstrap_solutions), max(self.pop_size // 3, 5))
+            
+            # Add bootstrap solutions to population
+            for i in range(min(bootstrap_count, len(bootstrap_solutions))):
+                if i == 0 and len(bootstrap_solutions) > 0:
+                    # Keep the best solution exactly as is
+                    population[i] = bootstrap_solutions[0].copy()
+                    logger.info(f"Preserving best bootstrap solution exactly: {population[i]}")
+                else:
+                    # Add some noise to bootstrap solutions to increase diversity
+                    idx = np.random.randint(0, len(bootstrap_solutions))
+                    solution = bootstrap_solutions[idx].copy()
                     
-                    # Sort other solver results by fitness (best first)
-                    sorted_results = sorted(
-                        other_solver_results, 
-                        key=lambda x: float('inf') if not isinstance(x.get('fitness'), (int, float)) else x.get('fitness', float('inf'))
-                    )
+                    # Add small noise (0.5% variation)
+                    noise = np.random.uniform(-0.005, 0.005, self.n_stages)
+                    solution = solution * (1 + noise)
                     
-                    # Store the best bootstrap solution for preservation throughout generations
-                    if len(sorted_results) > 0:
-                        best_result = sorted_results[0]
-                        best_solution = best_result.get('solution')
-                        best_fitness = best_result.get('fitness', float('inf'))
-                        
-                        if best_solution is not None and len(best_solution) == self.n_stages and np.all(np.isfinite(best_solution)):
-                            # Store in both the GA solver instance and the base solver instance
-                            self.best_bootstrap_solution = best_solution.copy()
-                            self.best_bootstrap_fitness = best_fitness
-                            
-                            # Also update the base solver attributes for solution rejection
-                            self.best_bootstrap_solution = best_solution.copy()
-                            self.best_bootstrap_fitness = best_fitness
-                            
-                            logger.info(f"Stored best bootstrap solution from {best_result.get('solver_name', 'unknown')} "
-                                      f"with fitness {best_fitness}")
+                    # Ensure the solution is valid (sums to TOTAL_DELTA_V)
+                    solution = solution * (self.TOTAL_DELTA_V / np.sum(solution))
                     
-                    # Validate and collect bootstrap solutions
-                    for result in sorted_results:
-                        solution = result.get('solution')
-                        
-                        # Skip if solution is None or not the right length
-                        if solution is None or len(solution) != self.n_stages:
-                            logger.warning(f"Skipping invalid bootstrap solution: {solution}")
-                            continue
-                            
-                        # Ensure the solution has finite values
-                        if not np.all(np.isfinite(solution)):
-                            logger.warning(f"Skipping non-finite bootstrap solution: {solution}")
-                            continue
-                            
-                        # Check if any values are too small
-                        min_dv_threshold = 50.0  # 50 m/s minimum delta-v
-                        if np.any(solution < min_dv_threshold):
-                            logger.warning(f"Bootstrap solution has very small delta-v values: {solution}")
-                            # Project to feasible space to fix small values
-                            solution = self.project_to_feasible(solution)
-                            
-                        # Add to bootstrap solutions
-                        bootstrap_solutions.append(solution)
-                        
-                        # Stop if we have enough
-                        if len(bootstrap_solutions) >= max_bootstrap:
-                            break
-                    
-                    bootstrap_count = len(bootstrap_solutions)
-                    logger.info(f"Using {bootstrap_count} valid bootstrap solutions")
-                    
-                    # Add bootstrap solutions to population with small perturbations
-                    for i in range(bootstrap_count):
-                        # First, add the exact bootstrap solution without perturbation
-                        if i == 0:
-                            # Keep the best solution exactly as is
-                            population[i] = bootstrap_solutions[i].copy()
-                            logger.info(f"Preserving best bootstrap solution exactly: {population[i]}")
-                        else:
-                            # Add very small random perturbation to avoid duplicates
-                            # Reduced perturbation from 0.02 to 0.005 (0.5% variation)
-                            perturbation = np.random.normal(0, 0.005, self.n_stages)
-                            population[i] = bootstrap_solutions[i] * (1 + perturbation)
-                            # Project to feasible space
-                            population[i] = self.project_to_feasible(population[i])
+                    population[i] = solution
+                    logger.debug(f"Added bootstrap solution with noise to population[{i}]")
             
             # Generate remaining population using different methods for diversity
             remaining_count = self.pop_size - bootstrap_count

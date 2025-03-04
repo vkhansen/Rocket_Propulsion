@@ -198,13 +198,13 @@ class BaseSolver(ABC):
         """Check if a solution is worse than the best bootstrap solution.
         
         Args:
-            score: Objective value
+            score: Objective value (negative payload fraction, lower is better)
             is_feasible: Whether solution is feasible
             
         Returns:
             True if solution is worse than the best bootstrap solution
         """
-        # If we don't have a bootstrap solution, nothing to compare against
+        # If no bootstrap solution, nothing to compare against
         if self.best_bootstrap_solution is None:
             return False
             
@@ -212,10 +212,12 @@ class BaseSolver(ABC):
         if self.best_bootstrap_fitness < float('inf') and not is_feasible:
             return True
             
-        # If both are feasible, compare payload fractions (which is the negative of the score)
-        # Lower score means higher payload fraction, so a higher score is worse
+        # Compare payload fractions
+        # Score is negative payload fraction, so higher score means worse payload fraction
         if is_feasible and score > self.best_bootstrap_fitness:
-            logger.info(f"Rejecting solution with worse payload fraction: current={-score:.6f}, bootstrap={-self.best_bootstrap_fitness:.6f}")
+            current_payload_fraction = -score
+            bootstrap_payload_fraction = -self.best_bootstrap_fitness
+            logger.info(f"Rejecting solution with worse payload fraction: current={current_payload_fraction:.6f}, bootstrap={bootstrap_payload_fraction:.6f}")
             return True
             
         return False
@@ -226,7 +228,7 @@ class BaseSolver(ABC):
         
         Args:
             x: Solution vector
-            score: Objective value
+            score: Objective value (negative payload fraction, lower is better)
             is_feasible: Whether solution is feasible
             violation: Constraint violation measure
             
@@ -248,29 +250,40 @@ class BaseSolver(ABC):
             else:
                 self.n_infeasible += 1
             
-            # Update best feasible solution if this is feasible and better
+            # Calculate payload fraction for comparison (score is negative payload fraction)
+            current_payload_fraction = -score if is_feasible else -float('inf')
+            best_feasible_payload_fraction = -self.best_feasible_score if self.best_feasible is not None else -float('inf')
+            best_overall_payload_fraction = -self.best_fitness if self.best_solution is not None else -float('inf')
+            
+            # Update best feasible solution if this is feasible and has better payload fraction
             if is_feasible:
-                if score < self.best_feasible_score:
+                if self.best_feasible is None or current_payload_fraction > best_feasible_payload_fraction:
                     self.best_feasible = x.copy()
                     self.best_feasible_score = score
+                    logger.debug(f"New best feasible solution with payload fraction {current_payload_fraction:.6f}")
                     
                     # Also update best overall solution if this is the best feasible one
-                    if not hasattr(self, 'best_solution') or not hasattr(self, 'best_fitness') or \
-                       self.best_solution is None or not self.best_is_feasible or score < self.best_fitness:
+                    if self.best_solution is None or not self.best_is_feasible or current_payload_fraction > best_overall_payload_fraction:
                         self.best_solution = x.copy()
                         self.best_fitness = score
                         self.best_is_feasible = True
                         self.best_violation = violation
+                        logger.info(f"New best overall solution (feasible) with payload fraction {current_payload_fraction:.6f}")
                         return True
             
             # If we don't have a feasible solution yet, or this infeasible solution is better than our current best
-            if not hasattr(self, 'best_solution') or self.best_solution is None or \
+            if self.best_solution is None or \
                (not is_feasible and not self.best_is_feasible and score < self.best_fitness) or \
                (not self.best_is_feasible and is_feasible):
                 self.best_solution = x.copy()
                 self.best_fitness = score
                 self.best_is_feasible = is_feasible
                 self.best_violation = violation
+                
+                if is_feasible:
+                    logger.info(f"New best overall solution (feasible) with payload fraction {current_payload_fraction:.6f}")
+                else:
+                    logger.info(f"New best overall solution (infeasible) with score {score:.6f} and violation {violation:.6f}")
                 return True
                 
             return False
@@ -283,165 +296,126 @@ class BaseSolver(ABC):
         """Project solution to feasible space.
         
         Args:
-            x: Solution vector
+            x: Solution vector to project
             
         Returns:
             Projected solution
         """
         try:
-            # Ensure x is a 1D array of float64 for numerical stability
             x = np.asarray(x, dtype=np.float64).reshape(-1)
             
-            # Check for NaN or inf values and replace with reasonable values
-            if not np.all(np.isfinite(x)):
-                logger.warning(f"Non-finite values in solution: {x}")
-                # Replace non-finite values with bounds midpoints
-                for i in range(len(x)):
-                    if not np.isfinite(x[i]):
-                        lower, upper = self.bounds[i]
-                        x[i] = (lower + upper) / 2.0
+            # Ensure all values are positive
+            x = np.maximum(x, 1e-10)
             
-            # Apply bounds constraints first
-            for i, (lower, upper) in enumerate(self.bounds):
-                x[i] = np.clip(x[i], lower, upper)
+            # Ensure sum equals TOTAL_DELTA_V
+            x = x * (self.TOTAL_DELTA_V / np.sum(x))
             
-            # Ensure each stage has a minimum delta-v value for physics calculations
-            # Increased from 10.0 to 50.0 to avoid numerical issues
-            min_dv_value = 50.0  # 50 m/s minimum
+            # Apply stage fraction constraints from bounds
             for i in range(len(x)):
-                if x[i] < min_dv_value:
-                    x[i] = min_dv_value
+                lower, upper = self.bounds[i]
+                if x[i] < lower:
+                    x[i] = lower
+                elif x[i] > upper:
+                    x[i] = upper
             
-            # Get stage fraction constraints from config
-            stage_constraints = {}
-            first_stage_min = 0.15
-            first_stage_max = 0.80
-            other_stages_min = 0.15
-            other_stages_max = 0.90
-            
-            if self.config is not None:
-                constraints = self.config.get('constraints', {})
-                stage_fractions = constraints.get('stage_fractions', {})
-                
-                if stage_fractions:
-                    first_stage = stage_fractions.get('first_stage', {})
-                    other_stages = stage_fractions.get('other_stages', {})
-                    
-                    first_stage_min = first_stage.get('min_fraction', 0.15)
-                    first_stage_max = first_stage.get('max_fraction', 0.80)
-                    other_stages_min = other_stages.get('min_fraction', 0.15)
-                    other_stages_max = other_stages.get('max_fraction', 0.90)
-            
-            # Apply stage fraction constraints
-            total = np.sum(x)
-            
-            # First stage constraints
-            min_first = max(first_stage_min * self.TOTAL_DELTA_V, min_dv_value)
-            max_first = first_stage_max * self.TOTAL_DELTA_V
-            
-            # Enforce first stage constraints
-            if x[0] < min_first:
-                deficit = min_first - x[0]
-                x[0] = min_first
-                
-                # Distribute deficit proportionally from other stages
-                other_stages_total = np.sum(x[1:])
-                if other_stages_total > deficit * 1.1:  # Ensure we have enough to distribute
-                    scale_factor = (other_stages_total - deficit) / other_stages_total
-                    x[1:] *= scale_factor
-                else:
-                    # If other stages don't have enough, adjust total
-                    logger.warning(f"Cannot maintain exact total delta-v while enforcing first stage minimum")
-            
-            if x[0] > max_first:
-                excess = x[0] - max_first
-                x[0] = max_first
-                
-                # Distribute excess proportionally to other stages
-                x[1:] += excess * (x[1:] / np.sum(x[1:])) if np.sum(x[1:]) > 0 else excess / (len(x) - 1)
-            
-            # Other stages constraints
-            for i in range(1, len(x)):
-                min_other = max(other_stages_min * self.TOTAL_DELTA_V, min_dv_value)
-                max_other = other_stages_max * self.TOTAL_DELTA_V
-                
-                if x[i] < min_other:
-                    deficit = min_other - x[i]
-                    x[i] = min_other
-                    
-                    # Try to take from largest stage
-                    largest_idx = np.argmax(x)
-                    if largest_idx != i and x[largest_idx] > min_other * 1.1:
-                        x[largest_idx] -= deficit
-                    else:
-                        logger.warning(f"Cannot maintain exact total delta-v while enforcing stage {i+1} minimum")
-                
-                if x[i] > max_other:
-                    excess = x[i] - max_other
-                    x[i] = max_other
-                    
-                    # Distribute excess to other stages
-                    other_indices = [j for j in range(len(x)) if j != i]
-                    x[other_indices] += excess * (x[other_indices] / np.sum(x[other_indices])) if np.sum(x[other_indices]) > 0 else excess / (len(x) - 1)
-            
-            # Scale to match total delta-v after applying all constraints
-            total = np.sum(x)
-            if total > 0 and abs(total - self.TOTAL_DELTA_V) > 1e-10:
-                scale_factor = self.TOTAL_DELTA_V / total
-                x = x * scale_factor
-                
-                # Check if scaling violated any constraints and fix if needed
-                if x[0] < min_first:
-                    x[0] = min_first
-                elif x[0] > max_first:
-                    x[0] = max_first
-                    
-                for i in range(1, len(x)):
-                    if x[i] < min_other:
-                        x[i] = min_other
-                    elif x[i] > max_other:
-                        x[i] = max_other
-                
-                # Final adjustment to match total delta-v exactly
-                error = self.TOTAL_DELTA_V - np.sum(x)
-                if abs(error) > 1e-10:
-                    # Find stages that aren't at their limits
-                    non_limit_stages = []
-                    for i in range(len(x)):
-                        min_val = min_first if i == 0 else min_other
-                        max_val = max_first if i == 0 else max_other
-                        if x[i] > min_val * 1.01 and x[i] < max_val * 0.99:
-                            non_limit_stages.append(i)
-                    
-                    if non_limit_stages:
-                        # Distribute error to non-limit stages
-                        correction = error / len(non_limit_stages)
-                        for i in non_limit_stages:
-                            x[i] += correction
-                    else:
-                        # If all stages are at limits, adjust the largest one
-                        largest_idx = np.argmax(x)
-                        x[largest_idx] += error
-            
-            # Final validation - log warning if constraints are still violated
-            total = np.sum(x)
-            if abs(total - self.TOTAL_DELTA_V) > 1e-8:
-                logger.warning(f"After projection, total delta-v ({total}) differs from required ({self.TOTAL_DELTA_V})")
-            
-            if x[0] < min_first * 0.99 or x[0] > max_first * 1.01:
-                logger.warning(f"After projection, first stage ({x[0]}) violates constraints ({min_first}-{max_first})")
-            
-            for i in range(1, len(x)):
-                if x[i] < min_other * 0.99 or x[i] > max_other * 1.01:
-                    logger.warning(f"After projection, stage {i+1} ({x[i]}) violates constraints ({min_other}-{max_other})")
+            # Re-normalize to ensure sum equals TOTAL_DELTA_V after bounds are applied
+            x = x * (self.TOTAL_DELTA_V / np.sum(x))
             
             return x
             
         except Exception as e:
-            logger.error(f"Error in projection: {str(e)}")
-            # Fallback to equal distribution
-            return np.full(self.n_stages, self.TOTAL_DELTA_V / self.n_stages)
+            logger.error(f"Error projecting to feasible space: {str(e)}")
+            # Return original solution if error occurs
+            return x
             
+    def process_bootstrap_solutions(self, other_solver_results):
+        """Process bootstrap solutions from other solvers.
+        
+        This method extracts the best solution from other solvers for solution rejection.
+        
+        Args:
+            other_solver_results: Results from other solvers, can be dict or list format
+            
+        Returns:
+            List of valid bootstrap solutions
+        """
+        bootstrap_solutions = []
+        
+        if other_solver_results is None:
+            return bootstrap_solutions
+            
+        # Convert dictionary format to list format if needed
+        if isinstance(other_solver_results, dict):
+            solver_results_list = []
+            for solver_name, result in other_solver_results.items():
+                if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
+                    solver_results_list.append({
+                        'solver_name': solver_name,
+                        'solution': result['x'],
+                        'fitness': result.get('fitness', float('inf'))
+                    })
+            other_solver_results = solver_results_list
+        
+        # Find the best bootstrap solution based on payload fraction
+        best_solution = None
+        best_payload_fraction = -float('inf')  # Higher payload fraction is better
+        best_solver = "unknown"
+        
+        for result in other_solver_results:
+            if not isinstance(result, dict):
+                continue
+                
+            # Extract solution - handle different formats
+            solution = None
+            
+            if 'solution' in result:
+                solution = result['solution']
+                solver_name = result.get('solver_name', 'unknown')
+            elif 'x' in result:
+                solution = result['x']
+                solver_name = result.get('solver_name', 'unknown')
+                
+            # Skip invalid solutions
+            if solution is None or len(solution) != self.n_stages or not np.all(np.isfinite(solution)):
+                continue
+                
+            # Check if solution is feasible
+            is_feasible, _ = self.check_feasibility(solution)
+            if not is_feasible:
+                continue
+                
+            # Calculate payload fraction for comparison
+            try:
+                stage_ratios = calculate_stage_ratios(
+                    dv=solution,
+                    G0=self.G0,
+                    ISP=self.ISP,
+                    EPSILON=self.EPSILON
+                )
+                payload_fraction = calculate_payload_fraction(stage_ratios)
+                
+                # Update best bootstrap solution if it has better payload fraction
+                if payload_fraction > best_payload_fraction:
+                    best_solution = solution.copy()
+                    best_payload_fraction = payload_fraction
+                    best_solver = solver_name
+                    logger.debug(f"Found better bootstrap solution from {solver_name} with payload fraction {payload_fraction:.6f}")
+            except Exception as e:
+                logger.warning(f"Error calculating payload fraction for bootstrap solution: {e}")
+                continue
+                
+            # Add to bootstrap solutions
+            bootstrap_solutions.append(solution)
+        
+        # Store best bootstrap solution
+        if best_solution is not None:
+            self.best_bootstrap_solution = best_solution
+            # Store negative payload fraction as fitness (since optimization minimizes)
+            self.best_bootstrap_fitness = -best_payload_fraction
+            logger.info(f"Using best bootstrap solution from {best_solver} with payload fraction {best_payload_fraction:.6f}")
+            
+        return bootstrap_solutions
+        
     def iterative_projection(self, x: np.ndarray, max_iterations: int = 5) -> np.ndarray:
         """Apply projection iteratively to ensure constraints are met.
         
