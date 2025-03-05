@@ -4,6 +4,7 @@ import time
 from src.utils.config import logger
 from src.optimization.solvers.base_solver import BaseSolver
 from src.optimization.objective import objective_with_penalty
+from src.optimization.physics import calculate_stage_ratios, calculate_payload_fraction
 
 class BaseGASolver(BaseSolver):
     """Base genetic algorithm solver for stage optimization."""
@@ -41,19 +42,34 @@ class BaseGASolver(BaseSolver):
             bootstrap_solutions = self.process_bootstrap_solutions(other_solver_results)
             logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
             
+            # Validate bootstrap solutions for physics realism
+            valid_bootstrap_solutions = []
+            for solution in bootstrap_solutions:
+                is_valid, payload_fraction = self.validate_physics(solution)
+                if is_valid:
+                    valid_bootstrap_solutions.append((solution, payload_fraction))
+                else:
+                    logger.warning(f"Rejected bootstrap solution with invalid physics: {solution}")
+            
+            # Sort valid bootstrap solutions by payload fraction (descending)
+            valid_bootstrap_solutions.sort(key=lambda x: x[1], reverse=True)
+            valid_bootstrap = [sol for sol, _ in valid_bootstrap_solutions]
+            
+            logger.info(f"After physics validation: {len(valid_bootstrap)} valid bootstrap solutions")
+            
             # Determine how many solutions to use from bootstrap (up to 30% of population)
-            bootstrap_count = min(len(bootstrap_solutions), max(self.pop_size // 3, 5))
+            bootstrap_count = min(len(valid_bootstrap), max(self.pop_size // 3, 5))
             
             # Add bootstrap solutions to population
-            for i in range(min(bootstrap_count, len(bootstrap_solutions))):
-                if i == 0 and len(bootstrap_solutions) > 0:
+            for i in range(min(bootstrap_count, len(valid_bootstrap))):
+                if i == 0 and len(valid_bootstrap) > 0:
                     # Keep the best solution exactly as is
-                    population[i] = bootstrap_solutions[0].copy()
+                    population[i] = valid_bootstrap[0].copy()
                     logger.info(f"Preserving best bootstrap solution exactly: {population[i]}")
                 else:
                     # Add some noise to bootstrap solutions to increase diversity
-                    idx = np.random.randint(0, len(bootstrap_solutions))
-                    solution = bootstrap_solutions[idx].copy()
+                    idx = np.random.randint(0, len(valid_bootstrap))
+                    solution = valid_bootstrap[idx].copy()
                     
                     # Add small noise (0.5% variation)
                     noise = np.random.uniform(-0.005, 0.005, self.n_stages)
@@ -61,6 +77,12 @@ class BaseGASolver(BaseSolver):
                     
                     # Ensure the solution is valid (sums to TOTAL_DELTA_V)
                     solution = solution * (self.TOTAL_DELTA_V / np.sum(solution))
+                    
+                    # Validate physics after adding noise
+                    is_valid, _ = self.validate_physics(solution)
+                    if not is_valid:
+                        # If invalid after noise, use original
+                        solution = valid_bootstrap[idx].copy()
                     
                     population[i] = solution
                     logger.debug(f"Added bootstrap solution with noise to population[{i}]")
@@ -75,6 +97,20 @@ class BaseGASolver(BaseSolver):
                 if lhs_count > 0:
                     try:
                         lhs_population = self.initialize_population_lhs()[0:lhs_count]
+                        
+                        # Validate LHS solutions
+                        for j in range(lhs_count):
+                            is_valid, _ = self.validate_physics(lhs_population[j])
+                            if not is_valid:
+                                # Replace invalid solutions with a balanced one
+                                first_stage_dv = 0.4 * self.TOTAL_DELTA_V
+                                remaining_dv = self.TOTAL_DELTA_V - first_stage_dv
+                                other_stages_dv = remaining_dv / (self.n_stages - 1) if self.n_stages > 1 else 0
+                                
+                                lhs_population[j, 0] = first_stage_dv
+                                for k in range(1, self.n_stages):
+                                    lhs_population[j, k] = other_stages_dv
+                        
                         population[bootstrap_count:bootstrap_count+lhs_count] = lhs_population
                     except Exception as e:
                         logger.warning(f"Error using LHS sampling: {e}, falling back to uniform")
@@ -94,6 +130,19 @@ class BaseGASolver(BaseSolver):
             for i in range(self.pop_size):
                 # Ensure solution is feasible before evaluation
                 population[i] = self.project_to_feasible(population[i])
+                
+                # Validate physics one more time
+                is_valid, _ = self.validate_physics(population[i])
+                if not is_valid:
+                    # Replace with a balanced solution
+                    first_stage_dv = 0.4 * self.TOTAL_DELTA_V
+                    remaining_dv = self.TOTAL_DELTA_V - first_stage_dv
+                    other_stages_dv = remaining_dv / (self.n_stages - 1) if self.n_stages > 1 else 0
+                    
+                    population[i, 0] = first_stage_dv
+                    for k in range(1, self.n_stages):
+                        population[i, k] = other_stages_dv
+                
                 fitness[i] = self.evaluate(population[i])
                 feasibility[i], violations[i] = self.check_feasibility(population[i])
                 
@@ -150,8 +199,80 @@ class BaseGASolver(BaseSolver):
                 lower, upper = self.bounds[j]
                 population[i,j] = np.random.uniform(lower, upper)
             
+            # Ensure minimum delta-v for each stage
+            min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage
+            for j in range(self.n_stages):
+                if population[i,j] < min_dv_threshold:
+                    population[i,j] = min_dv_threshold
+            
             # Project to feasible space
             population[i] = self.project_to_feasible(population[i])
+            
+            # Validate physics
+            max_attempts = 10
+            attempt = 0
+            valid_physics = False
+            
+            while not valid_physics and attempt < max_attempts:
+                try:
+                    # Check if the solution produces valid physics
+                    stage_ratios, mass_ratios = calculate_stage_ratios(
+                        dv=population[i],
+                        G0=self.G0,
+                        ISP=self.ISP,
+                        EPSILON=self.EPSILON
+                    )
+                    
+                    # Verify no negative or invalid mass ratios
+                    if np.any(mass_ratios <= 0) or np.any(~np.isfinite(mass_ratios)):
+                        # Try again with a new random solution
+                        for j in range(self.n_stages):
+                            lower, upper = self.bounds[j]
+                            population[i,j] = np.random.uniform(lower, upper)
+                            if population[i,j] < min_dv_threshold:
+                                population[i,j] = min_dv_threshold
+                        population[i] = self.project_to_feasible(population[i])
+                        attempt += 1
+                        continue
+                        
+                    # Verify payload fraction is positive
+                    payload_fraction = calculate_payload_fraction(mass_ratios)
+                    if payload_fraction <= 0 or not np.isfinite(payload_fraction):
+                        # Try again with a new random solution
+                        for j in range(self.n_stages):
+                            lower, upper = self.bounds[j]
+                            population[i,j] = np.random.uniform(lower, upper)
+                            if population[i,j] < min_dv_threshold:
+                                population[i,j] = min_dv_threshold
+                        population[i] = self.project_to_feasible(population[i])
+                        attempt += 1
+                        continue
+                    
+                    # If we get here, the solution is valid
+                    valid_physics = True
+                    
+                except Exception as e:
+                    # Try again with a new random solution
+                    for j in range(self.n_stages):
+                        lower, upper = self.bounds[j]
+                        population[i,j] = np.random.uniform(lower, upper)
+                        if population[i,j] < min_dv_threshold:
+                            population[i,j] = min_dv_threshold
+                    population[i] = self.project_to_feasible(population[i])
+                    attempt += 1
+            
+            # If we couldn't generate a valid solution after max attempts,
+            # use a simple approach with balanced delta-v distribution
+            if not valid_physics:
+                logger.warning(f"Could not generate valid physics for individual {i} after {max_attempts} attempts")
+                # Create a balanced solution with first stage having 40% of delta-v and rest distributed evenly
+                first_stage_dv = 0.4 * self.TOTAL_DELTA_V
+                remaining_dv = self.TOTAL_DELTA_V - first_stage_dv
+                other_stages_dv = remaining_dv / (self.n_stages - 1) if self.n_stages > 1 else 0
+                
+                population[i,0] = first_stage_dv
+                for j in range(1, self.n_stages):
+                    population[i,j] = other_stages_dv
             
         return population
 
@@ -267,6 +388,25 @@ class BaseGASolver(BaseSolver):
             lower, upper = self.bounds[i]
             child[i] = np.clip(child[i], lower, upper)
         
+        # Physics-based validation: ensure minimum delta-v for each stage
+        min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage
+        for idx in range(self.n_stages):
+            if child[idx] < min_dv_threshold:
+                # Redistribute from other stages if this stage is too small
+                deficit = min_dv_threshold - child[idx]
+                child[idx] = min_dv_threshold
+                
+                # Find stages with enough delta-v to donate
+                donor_stages = [s for s in range(self.n_stages) if s != idx and child[s] > min_dv_threshold * 2]
+                if donor_stages:
+                    # Distribute deficit among donor stages
+                    per_stage_reduction = deficit / len(donor_stages)
+                    for donor in donor_stages:
+                        child[donor] -= per_stage_reduction
+                else:
+                    # If no suitable donors, try a different alpha value
+                    return self.crossover(parent1, parent2)
+        
         # High precision normalization
         total = np.sum(child)
         if total > 0:
@@ -279,6 +419,34 @@ class BaseGASolver(BaseSolver):
                 # Distribute any remaining error proportionally
                 adjustment = (self.TOTAL_DELTA_V - np.sum(child)) / self.n_stages
                 child += adjustment
+        
+        # Final physics validation
+        try:
+            # Check if the child solution produces valid physics
+            stage_ratios, mass_ratios = calculate_stage_ratios(
+                dv=child,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON
+            )
+            
+            # Verify no negative or invalid mass ratios
+            if np.any(mass_ratios <= 0) or np.any(~np.isfinite(mass_ratios)):
+                logger.debug(f"Crossover produced invalid mass ratios: {mass_ratios}")
+                # Try again with a different alpha
+                return self.crossover(parent1, parent2)
+                
+            # Verify payload fraction is positive
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            if payload_fraction <= 0 or not np.isfinite(payload_fraction):
+                logger.debug(f"Crossover produced invalid payload fraction: {payload_fraction}")
+                # Try again with a different alpha
+                return self.crossover(parent1, parent2)
+                
+        except Exception as e:
+            logger.debug(f"Physics validation failed during crossover: {str(e)}")
+            # Try again with a different alpha
+            return self.crossover(parent1, parent2)
         
         return child
 
@@ -299,6 +467,25 @@ class BaseGASolver(BaseSolver):
             lower, upper = self.bounds[idx]
             mutated[idx] = np.clip(mutated[idx], lower, upper)
         
+        # Physics-based validation: ensure minimum delta-v for each stage
+        min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage
+        for idx in range(self.n_stages):
+            if mutated[idx] < min_dv_threshold:
+                # Redistribute from other stages if this stage is too small
+                deficit = min_dv_threshold - mutated[idx]
+                mutated[idx] = min_dv_threshold
+                
+                # Find stages with enough delta-v to donate
+                donor_stages = [s for s in range(self.n_stages) if s != idx and mutated[s] > min_dv_threshold * 2]
+                if donor_stages:
+                    # Distribute deficit among donor stages
+                    per_stage_reduction = deficit / len(donor_stages)
+                    for donor in donor_stages:
+                        mutated[donor] -= per_stage_reduction
+                else:
+                    # If no suitable donors, revert to original solution and try again with smaller mutation
+                    return self.mutate(solution)
+        
         # High precision normalization
         total = np.sum(mutated)
         if total > 0:
@@ -311,6 +498,34 @@ class BaseGASolver(BaseSolver):
                 # Distribute any remaining error proportionally
                 adjustment = (self.TOTAL_DELTA_V - np.sum(mutated)) / self.n_stages
                 mutated += adjustment
+        
+        # Final physics validation
+        try:
+            # Check if the mutated solution produces valid physics
+            stage_ratios, mass_ratios = calculate_stage_ratios(
+                dv=mutated,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON
+            )
+            
+            # Verify no negative or invalid mass ratios
+            if np.any(mass_ratios <= 0) or np.any(~np.isfinite(mass_ratios)):
+                logger.debug(f"Mutation produced invalid mass ratios: {mass_ratios}")
+                # Try again with the original solution
+                return self.mutate(solution)
+                
+            # Verify payload fraction is positive
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            if payload_fraction <= 0 or not np.isfinite(payload_fraction):
+                logger.debug(f"Mutation produced invalid payload fraction: {payload_fraction}")
+                # Try again with the original solution
+                return self.mutate(solution)
+                
+        except Exception as e:
+            logger.debug(f"Physics validation failed during mutation: {str(e)}")
+            # Try again with the original solution
+            return self.mutate(solution)
         
         return mutated
 
@@ -438,6 +653,54 @@ class BaseGASolver(BaseSolver):
             logger.error(f"Error calculating diversity: {str(e)}")
             return 0.0
 
+    def validate_physics(self, solution):
+        """Validate that a solution produces physically realistic results.
+        
+        Args:
+            solution: Delta-v vector to validate
+            
+        Returns:
+            Tuple of (is_valid, payload_fraction)
+        """
+        try:
+            # Check for NaN or inf values
+            if not np.all(np.isfinite(solution)):
+                return False, 0.0
+                
+            # Check for minimum delta-v threshold
+            min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage
+            if np.any(solution < min_dv_threshold):
+                return False, 0.0
+                
+            # Calculate stage ratios and mass ratios
+            stage_ratios, mass_ratios = calculate_stage_ratios(
+                dv=solution,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON
+            )
+            
+            # Check for valid mass ratios
+            if np.any(mass_ratios <= 0) or np.any(~np.isfinite(mass_ratios)):
+                return False, 0.0
+                
+            # Calculate payload fraction
+            payload_fraction = calculate_payload_fraction(mass_ratios)
+            
+            # Check for valid payload fraction
+            if payload_fraction <= 0 or not np.isfinite(payload_fraction):
+                return False, 0.0
+                
+            # Check for unrealistically small payload fraction
+            if payload_fraction < 1e-6:  # Less than 0.0001% payload is unrealistic
+                return False, 0.0
+                
+            return True, payload_fraction
+            
+        except Exception as e:
+            logger.debug(f"Physics validation error: {str(e)}")
+            return False, 0.0
+
     def optimize(self):
         """Run genetic algorithm optimization."""
         try:
@@ -457,16 +720,13 @@ class BaseGASolver(BaseSolver):
                     # Check feasibility
                     is_feasible, violation = self.check_feasibility(gen_best_solution)
                     
-                    # Check if solution is worse than bootstrap solution
-                    if not self.is_worse_than_bootstrap(gen_best_fitness, is_feasible):
-                        if gen_best_fitness > self.best_fitness:
-                            self.best_fitness = gen_best_fitness
-                            self.best_solution = gen_best_solution.copy()
-                            
-                            # Also update the base solver's best solution
-                            self.update_best_solution(gen_best_solution, gen_best_fitness, is_feasible, violation)
-                    else:
-                        logger.info(f"Rejecting solution worse than bootstrap: score={gen_best_fitness:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}, feasible={is_feasible}")
+                    # Update best solution if better
+                    if gen_best_fitness > self.best_fitness:
+                        self.best_fitness = gen_best_fitness
+                        self.best_solution = gen_best_solution.copy()
+                        
+                        # Also update the base solver's best solution
+                        self.update_best_solution(gen_best_solution, gen_best_fitness, is_feasible, violation)
                     
                     # Calculate statistics
                     avg_fitness = np.mean(self.fitness_values)
@@ -532,16 +792,13 @@ class BaseGASolver(BaseSolver):
                     # Check feasibility
                     is_feasible, violation = self.check_feasibility(gen_best_solution)
                     
-                    # Check if solution is worse than bootstrap solution
-                    if not self.is_worse_than_bootstrap(gen_best_fitness, is_feasible):
-                        if gen_best_fitness > self.best_fitness:
-                            self.best_fitness = gen_best_fitness
-                            self.best_solution = gen_best_solution.copy()
-                            
-                            # Also update the base solver's best solution
-                            self.update_best_solution(gen_best_solution, gen_best_fitness, is_feasible, violation)
-                    else:
-                        logger.info(f"Rejecting solution worse than bootstrap: score={gen_best_fitness:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}, feasible={is_feasible}")
+                    # Update best solution if better
+                    if gen_best_fitness > self.best_fitness:
+                        self.best_fitness = gen_best_fitness
+                        self.best_solution = gen_best_solution.copy()
+                        
+                        # Also update the base solver's best solution
+                        self.update_best_solution(gen_best_solution, gen_best_fitness, is_feasible, violation)
                     
                     # Calculate statistics
                     avg_fitness = np.mean(self.fitness_values)
@@ -602,29 +859,3 @@ class BaseGASolver(BaseSolver):
                 n_function_evals=0,
                 time=0.0
             )
-
-    def is_worse_than_bootstrap(self, fitness, is_feasible):
-        """Check if a solution is worse than the best bootstrap solution.
-        
-        Args:
-            fitness: GA fitness value (negative of objective value)
-            is_feasible: Whether solution is feasible
-            
-        Returns:
-            True if solution is worse than the best bootstrap solution
-        """
-        if self.best_bootstrap_solution is None:
-            return False
-        
-        # If bootstrap solution is feasible but current solution is not, it's worse
-        if self.best_bootstrap_fitness > float('-inf') and not is_feasible:
-            return True
-        
-        # If both are feasible, compare payload fractions
-        # In GA, fitness is negative of objective, so higher fitness means higher payload fraction
-        # Therefore, if fitness is less than bootstrap fitness, it's worse
-        if is_feasible and fitness < self.best_bootstrap_fitness:
-            logger.info(f"Rejecting solution with worse payload fraction: current={-fitness:.6f}, bootstrap={-self.best_bootstrap_fitness:.6f}")
-            return True
-        
-        return False

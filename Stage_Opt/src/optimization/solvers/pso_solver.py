@@ -246,28 +246,37 @@ class ParticleSwarmOptimizer(BaseSolver):
                     # Check feasibility
                     is_feasible, violation = self.check_feasibility(positions[i])
                     
-                    # Check if solution is worse than bootstrap solution
-                    if self.is_worse_than_bootstrap(score, is_feasible):
-                        self.logger.info(f"Rejecting solution worse than bootstrap: score={score:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}, feasible={is_feasible}")
-                        continue
+                    # Compare with bootstrap solution if available
+                    if self.best_bootstrap_solution is not None and self.best_bootstrap_fitness is not None:
+                        # Only reject if significantly worse than bootstrap (allow some exploration)
+                        if is_feasible and score > self.best_bootstrap_fitness * 1.05:  # Allow up to 5% worse
+                            self.logger.debug(f"Solution is worse than bootstrap: score={score:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}")
+                            # Don't completely reject, but reduce influence by not updating personal best
+                        else:
+                            # Update personal best if better
+                            if score < p_best_scores[i]:
+                                p_best_pos[i] = positions[i].copy()
+                                p_best_scores[i] = score
+                                self.logger.debug(f"Updated personal best for particle {i}: {score:.6f}")
+                    else:
+                        # No bootstrap solution available, just update personal best if better
+                        if score < p_best_scores[i]:
+                            p_best_pos[i] = positions[i].copy()
+                            p_best_scores[i] = score
+                            self.logger.debug(f"Updated personal best for particle {i}: {score:.6f}")
                     
-                    # Update personal best
-                    if score < p_best_scores[i]:
-                        p_best_scores[i] = score
-                        p_best_pos[i] = positions[i].copy()
+                    # Update global best
+                    if score < g_best_score:
+                        self.logger.debug(f"New best solution found:")
+                        self.logger.debug(f"Old best: {g_best_pos} (score: {g_best_score:.6f})")
+                        self.logger.debug(f"New best: {positions[i]} (score: {score:.6f})")
+                        g_best_score = score
+                        g_best_pos = positions[i].copy()
+                        improved = True
+                        stall_count = 0
                         
-                        # Update global best
-                        if score < g_best_score:
-                            self.logger.debug(f"New best solution found:")
-                            self.logger.debug(f"Old best: {g_best_pos} (score: {g_best_score:.6f})")
-                            self.logger.debug(f"New best: {positions[i]} (score: {score:.6f})")
-                            g_best_score = score
-                            g_best_pos = positions[i].copy()
-                            improved = True
-                            stall_count = 0
-                            
-                            # Also update the base solver's best solution
-                            self.update_best_solution(positions[i], score, is_feasible, violation)
+                        # Also update the base solver's best solution
+                        self.update_best_solution(positions[i], score, is_feasible, violation)
                 
                 # Update velocities
                 for i in range(self.population_size):
