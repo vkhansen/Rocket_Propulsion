@@ -24,7 +24,10 @@ class BaseGASolver(BaseSolver):
         self.population = None
         self.fitness_values = None
         self.n_stages = len(bounds)
-        
+        # Ensure bootstrap solution is properly initialized
+        self.best_bootstrap_solution = None
+        self.best_bootstrap_fitness = float('-inf')
+
     def initialize_population(self, other_solver_results=None):
         """Initialize population with random individuals and bootstrap solutions.
         
