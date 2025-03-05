@@ -271,9 +271,21 @@ class BaseSolver(ABC):
             else:
                 logger.debug(f"No existing best solution, will accept current solution")
             
-            # Check if solution is worse than bootstrap solution
+            # First, check if solution is worse than bootstrap solution
+            # Note: We must do this first to prevent accepting solutions worse than bootstrap
             if self.is_worse_than_bootstrap(score, is_feasible):
                 logger.info(f"Rejected solution with payload fraction {current_payload_fraction:.6f} as it's worse than bootstrap solution")
+                # Always restore best bootstrap solution if we've lost our best solution quality
+                # This ensures we never lose the quality of the bootstrap solution
+                if self.best_solution is not None and self.best_bootstrap_solution is not None:
+                    bootstrap_payload_fraction = -self.best_bootstrap_fitness
+                    if bootstrap_payload_fraction > best_overall_payload_fraction:
+                        logger.warning(f"Current best solution ({best_overall_payload_fraction:.6f}) is worse than bootstrap ({bootstrap_payload_fraction:.6f}). Restoring bootstrap solution.")
+                        self.best_solution = self.best_bootstrap_solution.copy()
+                        self.best_fitness = self.best_bootstrap_fitness
+                        self.best_is_feasible = True
+                        self.best_violation = 0.0
+                        
                 return False
             
             # Update best feasible solution if this is feasible and has better payload fraction

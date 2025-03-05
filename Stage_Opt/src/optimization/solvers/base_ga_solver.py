@@ -663,14 +663,44 @@ class BaseGASolver(BaseSolver):
                     if i + 1 < len(population):
                         new_population[i + 1] = population[i + 1].copy()
             
-            # Always include the best bootstrap solution in the population
-            # This ensures it won't be lost during evolution
+            # Enhanced bootstrap solution preservation
+            # Always verify if we have a bootstrap solution and explicitly ensure it's in the population
             if self.best_bootstrap_solution is not None:
-                # Replace a random individual (not the first one which is the elite)
+                # First, ensure the bootstrap solution is properly tracked
+                bootstrap_is_feasible, _ = self.check_feasibility(self.best_bootstrap_solution)
+                if bootstrap_is_feasible:
+                    bootstrap_fitness = self.evaluate_solution(self.best_bootstrap_solution)
+                    
+                    # Evaluate new population to identify the worst individual
+                    new_fitness_values = self.evaluate_population(new_population)
+                    
+                    # Check if bootstrap solution is already in the new population
+                    bootstrap_in_population = False
+                    for i, individual in enumerate(new_population):
+                        if np.array_equal(individual, self.best_bootstrap_solution):
+                            bootstrap_in_population = True
+                            logger.debug(f"Bootstrap solution already exists in population at position {i}")
+                            break
+                    
+                    # If not already in population, replace the worst individual (except the elite at position 0)
+                    if not bootstrap_in_population:
+                        # Find worst individual starting from index 1 (preserve elite at index 0)
+                        if len(new_population) > 1:
+                            worst_indices = np.argsort(new_fitness_values)[:-1]  # Sort ascending, exclude the best
+                            for worst_idx in worst_indices:
+                                if worst_idx > 0:  # Skip the elite at position 0
+                                    # Replace worst with bootstrap solution
+                                    new_population[worst_idx] = self.best_bootstrap_solution.copy()
+                                    logger.info(f"Replaced worst individual at position {worst_idx} with bootstrap solution (fitness: {bootstrap_fitness:.6f})")
+                                    break
+            
+            # Randomly inject bootstrap solution one more time for diversity
+            # This additional random placement helps prevent the solution from being lost
+            if self.best_bootstrap_solution is not None and np.random.random() < 0.3:  # 30% chance
                 if len(population) > 1:
                     random_idx = np.random.randint(1, len(population))
                     new_population[random_idx] = self.best_bootstrap_solution.copy()
-                    logger.debug(f"Injected best bootstrap solution at position {random_idx}")
+                    logger.debug(f"Randomly injected bootstrap solution at position {random_idx} for diversity")
             
             return new_population
             
