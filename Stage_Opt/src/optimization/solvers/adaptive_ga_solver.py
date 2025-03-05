@@ -166,6 +166,17 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
             # Unpack the population result
             self.population, self.fitness_values, feasibility, violations = population_result
             
+            # Store the best bootstrap solution before optimization begins
+            original_bootstrap_solution = None
+            original_bootstrap_fitness = float('-inf')
+            original_bootstrap_payload = 0.0
+            
+            if self.best_bootstrap_solution is not None:
+                original_bootstrap_solution = self.best_bootstrap_solution.copy()
+                original_bootstrap_fitness = self.best_bootstrap_fitness
+                original_bootstrap_payload = -original_bootstrap_fitness
+                logger.info(f"Original bootstrap solution with payload fraction {original_bootstrap_payload:.6f} will be preserved")
+            
             # Main optimization loop
             for gen in range(self.n_gen):
                 try:
@@ -212,6 +223,21 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                         
                     self.population = new_population
                     
+                    # Verify after each generation that we haven't degraded below the bootstrap solution
+                    current_best_payload = -self.best_fitness if self.best_fitness != float('-inf') else 0
+                    
+                    # If we have a bootstrap solution and our current best is worse than it, restore the bootstrap
+                    if original_bootstrap_solution is not None and current_best_payload < original_bootstrap_payload:
+                        logger.warning(f"Current best payload fraction ({current_best_payload:.6f}) is worse than bootstrap ({original_bootstrap_payload:.6f}). Restoring bootstrap solution.")
+                        # Restore the bootstrap solution as our best
+                        self.best_solution = original_bootstrap_solution.copy()
+                        self.best_fitness = original_bootstrap_fitness
+                        self.best_is_feasible = True
+                        
+                    # Every 10 generations, log the current best payload fraction for monitoring
+                    if gen % 10 == 0:
+                        logger.info(f"Generation {gen} best payload fraction: {-self.best_fitness:.6f}")
+                    
                 except Exception as e:
                     logger.error(f"Error in generation {gen + 1}: {str(e)}")
                     if gen == 0:  # If error in first generation, abort
@@ -220,6 +246,16 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                     
             # Post-optimization feasibility enforcement
             logger.info("Optimization completed, checking solution feasibility...")
+            
+            # Final check to ensure we haven't degraded below the bootstrap solution
+            if original_bootstrap_solution is not None:
+                current_best_payload = -self.best_fitness if self.best_fitness != float('-inf') else 0
+                
+                if current_best_payload < original_bootstrap_payload:
+                    logger.warning(f"Final solution payload fraction ({current_best_payload:.6f}) is worse than bootstrap ({original_bootstrap_payload:.6f}). Restoring bootstrap solution.")
+                    self.best_solution = original_bootstrap_solution.copy()
+                    self.best_fitness = original_bootstrap_fitness
+                    self.best_is_feasible = True
             
             # Ensure we have a solution to work with
             if self.best_solution is None:
@@ -274,6 +310,13 @@ class AdaptiveGeneticAlgorithmSolver(BaseGASolver):
                     message = f"Solution violates constraints (violation={violation:.2e})"
             
             execution_time = time.time() - start_time
+            
+            # Final bootstrap solution comparison
+            if original_bootstrap_solution is not None:
+                final_best_payload = -self.best_fitness if self.best_fitness != float('-inf') else 0
+                logger.info(f"Final solution payload fraction: {final_best_payload:.6f}")
+                logger.info(f"Original bootstrap payload fraction: {original_bootstrap_payload:.6f}")
+                logger.info(f"Improvement over bootstrap: {((final_best_payload - original_bootstrap_payload) / original_bootstrap_payload) * 100:.2f}%")
             
             return self.process_results(
                 x=self.best_solution,

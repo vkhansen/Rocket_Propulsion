@@ -444,7 +444,11 @@ class BaseSolver(ABC):
                 if is_feasible and (best_bootstrap_solution is None or fitness > best_bootstrap_fitness):
                     best_bootstrap_solution = solution.copy()
                     best_bootstrap_fitness = fitness
-                    logger.info(f"New best bootstrap solution found with fitness {fitness:.6f}")
+                    logger.info(f"New best bootstrap solution found with fitness {fitness:.6f} (payload fraction: {-fitness:.6f})")
+                    
+                    # Calculate and log stage ratios for analysis
+                    stage_ratios = self.calculate_stage_ratios(solution)
+                    logger.info(f"Bootstrap solution stage ratios: {stage_ratios}")
                 
                 # Add original solution
                 processed_solutions.append(solution.copy())
@@ -461,7 +465,7 @@ class BaseSolver(ABC):
                     if is_perturbed_feasible and (best_bootstrap_solution is None or perturbed_fitness > best_bootstrap_fitness):
                         best_bootstrap_solution = perturbed.copy()
                         best_bootstrap_fitness = perturbed_fitness
-                        logger.info(f"New best bootstrap solution (perturbed) found with fitness {perturbed_fitness:.6f}")
+                        logger.info(f"New best bootstrap solution (perturbed) found with fitness {perturbed_fitness:.6f} (payload fraction: {-perturbed_fitness:.6f})")
                 
             except Exception as e:
                 logger.error(f"Error processing bootstrap solution: {str(e)}")
@@ -471,26 +475,21 @@ class BaseSolver(ABC):
             self.best_bootstrap_solution = best_bootstrap_solution.copy()
             self.best_bootstrap_fitness = best_bootstrap_fitness
             
+            # Convert to payload fraction for clearer logging (score is negative payload fraction)
+            payload_fraction = -best_bootstrap_fitness
+            logger.info(f"Best bootstrap solution payload fraction: {payload_fraction:.6f}")
+            
             # Also update best solution if it's better than current best
             if self.best_solution is None or best_bootstrap_fitness > self.best_fitness:
                 self.best_solution = best_bootstrap_solution.copy()
                 self.best_fitness = best_bootstrap_fitness
                 self.best_is_feasible = True
                 _, self.best_violation = self.check_feasibility(best_bootstrap_solution)
-                logger.info(f"Best bootstrap solution is better than current best, updating best solution")
+                logger.info(f"Updated best solution with bootstrap solution (payload fraction: {payload_fraction:.6f})")
                 
-            # Log detailed information about the best bootstrap solution
-            payload_fraction = -best_bootstrap_fitness  # Convert from negative to positive
-            logger.info(f"Best bootstrap solution has payload fraction: {payload_fraction:.6f}")
-            
-            # Calculate and log stage ratios for the best bootstrap solution
-            try:
-                stage_ratios = self.calculate_stage_ratios(best_bootstrap_solution)
-                logger.info(f"Best bootstrap solution stage ratios: {stage_ratios}")
-            except Exception as e:
-                logger.error(f"Error calculating stage ratios for best bootstrap: {str(e)}")
-        else:
-            logger.warning("No feasible bootstrap solutions found")
+            # Add multiple copies of the best bootstrap solution to increase its presence
+            for _ in range(3):  # Add 3 extra copies
+                processed_solutions.append(best_bootstrap_solution.copy())
         
         return processed_solutions
         
