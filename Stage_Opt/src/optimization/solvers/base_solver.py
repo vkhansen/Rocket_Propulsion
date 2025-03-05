@@ -528,8 +528,7 @@ class BaseSolver(ABC):
             Array of stage ratios
         """
         try:
-            from ...physics.rocket_equations import calculate_stage_ratios
-            
+            # Use the imported calculate_stage_ratios function
             stage_ratios, _ = calculate_stage_ratios(
                 dv=x,
                 G0=self.G0,

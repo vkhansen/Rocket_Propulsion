@@ -1,10 +1,10 @@
 """Base genetic algorithm solver implementation."""
 import numpy as np
 import time
-from src.utils.config import logger
-from src.optimization.solvers.base_solver import BaseSolver
-from src.optimization.objective import objective_with_penalty
-from src.optimization.physics import calculate_stage_ratios, calculate_payload_fraction
+from ...utils.config import logger
+from .base_solver import BaseSolver
+from ..objective import objective_with_penalty
+from ..physics import calculate_stage_ratios, calculate_payload_fraction
 
 class BaseGASolver(BaseSolver):
     """Base genetic algorithm solver for stage optimization."""
@@ -710,7 +710,7 @@ class BaseGASolver(BaseSolver):
                 return False, 0.0
                 
             # Check for minimum delta-v threshold
-            min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage
+            min_dv_threshold = 200.0  # 200 m/s minimum delta-v per stage
             if np.any(solution < min_dv_threshold):
                 return False, 0.0
             

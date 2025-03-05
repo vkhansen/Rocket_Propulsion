@@ -141,8 +141,8 @@ class DifferentialEvolutionSolver(BaseSolver):
         for j in range(self.n_stages):
             mutant[j] += F_scaled[j] * (b[j] - c[j])
         
-        # Enforce minimum delta-v value for each stage (increased from 10.0 to 50.0)
-        min_dv_value = 50.0  # 50 m/s minimum to avoid very small stages
+        # Enforce minimum delta-v value for each stage (increased from 50.0 to 200.0)
+        min_dv_value = 200.0  # 200 m/s minimum to avoid very small stages
         for j in range(self.n_stages):
             if mutant[j] < min_dv_value:
                 mutant[j] = min_dv_value
