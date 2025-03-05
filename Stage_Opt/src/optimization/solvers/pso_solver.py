@@ -113,7 +113,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         """Initialize particle swarm with positions and velocities.
         
         Args:
-            other_solver_results: Optional dictionary of solutions from other solvers
+            other_solver_results: Optional list of solutions from other solvers
             
         Returns:
             Tuple of (positions, velocities) arrays
@@ -270,7 +270,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) bounds for each variable
-            other_solver_results: Optional dictionary of solutions from other solvers
+            other_solver_results: Optional list of solutions from other solvers
             
         Returns:
             Dictionary containing optimization results

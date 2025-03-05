@@ -672,14 +672,14 @@ class BaseSolver(ABC):
         
     @abstractmethod
     def solve(self, initial_guess, bounds, other_solver_results=None):
-        """Solve optimization problem.
+        """Base solve method to be implemented by subclasses.
         
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) bounds for each variable
-            other_solver_results: Optional dictionary of solutions from other solvers
+            other_solver_results: Optional list of solutions from other solvers
             
         Returns:
             Dictionary containing optimization results
         """
-        pass
+        raise NotImplementedError("Subclasses must implement solve method")

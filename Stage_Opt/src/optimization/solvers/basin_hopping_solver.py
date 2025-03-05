@@ -95,12 +95,12 @@ class BasinHoppingOptimizer(BaseSolver):
         )
         
     def solve(self, initial_guess, bounds, other_solver_results=None):
-        """Solve using Basin Hopping optimization.
+        """Solve the optimization problem using Basin Hopping.
         
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) bounds for each variable
-            other_solver_results: Optional dictionary of solutions from other solvers
+            other_solver_results: Optional list of solutions from other solvers
             
         Returns:
             Dictionary containing optimization results
@@ -109,31 +109,26 @@ class BasinHoppingOptimizer(BaseSolver):
             logger.info("Starting Basin Hopping optimization...")
             start_time = time.time()
             
-            # Generate feasible initial guess
-            x0 = self.generate_initial_guess()
-            
-            # If we have results from other solvers, use the best one as initial guess
-            if other_solver_results is not None and len(other_solver_results) > 0:
-                logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping")
-                best_fitness = float('inf')
-                best_solution = None
+            # Ensure we have valid bounds and initial guess
+            if bounds is None:
+                bounds = self.bounds
                 
-                for solver_name, result in other_solver_results.items():
-                    if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == len(bounds):
-                        solution = result['x']
-                        payload_fraction = result.get('payload_fraction', 0)
-                        fitness = -payload_fraction if payload_fraction else float('inf')
-                        
-                        if fitness < best_fitness:
-                            best_fitness = fitness
-                            best_solution = solution
-                            logger.info(f"Using solution from {solver_name} as initial guess: {solution}")
+            if initial_guess is None:
+                # Try to use bootstrap solutions if available
+                if other_solver_results is not None and len(other_solver_results) > 0:
+                    logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping")
+                    
+                    # Use the first valid solution as initial guess
+                    for solution in other_solver_results:
+                        if np.all(np.isfinite(solution)) and len(solution) == len(bounds):
+                            initial_guess = solution.copy()
+                            logger.info(f"Using bootstrap solution as initial guess: {initial_guess}")
+                            break
                 
-                if best_solution is not None:
-                    x0 = best_solution.copy()
-                    logger.info(f"Using bootstrapped solution with fitness {best_fitness:.6f}")
-                else:
-                    logger.info("No valid solutions from other solvers, using generated initial guess")
+                # If still no initial guess, generate a balanced one
+                if initial_guess is None:
+                    initial_guess = self.generate_balanced_initial_guess(bounds)
+                    logger.info(f"Generated balanced initial guess: {initial_guess}")
             
             minimizer_kwargs = {
                 'method': 'L-BFGS-B',
@@ -144,7 +139,7 @@ class BasinHoppingOptimizer(BaseSolver):
             
             result = basinhopping(
                 self.objective,
-                x0=x0,
+                x0=initial_guess,
                 minimizer_kwargs=minimizer_kwargs,
                 niter=self.niter,
                 T=self.T,
