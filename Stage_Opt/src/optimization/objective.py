@@ -130,7 +130,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
         
         # Check for zero or negative values which would cause physics issues
         # We need a minimum delta-v for each stage to avoid physics calculation issues
-        min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage (increased from 10.0)
+        min_dv_threshold = 200.0  # Increased from 50.0 to 200.0 m/s minimum delta-v per stage
         if np.any(dv < min_dv_threshold) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
             logger.warning(f"Invalid physics parameters: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
             if return_tuple:
@@ -150,11 +150,29 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
                 
             # Calculate lambda (stage ratio) and mu (mass ratio)
             lambda_values = 1.0 / exp_terms
-            mu_values = 1.0 / (lambda_values * (1.0 - EPSILON) + EPSILON)
             
-            # Check for invalid mu values
-            if np.any(~np.isfinite(mu_values)) or np.any(mu_values <= 0):
-                logger.warning(f"Invalid mu values: {mu_values}")
+            # Additional check for lambda values
+            if np.any(lambda_values >= 1.0):
+                logger.warning(f"Invalid lambda values (must be < 1.0): {lambda_values}")
+                if return_tuple:
+                    return (float('inf'), dv_constraint, float('inf'))
+                return float('inf')
+            
+            # Calculate mu values with additional validation
+            denominator = lambda_values * (1.0 - EPSILON) + EPSILON
+            
+            # Check for near-zero denominators
+            if np.any(denominator < 1e-10):
+                logger.warning(f"Near-zero denominator in mu calculation: {denominator}")
+                if return_tuple:
+                    return (float('inf'), dv_constraint, float('inf'))
+                return float('inf')
+                
+            mu_values = 1.0 / denominator
+            
+            # Check for invalid mu values (must be > 1.0 for physical meaning)
+            if np.any(~np.isfinite(mu_values)) or np.any(mu_values <= 1.0):
+                logger.warning(f"Invalid mu values (must be > 1.0): {mu_values}")
                 if return_tuple:
                     return (float('inf'), dv_constraint, float('inf'))
                 return float('inf')
@@ -199,7 +217,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
             if return_tuple:
                 return (float('inf'), dv_constraint, float('inf'))
             return float('inf')
-        
+            
     except Exception as e:
         logger.error(f"Error in objective function: {str(e)}")
         if return_tuple:

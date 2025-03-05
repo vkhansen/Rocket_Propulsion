@@ -194,6 +194,28 @@ class BaseSolver(ABC):
             logger.error(f"Error checking feasibility: {str(e)}")
             return False, 1e6
             
+    def evaluate_solution_with_details(self, x: np.ndarray) -> tuple:
+        """Evaluate a solution and return detailed information.
+        
+        Args:
+            x: Solution vector
+            
+        Returns:
+            Tuple of (fitness, is_feasible, violation)
+        """
+        try:
+            # Check feasibility
+            is_feasible, violation = self.check_feasibility(x)
+            
+            # Calculate objective value
+            fitness = self.evaluate_solution(x)
+            
+            return fitness, is_feasible, violation
+            
+        except Exception as e:
+            logger.error(f"Error evaluating solution with details: {str(e)}")
+            return float('-inf'), False, float('inf')
+            
     def update_best_solution(self, x: np.ndarray, score: float, 
                            is_feasible: bool, violation: float) -> bool:
         """Update best solution if improvement found.
@@ -249,6 +271,11 @@ class BaseSolver(ABC):
             else:
                 logger.debug(f"No existing best solution, will accept current solution")
             
+            # Check if solution is worse than bootstrap solution
+            if self.is_worse_than_bootstrap(score, is_feasible):
+                logger.info(f"Rejected solution with payload fraction {current_payload_fraction:.6f} as it's worse than bootstrap solution")
+                return False
+            
             # Update best feasible solution if this is feasible and has better payload fraction
             if is_feasible:
                 if self.best_feasible is None or current_payload_fraction > best_feasible_payload_fraction:
@@ -286,6 +313,33 @@ class BaseSolver(ABC):
             logger.error(f"Error updating best solution: {str(e)}")
             return False
             
+    def is_worse_than_bootstrap(self, score: float, is_feasible: bool) -> bool:
+        """Check if a solution is worse than the best bootstrap solution.
+        
+        Args:
+            score: Objective value (negative payload fraction, lower is better)
+            is_feasible: Whether solution is feasible
+            
+        Returns:
+            True if solution is worse than bootstrap, False otherwise
+        """
+        # If we don't have a bootstrap solution, nothing can be worse than it
+        if self.best_bootstrap_solution is None:
+            return False
+            
+        # Calculate payload fraction for comparison (score is negative payload fraction)
+        current_payload_fraction = -score if is_feasible else -float('inf')
+        bootstrap_payload_fraction = -self.best_bootstrap_fitness
+        
+        # Only feasible solutions can be compared properly
+        if is_feasible:
+            # If the current payload fraction is worse than the bootstrap
+            if current_payload_fraction < bootstrap_payload_fraction:
+                logger.debug(f"Solution rejected: payload fraction {current_payload_fraction:.6f} is worse than bootstrap {bootstrap_payload_fraction:.6f}")
+                return True
+        
+        return False
+            
     def project_to_feasible(self, x: np.ndarray) -> np.ndarray:
         """Project solution to feasible space.
         
@@ -322,142 +376,111 @@ class BaseSolver(ABC):
             # Return original solution if error occurs
             return x
             
-    def process_bootstrap_solutions(self, other_solver_results):
-        """Process bootstrap solutions from other solvers.
-        
-        This method extracts the best solution from other solvers for solution rejection.
-        It also creates perturbed versions of bootstrap solutions to improve exploration.
+    def perturb_solution(self, solution, scale=0.1):
+        """Create a perturbed version of a solution for exploration.
         
         Args:
-            other_solver_results: Results from other solvers, can be dict or list format
+            solution: Original solution to perturb
+            scale: Scale of perturbation (relative to solution range)
             
         Returns:
-            List of valid bootstrap solutions including perturbed variants
+            Perturbed solution
         """
-        bootstrap_solutions = []
-        
-        if other_solver_results is None:
-            return bootstrap_solutions
+        try:
+            # Generate random perturbation
+            perturbation = np.random.uniform(-scale, scale, len(solution))
+            perturbed = solution * (1 + perturbation)
             
-        # Convert dictionary format to list format if needed
-        if isinstance(other_solver_results, dict):
-            solver_results_list = []
-            for solver_name, result in other_solver_results.items():
-                if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
-                    solver_results_list.append({
-                        'solver_name': solver_name,
-                        'solution': result['x'],
-                        'fitness': result.get('fitness', float('inf'))
-                    })
-            other_solver_results = solver_results_list
-        
-        # Find the best bootstrap solution based on payload fraction
-        best_solution = None
-        best_payload_fraction = -float('inf')  # Higher payload fraction is better
-        best_solver = "unknown"
-        
-        # Collect valid solutions
-        valid_solutions = []
-        
-        for result in other_solver_results:
-            if not isinstance(result, dict):
-                continue
-                
-            # Extract solution - handle different formats
-            solution = None
+            # Ensure the solution still sums to TOTAL_DELTA_V
+            perturbed = perturbed * (self.TOTAL_DELTA_V / np.sum(perturbed))
             
-            if 'solution' in result:
-                solution = result['solution']
-                solver_name = result.get('solver_name', 'unknown')
-            elif 'x' in result:
-                solution = result['x']
-                solver_name = result.get('solver_name', 'unknown')
-                
-            # Skip invalid solutions
-            if solution is None or len(solution) != self.n_stages or not np.all(np.isfinite(solution)):
-                continue
-                
-            # Check if solution is feasible
-            is_feasible, _ = self.check_feasibility(solution)
-            if not is_feasible:
-                continue
-                
-            # Calculate payload fraction for comparison
+            # Project to feasible space to ensure all constraints are met
+            perturbed = self.project_to_feasible(perturbed)
+            
+            return perturbed
+            
+        except Exception as e:
+            logger.error(f"Error perturbing solution: {str(e)}")
+            return solution.copy()  # Return original solution if error occurs
+            
+    def process_bootstrap_solutions(self, bootstrap_solutions, n_perturbed=5, perturbation_scale=0.1):
+        """Process bootstrap solutions from other solvers.
+        
+        Args:
+            bootstrap_solutions: List of solutions from other solvers
+            n_perturbed: Number of perturbed versions to generate for each bootstrap solution
+            perturbation_scale: Scale of perturbation (relative to solution range)
+            
+        Returns:
+            List of processed bootstrap solutions
+        """
+        if not bootstrap_solutions:
+            logger.warning("No bootstrap solutions provided")
+            return []
+            
+        processed_solutions = []
+        best_bootstrap_fitness = float('-inf')
+        best_bootstrap_solution = None
+        
+        # First, evaluate all bootstrap solutions to find the best one
+        for solution in bootstrap_solutions:
             try:
-                stage_ratios, mass_ratios = calculate_stage_ratios(
-                    dv=solution,
-                    G0=self.G0,
-                    ISP=self.ISP,
-                    EPSILON=self.EPSILON
-                )
-                payload_fraction = calculate_payload_fraction(mass_ratios)
+                # Evaluate the solution
+                fitness, is_feasible, violation = self.evaluate_solution_with_details(solution)
                 
-                # Update best bootstrap solution if it has better payload fraction
-                if payload_fraction > best_payload_fraction:
-                    best_solution = solution.copy()
-                    best_payload_fraction = payload_fraction
-                    best_solver = solver_name
-                    logger.debug(f"Found better bootstrap solution from {solver_name} with payload fraction {payload_fraction:.6f}")
+                # Track the best bootstrap solution
+                if is_feasible and (best_bootstrap_solution is None or fitness > best_bootstrap_fitness):
+                    best_bootstrap_solution = solution.copy()
+                    best_bootstrap_fitness = fitness
+                    logger.info(f"New best bootstrap solution found with fitness {fitness:.6f}")
                 
-                # Add to valid solutions list with payload fraction info
-                valid_solutions.append({
-                    'solution': solution.copy(),
-                    'payload_fraction': payload_fraction,
-                    'solver_name': solver_name
-                })
+                # Add original solution
+                processed_solutions.append(solution.copy())
+                
+                # Generate perturbed versions
+                for _ in range(n_perturbed):
+                    perturbed = self.perturb_solution(solution, scale=perturbation_scale)
+                    processed_solutions.append(perturbed)
+                    
+                    # Also evaluate the perturbed solution
+                    perturbed_fitness, is_perturbed_feasible, _ = self.evaluate_solution_with_details(perturbed)
+                    
+                    # Check if this perturbed solution is better than our best bootstrap
+                    if is_perturbed_feasible and (best_bootstrap_solution is None or perturbed_fitness > best_bootstrap_fitness):
+                        best_bootstrap_solution = perturbed.copy()
+                        best_bootstrap_fitness = perturbed_fitness
+                        logger.info(f"New best bootstrap solution (perturbed) found with fitness {perturbed_fitness:.6f}")
                 
             except Exception as e:
-                logger.warning(f"Error calculating payload fraction for bootstrap solution: {e}")
-                continue
+                logger.error(f"Error processing bootstrap solution: {str(e)}")
         
-        # Sort valid solutions by payload fraction (best first)
-        valid_solutions.sort(key=lambda x: -x['payload_fraction'])  # Negative for descending order
-        
-        # Add original solutions to bootstrap solutions
-        for sol_info in valid_solutions:
-            bootstrap_solutions.append(sol_info['solution'])
-            logger.debug(f"Added bootstrap solution from {sol_info['solver_name']} with payload fraction {sol_info['payload_fraction']:.6f}")
-        
-        # Generate perturbed versions of the best solutions
-        if valid_solutions:
-            # Use at most the top 3 solutions for perturbation
-            top_solutions = valid_solutions[:min(3, len(valid_solutions))]
+        # Store the best bootstrap solution
+        if best_bootstrap_solution is not None:
+            self.best_bootstrap_solution = best_bootstrap_solution.copy()
+            self.best_bootstrap_fitness = best_bootstrap_fitness
             
-            # Create multiple perturbed versions with different perturbation levels
-            perturbation_levels = [0.01, 0.03, 0.05, 0.10]  # 1%, 3%, 5%, 10% perturbation
-            
-            for sol_info in top_solutions:
-                original_solution = sol_info['solution']
-                original_pf = sol_info['payload_fraction']
+            # Also update best solution if it's better than current best
+            if self.best_solution is None or best_bootstrap_fitness > self.best_fitness:
+                self.best_solution = best_bootstrap_solution.copy()
+                self.best_fitness = best_bootstrap_fitness
+                self.best_is_feasible = True
+                _, self.best_violation = self.check_feasibility(best_bootstrap_solution)
+                logger.info(f"Best bootstrap solution is better than current best, updating best solution")
                 
-                for level in perturbation_levels:
-                    # Create multiple perturbed versions at each level
-                    for i in range(2):  # 2 variants per level
-                        # Generate random perturbation
-                        perturbation = np.random.uniform(-level, level, self.n_stages)
-                        perturbed_solution = original_solution * (1 + perturbation)
-                        
-                        # Ensure the solution still sums to TOTAL_DELTA_V
-                        perturbed_solution = perturbed_solution * (self.TOTAL_DELTA_V / np.sum(perturbed_solution))
-                        
-                        # Project to feasible space to ensure all constraints are met
-                        perturbed_solution = self.project_to_feasible(perturbed_solution)
-                        
-                        # Check if the perturbed solution is feasible
-                        is_feasible, _ = self.check_feasibility(perturbed_solution)
-                        if is_feasible:
-                            bootstrap_solutions.append(perturbed_solution)
-                            logger.debug(f"Added perturbed bootstrap solution (level={level:.2f}) based on solution with PF={original_pf:.6f}")
-        
-        # Store best bootstrap solution
-        if best_solution is not None:
-            self.best_bootstrap_solution = best_solution
-            # Store negative payload fraction as fitness (since optimization minimizes)
-            self.best_bootstrap_fitness = -best_payload_fraction
-            logger.info(f"Using best bootstrap solution from {best_solver} with payload fraction {best_payload_fraction:.6f}")
-            logger.info(f"Generated {len(bootstrap_solutions)} bootstrap solutions including perturbed variants")
+            # Log detailed information about the best bootstrap solution
+            payload_fraction = -best_bootstrap_fitness  # Convert from negative to positive
+            logger.info(f"Best bootstrap solution has payload fraction: {payload_fraction:.6f}")
             
-        return bootstrap_solutions
+            # Calculate and log stage ratios for the best bootstrap solution
+            try:
+                stage_ratios = self.calculate_stage_ratios(best_bootstrap_solution)
+                logger.info(f"Best bootstrap solution stage ratios: {stage_ratios}")
+            except Exception as e:
+                logger.error(f"Error calculating stage ratios for best bootstrap: {str(e)}")
+        else:
+            logger.warning("No feasible bootstrap solutions found")
+        
+        return processed_solutions
         
     def iterative_projection(self, x: np.ndarray, max_iterations: int = 5) -> np.ndarray:
         """Apply projection iteratively to ensure constraints are met.
@@ -494,6 +517,31 @@ class BaseSolver(ABC):
             logger.error(f"Error in iterative projection: {str(e)}")
             # Fallback to single projection
             return self.project_to_feasible(x)
+            
+    def calculate_stage_ratios(self, x: np.ndarray) -> np.ndarray:
+        """Calculate stage ratios for a solution.
+        
+        Args:
+            x: Solution vector (delta-v per stage)
+            
+        Returns:
+            Array of stage ratios
+        """
+        try:
+            from ...physics.rocket_equations import calculate_stage_ratios
+            
+            stage_ratios, _ = calculate_stage_ratios(
+                dv=x,
+                G0=self.G0,
+                ISP=self.ISP,
+                EPSILON=self.EPSILON
+            )
+            
+            return stage_ratios
+            
+        except Exception as e:
+            logger.error(f"Error calculating stage ratios: {str(e)}")
+            return np.zeros_like(x)
             
     def initialize_population_lhs(self) -> np.ndarray:
         """Initialize population using Latin Hypercube Sampling."""
