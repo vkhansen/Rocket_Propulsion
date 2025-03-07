@@ -344,9 +344,29 @@ class GeneticAlgorithmSolver(BaseGASolver):
             if bounds is not None:
                 self.bounds = bounds
                 
+            # Validate other_solver_results
+            if other_solver_results is not None and not isinstance(other_solver_results, list):
+                logger.warning(f"Invalid other_solver_results format: {type(other_solver_results)}, expected list. Using None instead.")
+                other_solver_results = None
+            elif other_solver_results is not None and len(other_solver_results) == 0:
+                logger.warning("Empty other_solver_results list provided. Using None instead.")
+                other_solver_results = None
+                
             # Initialize population
             logger.info(f"Initializing population of size {self.pop_size}")
             population, fitness, feasibility, violations = self.initialize_population(other_solver_results)
+            
+            # Check if population initialization failed
+            if population is None or len(population) == 0:
+                logger.error("Failed to initialize population")
+                return self.process_results(
+                    x=initial_guess if initial_guess is not None else np.zeros(len(self.bounds)),
+                    success=False,
+                    message='Failed to initialize population',
+                    n_iterations=0,
+                    n_function_evals=0,
+                    time=time.time() - start_time
+                )
             
             # Initialize best solution tracking
             self.best_solution = None

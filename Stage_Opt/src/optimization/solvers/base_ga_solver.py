@@ -40,7 +40,7 @@ class BaseGASolver(BaseSolver):
         try:
             # Process bootstrap solutions if available
             bootstrap_solutions = []
-            if other_solver_results is not None:
+            if other_solver_results is not None and len(other_solver_results) > 0:
                 bootstrap_solutions = self.process_bootstrap_solutions(
                     other_solver_results,
                     n_perturbed=min(5, max(1, self.pop_size // 10)),  # Scale with population size
@@ -154,7 +154,40 @@ class BaseGASolver(BaseSolver):
             
         except Exception as e:
             logger.error(f"Error initializing population: {str(e)}")
-            return None, None, None, None
+            # Create a fallback population with safe defaults
+            fallback_pop_size = max(10, self.pop_size // 2)  # Use a smaller size for fallback
+            fallback_population = np.zeros((fallback_pop_size, self.n_stages))
+            
+            # Create a balanced solution for each individual
+            for i in range(fallback_pop_size):
+                # Distribute delta-v evenly with small variations
+                base_dv = self.TOTAL_DELTA_V / self.n_stages
+                for j in range(self.n_stages):
+                    # Add small random variations (±10%)
+                    fallback_population[i, j] = base_dv * np.random.uniform(0.9, 1.1)
+                
+                # Ensure constraint satisfaction
+                fallback_population[i] = self.project_to_feasible(fallback_population[i])
+            
+            # Initialize arrays for evaluation results
+            fallback_fitness = np.zeros(fallback_pop_size)
+            fallback_feasibility = np.zeros(fallback_pop_size, dtype=bool)
+            fallback_violations = np.zeros(fallback_pop_size)
+            
+            # Evaluate fallback population
+            for i in range(fallback_pop_size):
+                try:
+                    fallback_fitness[i] = self.evaluate(fallback_population[i])
+                    fallback_feasibility[i], fallback_violations[i] = self.check_feasibility(fallback_population[i])
+                except Exception:
+                    # If evaluation fails, use worst possible values
+                    fallback_fitness[i] = float('inf')
+                    fallback_feasibility[i] = False
+                    fallback_violations[i] = float('inf')
+            
+            logger.warning(f"Using fallback population with {fallback_pop_size} individuals")
+            self.population = fallback_population
+            return fallback_population, fallback_fitness, fallback_feasibility, fallback_violations
 
     def _generate_random_population(self, size):
         """Generate a random population of given size.

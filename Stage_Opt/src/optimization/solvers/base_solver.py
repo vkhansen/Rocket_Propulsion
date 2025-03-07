@@ -426,8 +426,8 @@ class BaseSolver(ABC):
         Returns:
             List of processed bootstrap solutions
         """
-        if not bootstrap_solutions:
-            logger.warning("No bootstrap solutions provided")
+        if not bootstrap_solutions or not isinstance(bootstrap_solutions, list) or len(bootstrap_solutions) == 0:
+            logger.warning("No bootstrap solutions provided or invalid format")
             return []
             
         processed_solutions = []
