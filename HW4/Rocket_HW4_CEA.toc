@@ -8,4 +8,4 @@
 \contentsline {subsection}{\numberline {2.6}6. Tips}{5}{subsection.2.6}%
 \contentsline {section}{\numberline {3}Due Date}{5}{section.3}%
 \contentsline {section}{\numberline {4}Grading Criteria}{5}{section.4}%
-\contentsline {section}{\numberline {5}References}{5}{section.5}%
+\contentsline {section}{\numberline {5}References}{6}{section.5}%

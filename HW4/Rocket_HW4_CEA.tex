@@ -119,36 +119,71 @@ h,cal/g=-500.0    e C 2 H 5 N 1 O 2
         \item Exit pressure and temperature for each area ratio
     \end{itemize}
     \item Compare your calculated thrust ($F = \dot{m} \cdot V_e$, where $\dot{m}$ is mass flow rate) to the real rocket's reported thrust. Estimate $\dot{m}$ if not provided, using $I_{sp}$ and total impulse or burn time if available.
+    \item Alternatively, determine the nozzle throat area and calculate the mass flow rate through the nozzle using the choked flow relation:
+    \begin{equation}
+        \dot{m} = A^* \sqrt{\gamma \rho_0 P_0 \left( \frac{2}{\gamma+1} \right)^{\frac{\gamma+1}{\gamma-1}}}
+    \end{equation}
+    where $A^*$ is the throat area, $P_0$ is the stagnation pressure, $\rho_0$ is the stagnation density, and $\gamma$ is the ratio of specific heats. These parameters can be extracted from your CEA output for the mixture conditions at the throat.
 \end{itemize}
 
 \subsection{5. Deliverables}
 \begin{itemize}
     \item Submit a report (2-3 pages) including:
     \begin{itemize}
-        \item A brief description of your chosen rocket engine and its known parameters (with sources cited)
-        \item Your CEA input files both input case .inp and output .out files (properly formatted and commented)
-        \item Key results from the CEA output (e.g., $I_{sp}$, $C_f$, $V_e$, thrust) for your specified conditions
-        \item A comparison of your CEA-predicted thrust to the real rocket's thrust. Discuss any discrepancies and possible reasons (e.g., real vs. ideal chemistry, finite combustor effects)
-        \item Answers to the following questions:
+        \item \textbf{Engineering Presentation Standards:}
+        \begin{itemize}
+            \item Prioritize data visualization over text: use tables, charts, and graphs
+            \item Include properly labeled axes, units, and error bars where applicable
+            \item Follow engineering precision standards in all numerical presentations
+            \item Remember: a well-designed figure is worth 1000 words of explanation
+        \end{itemize}
+        
+        \item A brief description of your chosen rocket engine with key parameters presented in a table format (with sources cited)
+        
+        \item Your CEA input files (both .inp and .out) with clear formatting and comments
+        
+        \item Key results visualized through:
+        \begin{itemize}
+            \item Comparative tables of $I_{sp}$, $C_f$, $V_e$, and thrust values
+            \item Plots showing parameter relationships (e.g., O/F ratio vs. performance)
+            \item Jupyter notebooks or similar tools for data processing (if used)
+        \end{itemize}
+        
+        \item A quantitative comparison of CEA-predicted thrust to actual thrust, with:
+        \begin{itemize}
+            \item Percentage differences clearly calculated
+            \item Error analysis with potential sources identified
+            \item Visual representation of discrepancies
+        \end{itemize}
+        
+        \item Analysis of the following (using data visualization where possible):
         \begin{enumerate}
-            \item How does the O/F ratio affect the rocket's performance in your model?
-            \item What is the optimum O/F ratio for this set of propellants?
-            \item How does the choice of propellant combination affect:
+            \item O/F ratio effects on performance (show with plots)
+            \item Optimum O/F ratio determination (with supporting data)
+            \item Propellant combination effects on:
             \begin{itemize}
                 \item Flame temperature
                 \item Molecular weight of combustion products
                 \item Specific impulse
             \end{itemize}
-            \item What assumptions did you make, and how might they impact accuracy?
-            \item Discuss three factors that CEA ignores that would affect actual engine performance:
+            \item Key assumptions and quantified impact on accuracy
+            \item Three factors CEA ignores that affect actual engine performance:
             \begin{itemize}
                 \item Finite-rate chemistry
                 \item Nozzle boundary layers
                 \item Heat transfer losses
             \end{itemize}
-            \item Based on your propellant combination, identify two handling safety concerns and how they influence storage tank design.
-            \item Any additional relevant discussions related to how this type of rocket would be used, for example as an in-space thruster only.
+            \item Propellant handling safety concerns and storage tank design implications
+            \item Additional relevant considerations for this rocket type
         \end{enumerate}
+    \end{itemize}
+    
+    \item \textbf{Note:} This is an engineering analysis, not a creative writing exercise. Prioritize:
+    \begin{itemize}
+        \item Concise, precise technical communication
+        \item Quantitative data over qualitative descriptions
+        \item Professional-quality visualizations
+        \item "Less is more" - focus on clarity and precision
     \end{itemize}
 \end{itemize}
 
