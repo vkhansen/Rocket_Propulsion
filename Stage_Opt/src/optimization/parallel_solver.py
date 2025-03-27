@@ -85,19 +85,12 @@ class ParallelSolver:
             other_solver_results = []
             for solver_name, result in results.items():
                 if result.get('success', False) and result.get('solution') is not None:
-                    other_solver_results.append({
-                        'solver_name': solver_name,
-                        'solution': result['solution'],
-                        'fitness': result.get('fitness', float('inf'))
-                    })
+                    # Store just the solution array
+                    other_solver_results.append(result['solution'])
             
-            # Sort bootstrap solutions by fitness (best first)
-            other_solver_results.sort(key=lambda x: x['fitness'])
-            
-            # Log the best bootstrap solutions
+            # Log the best bootstrap solutions if available
             if other_solver_results:
-                logger.info(f"Best bootstrap solution from {other_solver_results[0]['solver_name']} with fitness {other_solver_results[0]['fitness']}")
-                logger.info(f"Solution vector: {other_solver_results[0]['solution']}")
+                logger.info(f"Prepared {len(other_solver_results)} bootstrap solutions")
             
             # Run all population-based solvers with bootstrapped solutions
             for solver_group in [ga_solvers, de_solvers, pso_solvers]:
@@ -107,22 +100,16 @@ class ParallelSolver:
                         logger.info(f"Running {solver_name} with {len(other_solver_results)} bootstrapped solutions...")
                         
                         # Make a copy of bootstrap solutions to avoid modifying the original
-                        bootstrap_solutions = [result.copy() for result in other_solver_results]
+                        bootstrap_solutions = [solution.copy() for solution in other_solver_results]
                         
                         # Add current solver's best solutions to bootstrap if available
                         for solver_name_existing, result_existing in results.items():
                             if solver_name_existing in [s.__class__.__name__ for s in solver_group]:
                                 if result_existing.get('success', False) and result_existing.get('solution') is not None:
-                                    bootstrap_solutions.append({
-                                        'solver_name': solver_name_existing,
-                                        'solution': result_existing['solution'],
-                                        'fitness': result_existing.get('fitness', float('inf'))
-                                    })
+                                    # Add just the solution array
+                                    bootstrap_solutions.append(result_existing['solution'])
                         
-                        # Sort bootstrap solutions again after adding from current solver group
-                        bootstrap_solutions.sort(key=lambda x: x['fitness'])
-                        
-                        # Run the solver with enhanced bootstrap solutions
+                        # Run the solver with bootstrap solutions
                         result = solver.solve(initial_guess, bounds, other_solver_results=bootstrap_solutions)
                         
                         # Check if the solution is valid - either success flag is True or there are valid stages

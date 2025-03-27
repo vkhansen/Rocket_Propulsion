@@ -79,8 +79,16 @@ def payload_fraction_objective(dv: np.ndarray,
                                EPSILON: np.ndarray) -> float:
     """Calculate the objective value (negative payload fraction)."""
     try:
+        # Log inputs for debugging
+        logger.debug(f"payload_fraction_objective inputs: dv={dv}, G0={G0}")
+        logger.debug(f"ISP={ISP}, EPSILON={EPSILON}")
+        
         stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
+        logger.debug(f"Calculated stage_ratios={stage_ratios}, mass_ratios={mass_ratios}")
+        
         payload_fraction = calculate_payload_fraction(mass_ratios)
+        logger.debug(f"Calculated payload_fraction={payload_fraction}")
+        
         if payload_fraction <= 0:
             # Hard reject
             logger.warning(f"Rejecting solution with nonphysical payload fraction: {payload_fraction}")
@@ -122,37 +130,34 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
         
         # Check for zero or negative values which would cause physics issues
         # We need a minimum delta-v for each stage to avoid physics calculation issues
-        min_dv_threshold = 50.0  # 50 m/s minimum delta-v per stage (increased from 10.0)
+        min_dv_threshold = 200.0  # Increased from 50.0 to 200.0 m/s minimum delta-v per stage
         if np.any(dv < min_dv_threshold) or np.any(ISP <= 0) or np.any(EPSILON <= 0) or np.any(EPSILON >= 1):
             logger.warning(f"Invalid physics parameters: dv={dv}, ISP={ISP}, EPSILON={EPSILON}")
             if return_tuple:
                 return (float('inf'), dv_constraint, float('inf'))
             return float('inf')
         
-        # Calculate mass ratios for each stage
+        # Use the physics module functions to calculate stage ratios, mass ratios, and payload fraction
         try:
-            exp_terms = np.exp(dv / (ISP * G0))
+            # Calculate stage ratios and mass ratios using the physics module
+            stage_ratios, mass_ratios = calculate_stage_ratios(dv, G0, ISP, EPSILON)
             
-            # Check for numerical overflow
-            if np.any(~np.isfinite(exp_terms)):
-                logger.warning(f"Numerical overflow in exp_terms: {exp_terms}")
-                if return_tuple:
-                    return (float('inf'), dv_constraint, float('inf'))
-                return float('inf')
-                
-            # Calculate lambda (stage ratio) and mu (mass ratio)
-            lambda_values = 1.0 / exp_terms
-            mu_values = 1.0 / (lambda_values * (1.0 - EPSILON) + EPSILON)
-            
-            # Check for invalid mu values
-            if np.any(~np.isfinite(mu_values)) or np.any(mu_values <= 0):
-                logger.warning(f"Invalid mu values: {mu_values}")
+            # Check for valid stage ratios
+            if np.any(stage_ratios >= 1.0) or np.any(~np.isfinite(stage_ratios)):
+                logger.warning(f"Invalid stage ratios (must be < 1.0): {stage_ratios}")
                 if return_tuple:
                     return (float('inf'), dv_constraint, float('inf'))
                 return float('inf')
             
-            # Calculate payload fraction (product of 1/mu)
-            payload_fraction = np.prod(1.0 / mu_values)
+            # Check for valid mass ratios
+            if np.any(mass_ratios <= 0.0) or np.any(~np.isfinite(mass_ratios)):
+                logger.warning(f"Invalid mass ratios (must be > 0.0): {mass_ratios}")
+                if return_tuple:
+                    return (float('inf'), dv_constraint, float('inf'))
+                return float('inf')
+            
+            # Calculate payload fraction using the physics module
+            payload_fraction = calculate_payload_fraction(mass_ratios)
             
             # Check for invalid payload fraction
             if not np.isfinite(payload_fraction) or payload_fraction <= 0:
@@ -173,9 +178,8 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
                 logger.debug(f"Calculation details:")
                 logger.debug(f"  dv = {dv}")
                 logger.debug(f"  stage_fractions = {stage_fractions}")
-                logger.debug(f"  exp_terms = {exp_terms}")
-                logger.debug(f"  lambda = {lambda_values}")
-                logger.debug(f"  mu = {mu_values}")
+                logger.debug(f"  stage_ratios = {stage_ratios}")
+                logger.debug(f"  mass_ratios = {mass_ratios}")
                 logger.debug(f"  payload_fraction = {payload_fraction}")
                 logger.debug(f"  objective = {objective}")
                 logger.debug(f"  dv_constraint = {dv_constraint}")
@@ -191,7 +195,7 @@ def objective_with_penalty(dv, G0, ISP, EPSILON, TOTAL_DELTA_V, penalty_coeffici
             if return_tuple:
                 return (float('inf'), dv_constraint, float('inf'))
             return float('inf')
-        
+            
     except Exception as e:
         logger.error(f"Error in objective function: {str(e)}")
         if return_tuple:

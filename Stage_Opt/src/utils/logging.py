@@ -1,13 +1,14 @@
 """Logging utilities for the optimization system."""
 
 import logging
-import logging.handlers
+import sys
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 import time
 
+# Keeping these classes for backward compatibility, but they won't be used in console-only mode
 class ThreadSafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
     """A thread-safe version of RotatingFileHandler."""
     
@@ -68,59 +69,33 @@ class AsyncHandler(logging.Handler):
         self.queue.queue.put(record)
 
 def setup_logging(name, log_dir="logs"):
-    """Set up logging with both file and console output.
+    """Set up logging with console output only for improved performance.
     
     Args:
         name: Logger name (usually module or class name)
-        log_dir: Directory to store log files
+        log_dir: Directory to store log files (not used with console-only logging)
         
     Returns:
         logging.Logger: Configured logger instance
     """
-    # Create logs directory if it doesn't exist
-    os.makedirs(log_dir, exist_ok=True)
-    
     # Create logger
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)  # Changed from DEBUG to INFO for performance
     
     # Remove any existing handlers
     logger.handlers = []
     
-    # Create formatters
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # Create console formatter - simplified for better readability
     console_formatter = logging.Formatter(
-        '%(levelname)s - %(message)s'
+        f'[{name}] %(levelname)s - %(message)s'
     )
     
-    # Create and configure handlers
-    # File handler (thread-safe with rotation)
-    file_handler = ThreadSafeRotatingFileHandler(
-        filename=os.path.join(log_dir, f"{name}.log"),
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(file_formatter)
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
+    # Console handler only
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
     
-    # Create async queue for high-volume logging
-    async_queue = AsyncLogQueue()
-    
-    # Create async handler for debug logs
-    async_handler = AsyncHandler(async_queue)
-    async_handler.setLevel(logging.DEBUG)
-    async_handler.setFormatter(file_formatter)
-    
-    # Add handlers to logger
-    logger.addHandler(file_handler)
+    # Add handler to logger
     logger.addHandler(console_handler)
-    logger.addHandler(async_handler)
     
     return logger

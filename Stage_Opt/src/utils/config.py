@@ -3,7 +3,6 @@ import os
 import json
 import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 # Constants
@@ -25,10 +24,7 @@ def load_config():
         return {}
 
 def setup_logging(solver_name=None):
-    """Set up logging configuration with multiple handlers and formats."""
-    # Create output directory if it doesn't exist
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
+    """Set up logging configuration with console output only for improved performance."""
     # Create unique logger for this solver instance
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if solver_name:
@@ -42,47 +38,26 @@ def setup_logging(solver_name=None):
     if not logger.handlers:
         logger.setLevel(logging.INFO)
         
-        # Create log file name
-        log_file = os.path.join(OUTPUT_DIR, f"{log_name}_{timestamp}.log")
-        
-        # File handler
-        fh = logging.FileHandler(log_file)
-        fh.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
+        # Console handler only
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
         
     return logger
 
 # Initialize logging
 logger = setup_logging()
-logger.setLevel(logging.DEBUG)  # Capture all levels
+logger.setLevel(logging.INFO)  # Changed from DEBUG to INFO to reduce verbosity
 
 # Console handler - for basic output
+# This is the only handler we'll use for performance reasons
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 console_formatter = logging.Formatter('%(levelname)s - %(message)s')
 console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
-
-# Debug file handler - for detailed debug information
-# Use a process-specific debug log file to avoid conflicts in multiprocessing
-pid = os.getpid()
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-debug_log_path = os.path.join(OUTPUT_DIR, f"debug_{pid}_{timestamp}.log")
-debug_handler = logging.FileHandler(debug_log_path, mode='w')
-debug_handler.setLevel(logging.DEBUG)
-detailed_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
-debug_handler.setFormatter(detailed_formatter)
-logger.addHandler(debug_handler)
-
-# Error file handler - for warnings and errors
-# Use a process-specific error log file to avoid conflicts in multiprocessing
-error_log_path = os.path.join(OUTPUT_DIR, f"error_{pid}_{timestamp}.log")
-error_handler = logging.FileHandler(error_log_path, mode='w')
-error_handler.setLevel(logging.WARNING)
-error_handler.setFormatter(detailed_formatter)
-logger.addHandler(error_handler)
 
 # Default configuration
 CONFIG = {

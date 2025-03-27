@@ -21,11 +21,99 @@ class ParticleSwarmOptimizer(BaseSolver):
         self.c1 = float(c1)  # Cognitive parameter
         self.c2 = float(c2)  # Social parameter
         
+    def process_bootstrap_solutions(self, bootstrap_solutions, n_perturbed=5, perturbation_scale=0.1):
+        """Process bootstrap solutions from other solvers.
+        
+        Args:
+            bootstrap_solutions: List of solutions from other solvers
+            n_perturbed: Number of perturbed versions to generate for each bootstrap solution
+            perturbation_scale: Scale of perturbation (relative to solution range)
+            
+        Returns:
+            List of processed bootstrap solutions
+        """
+        if not bootstrap_solutions:
+            self.logger.warning("No bootstrap solutions provided")
+            return []
+            
+        processed_solutions = []
+        best_bootstrap_fitness = float('-inf')
+        best_bootstrap_solution = None
+        
+        # First, evaluate all bootstrap solutions to find the best one
+        for solution_data in bootstrap_solutions:
+            try:
+                # Extract the solution array from the dictionary if it's a dictionary
+                if isinstance(solution_data, dict) and 'solution' in solution_data:
+                    solution = solution_data['solution']
+                else:
+                    solution = solution_data
+                    
+                # Ensure solution is a numpy array
+                solution = np.asarray(solution, dtype=np.float64)
+                
+                # Evaluate the solution
+                fitness, is_feasible, violation = self.evaluate_solution_with_details(solution)
+                
+                # Track the best bootstrap solution
+                if is_feasible and (best_bootstrap_solution is None or fitness > best_bootstrap_fitness):
+                    best_bootstrap_solution = solution.copy()
+                    best_bootstrap_fitness = fitness
+                    self.logger.info(f"New best bootstrap solution found with fitness {fitness:.6f}")
+                
+                # Add original solution
+                processed_solutions.append(solution.copy())
+                
+                # Generate perturbed versions
+                for _ in range(n_perturbed):
+                    perturbed = self.perturb_solution(solution, scale=perturbation_scale)
+                    processed_solutions.append(perturbed)
+                    
+                    # Also evaluate the perturbed solution
+                    perturbed_fitness, is_perturbed_feasible, _ = self.evaluate_solution_with_details(perturbed)
+                    
+                    # Check if this perturbed solution is better than our best bootstrap
+                    if is_perturbed_feasible and (best_bootstrap_solution is None or perturbed_fitness > best_bootstrap_fitness):
+                        best_bootstrap_solution = perturbed.copy()
+                        best_bootstrap_fitness = perturbed_fitness
+                        self.logger.info(f"New best bootstrap solution (perturbed) found with fitness {perturbed_fitness:.6f}")
+                
+            except Exception as e:
+                self.logger.error(f"Error processing bootstrap solution: {str(e)}")
+        
+        # Store the best bootstrap solution
+        if best_bootstrap_solution is not None:
+            self.best_bootstrap_solution = best_bootstrap_solution.copy()
+            self.best_bootstrap_fitness = best_bootstrap_fitness
+            
+            # Also update best solution if it's better than current best
+            if self.best_solution is None or best_bootstrap_fitness > self.best_fitness:
+                self.best_solution = best_bootstrap_solution.copy()
+                self.best_fitness = best_bootstrap_fitness
+                self.best_is_feasible = True
+                _, self.best_violation = self.check_feasibility(best_bootstrap_solution)
+                self.logger.info(f"Best bootstrap solution is better than current best, updating best solution")
+                
+            # Log detailed information about the best bootstrap solution
+            payload_fraction = -best_bootstrap_fitness  # Convert from negative to positive
+            self.logger.info(f"Best bootstrap solution has payload fraction: {payload_fraction:.6f}")
+            
+            # Calculate and log stage ratios for the best bootstrap solution
+            try:
+                stage_ratios = self.calculate_stage_ratios(best_bootstrap_solution)
+                self.logger.info(f"Best bootstrap solution stage ratios: {stage_ratios}")
+            except Exception as e:
+                self.logger.error(f"Error calculating stage ratios for best bootstrap: {str(e)}")
+        else:
+            self.logger.warning("No feasible bootstrap solutions found")
+        
+        return processed_solutions
+
     def initialize_swarm(self, other_solver_results=None):
         """Initialize particle swarm with positions and velocities.
         
         Args:
-            other_solver_results: Optional dictionary of solutions from other solvers
+            other_solver_results: Optional list of solutions from other solvers
             
         Returns:
             Tuple of (positions, velocities) arrays
@@ -41,32 +129,15 @@ class ParticleSwarmOptimizer(BaseSolver):
         min_stage_fraction = 0.5 / self.n_stages  # Reduced from 1.0/n_stages
         max_retries = 100  # Prevent infinite loops
         
+        # Minimum delta-v value for each stage (increased from 50.0 to 200.0)
+        min_dv_value = 200.0  # 200 m/s minimum to avoid very small stages
+        
         self.logger.debug(f"Using min_stage_fraction={min_stage_fraction:.4f} for {self.n_stages} stages")
+        self.logger.debug(f"Using min_dv_value={min_dv_value:.1f} m/s for each stage")
         
-        # Check if we have solutions from other solvers to bootstrap
-        bootstrap_solutions = []
-        
-        # Handle both dictionary format and list format for other_solver_results
-        if other_solver_results is not None:
-            if isinstance(other_solver_results, dict):
-                # Handle dictionary format (key: solver_name, value: result dict)
-                self.logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping (dict format)")
-                for solver_name, result in other_solver_results.items():
-                    if 'x' in result and np.all(np.isfinite(result['x'])) and len(result['x']) == self.n_stages:
-                        bootstrap_solutions.append(result['x'])
-                        self.logger.debug(f"Added bootstrap solution from {solver_name}: {result['x']}")
-            elif isinstance(other_solver_results, list):
-                # Handle list format (list of dicts with 'solution' key)
-                self.logger.info(f"Found {len(other_solver_results)} other solver results for bootstrapping (list format)")
-                for result in other_solver_results:
-                    if isinstance(result, dict) and 'solution' in result:
-                        solution = result['solution']
-                        if np.all(np.isfinite(solution)) and len(solution) == self.n_stages:
-                            bootstrap_solutions.append(solution)
-                            solver_name = result.get('solver_name', 'unknown')
-                            self.logger.debug(f"Added bootstrap solution from {solver_name}: {solution}")
-            
-            self.logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
+        # Process bootstrap solutions using the base class method
+        bootstrap_solutions = self.process_bootstrap_solutions(other_solver_results)
+        self.logger.info(f"Using {len(bootstrap_solutions)} valid bootstrap solutions")
         
         # Determine how many particles to initialize from bootstrap solutions
         n_bootstrap = min(len(bootstrap_solutions), self.population_size // 3)
@@ -75,8 +146,16 @@ class ParticleSwarmOptimizer(BaseSolver):
         for i in range(n_bootstrap):
             if i == 0 and len(bootstrap_solutions) > 0:
                 # Keep the best solution exactly as is without any noise
-                best_solution = bootstrap_solutions[0]
-                positions[i] = best_solution.copy()
+                positions[i] = bootstrap_solutions[0].copy()
+                
+                # Ensure minimum delta-v for each stage
+                for j in range(self.n_stages):
+                    if positions[i, j] < min_dv_value:
+                        positions[i, j] = min_dv_value
+                
+                # Project to feasible space
+                positions[i] = self.project_to_feasible(positions[i])
+                
                 self.logger.info(f"Preserving best bootstrap solution exactly: {positions[i]}")
             else:
                 # Select a random bootstrap solution
@@ -86,6 +165,11 @@ class ParticleSwarmOptimizer(BaseSolver):
                 # Add some noise to avoid exact copies (reduced from 5% to 0.5% variation)
                 noise = np.random.uniform(-0.005, 0.005, self.n_stages)
                 noisy_solution = bootstrap_solution * (1 + noise)
+                
+                # Ensure minimum delta-v for each stage
+                for j in range(self.n_stages):
+                    if noisy_solution[j] < min_dv_value:
+                        noisy_solution[j] = min_dv_value
                 
                 # Ensure the solution is valid (sums to TOTAL_DELTA_V)
                 noisy_solution = noisy_solution * (self.TOTAL_DELTA_V / np.sum(noisy_solution))
@@ -113,6 +197,15 @@ class ParticleSwarmOptimizer(BaseSolver):
                 props = props / np.sum(props)  # Renormalize
             
             positions[i] = props * self.TOTAL_DELTA_V
+            
+            # Ensure minimum delta-v for each stage
+            for j in range(self.n_stages):
+                if positions[i, j] < min_dv_value:
+                    positions[i, j] = min_dv_value
+            
+            # Project to feasible space after enforcing minimum values
+            positions[i] = self.project_to_feasible(positions[i])
+            
             if i < 3:  # Log first few particles
                 self.logger.debug(f"Initial position {i}: {positions[i]}")
         
@@ -177,7 +270,7 @@ class ParticleSwarmOptimizer(BaseSolver):
         Args:
             initial_guess: Initial solution vector
             bounds: List of (min, max) bounds for each variable
-            other_solver_results: Optional dictionary of solutions from other solvers
+            other_solver_results: Optional list of solutions from other solvers
             
         Returns:
             Dictionary containing optimization results
@@ -213,8 +306,8 @@ class ParticleSwarmOptimizer(BaseSolver):
                     # Update position with velocity
                     new_position = positions[i] + velocities[i]
                     
-                    # Enforce minimum delta-v value for each stage (increased from 10.0 to 50.0)
-                    min_dv_value = 50.0  # 50 m/s minimum to avoid very small stages
+                    # Enforce minimum delta-v value for each stage (increased from 50.0 to 200.0)
+                    min_dv_value = 200.0  # 200 m/s minimum to avoid very small stages
                     for j in range(self.n_stages):
                         if new_position[j] < min_dv_value:
                             new_position[j] = min_dv_value
@@ -265,20 +358,40 @@ class ParticleSwarmOptimizer(BaseSolver):
                     positions[i] = new_position
                     score = self.evaluate_solution(positions[i])
                     
-                    # Update personal best
-                    if score < p_best_scores[i]:
-                        p_best_scores[i] = score
-                        p_best_pos[i] = positions[i].copy()
+                    # Check feasibility
+                    is_feasible, violation = self.check_feasibility(positions[i])
+                    
+                    # Compare with bootstrap solution if available
+                    if self.best_bootstrap_solution is not None and self.best_bootstrap_fitness is not None:
+                        # Only reject if significantly worse than bootstrap (allow some exploration)
+                        if is_feasible and score > self.best_bootstrap_fitness * 1.05:  # Allow up to 5% worse
+                            self.logger.debug(f"Solution is worse than bootstrap: score={score:.6f}, bootstrap_score={self.best_bootstrap_fitness:.6f}")
+                            # Don't completely reject, but reduce influence by not updating personal best
+                        else:
+                            # Update personal best if better
+                            if score < p_best_scores[i]:
+                                p_best_pos[i] = positions[i].copy()
+                                p_best_scores[i] = score
+                                self.logger.debug(f"Updated personal best for particle {i}: {score:.6f}")
+                    else:
+                        # No bootstrap solution available, just update personal best if better
+                        if score < p_best_scores[i]:
+                            p_best_pos[i] = positions[i].copy()
+                            p_best_scores[i] = score
+                            self.logger.debug(f"Updated personal best for particle {i}: {score:.6f}")
+                    
+                    # Update global best
+                    if score < g_best_score:
+                        self.logger.debug(f"New best solution found:")
+                        self.logger.debug(f"Old best: {g_best_pos} (score: {g_best_score:.6f})")
+                        self.logger.debug(f"New best: {positions[i]} (score: {score:.6f})")
+                        g_best_score = score
+                        g_best_pos = positions[i].copy()
+                        improved = True
+                        stall_count = 0
                         
-                        # Update global best
-                        if score < g_best_score:
-                            self.logger.debug(f"New best solution found:")
-                            self.logger.debug(f"Old best: {g_best_pos} (score: {g_best_score:.6f})")
-                            self.logger.debug(f"New best: {positions[i]} (score: {score:.6f})")
-                            g_best_score = score
-                            g_best_pos = positions[i].copy()
-                            improved = True
-                            stall_count = 0
+                        # Also update the base solver's best solution
+                        self.update_best_solution(positions[i], score, is_feasible, violation)
                 
                 # Update velocities
                 for i in range(self.population_size):
