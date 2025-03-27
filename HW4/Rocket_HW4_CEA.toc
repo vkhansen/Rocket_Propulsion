@@ -1,0 +1,11 @@
+\contentsline {section}{\numberline {1}Objective}{2}{section.1}%
+\contentsline {section}{\numberline {2}Assignment Details}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}1. Select a Rocket Engine}{2}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}2. Reference CEA Example 8}{3}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}3. Create Your CEA Input File}{3}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}4. Run CEA and Analyze Results}{4}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}5. Deliverables}{4}{subsection.2.5}%
+\contentsline {subsection}{\numberline {2.6}6. Tips}{5}{subsection.2.6}%
+\contentsline {section}{\numberline {3}Due Date}{5}{section.3}%
+\contentsline {section}{\numberline {4}Grading Criteria}{5}{section.4}%
+\contentsline {section}{\numberline {5}References}{5}{section.5}%

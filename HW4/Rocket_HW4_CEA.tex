@@ -1,0 +1,194 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{url}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+\title{Rocket Propulsion HW 4: NASA CEA}
+\author{Viggo Hansen}
+\date{March 27, 2025}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Objective}
+In this assignment, you will use NASA's Chemical Equilibrium with Applications (CEA) program to model the performance of an existing rocket engine. You will base your analysis on known data for thrust, nozzle expansion ratio, propellant type, and oxidizer-to-fuel (O/F) ratio, assuming an infinite-area combustor (IAC) configuration. The provided CEA Example 8 (rocket IAC case) will serve as a reference for formatting your input file and interpreting the output. Your task is to select a real rocket, gather its relevant performance and design data, and replicate its behavior using CEA.
+
+\section{Assignment Details}
+
+\subsection{1. Select a Rocket Engine}
+\begin{itemize}
+    \item Choose an existing rocket engine that uses either a liquid propellant or hybrid solid-liquid propellant system. Examples include the SpaceX Merlin 1D (liquid: RP-1/LOX), the Rocketdyne F-1 (liquid: RP-1/LOX), or a hybrid system like SpaceShipOne's rocket motor (solid HTPB/liquid N$_2$O).
+    \item Additionally, consider exploring newer technologies and smaller systems. For example, Dawn Aerospace offers a novel N$_2$O Ethane-based 3D printed bipropellant satellite thruster for in-space applications (\cite{dawn_aero}).
+    \item For the very ambitious, you could create your own speculative propellant combinations. Consider exploring options such as HAN/Ionic liquids, N$_2$O monopropellants, or Dinitramide-based compounds. Aerojet is developing new thrusters using these technologies (\cite{aerojet_report}).
+    \item For the very ambitious, you could create your own speculative propellant combinations. Consider exploring options such as HAN/Ionic liquids, N$_2$O monopropellants, or Dinitramide-based compounds. Aerojet is developing new thrusters using these technologies, as detailed in this [Review of Alternative Sustainable Fuels for Hybrid Rocket Propulsion
+    ](https://www.mdpi.com/2226-4310/10/7/643). 
+    
+    \item \textbf{Custom Propellant Implementation:}
+    \begin{itemize}
+        \item While standard CEA species are sufficient, extra credit is available for custom propellants:
+        
+        \item \textit{Method 1: Case-specific definition}
+        \begin{lstlisting}[language=Python,basicstyle=\small\ttfamily,frame=single]
+fuel=Par       t,k=298    h,kj/mol=-630
+ elements C 28 H 58
+        \end{lstlisting}
+
+        \item \textit{Method 2: Permanent addition to thermo.inp}
+        \begin{lstlisting}[language=Python,basicstyle=\small\ttfamily,frame=single]
+name=CustomFuel   fuel   wt=1.0   t,k=298.15
+h,cal/g=-500.0    e C 2 H 5 N 1 O 2
+        \end{lstlisting}
+
+        \item Required parameters for full implementation:
+        \begin{itemize}
+            \item NASA polynomial coefficients (7-9 coefficients)
+            \item Specific heat capacity (C$_p$) data
+            \item Reference for thermodynamic properties
+        \end{itemize}
+    \end{itemize}
+    
+    \item Research and document the following parameters from credible sources (e.g., NASA, SpaceX, or published literature):
+    \begin{itemize}
+        \item Propellant combination (fuel and oxidizer).
+        \item Oxidizer-to-fuel (O/F) mass ratio.
+        \item Chamber pressure (in bars or convert to bars).
+        \item Nozzle exit area ratio (Ae/At) or sufficient data to calculate it (e.g., exit pressure or thrust).
+        \item Thrust output (in kN or lbf, to validate your CEA results).
+        \item Optional: Initial propellant temperatures (if available; otherwise, use standard cryogenic or ambient values).
+    \end{itemize}
+\end{itemize}
+
+\subsection{2. Reference CEA Example 8}
+\begin{itemize}
+    \item The attached Example 8 from \cite{cea_example} models a liquid H$_2$/LO$_2$ rocket with an infinite-area combustor (IAC). Key features include:
+    \begin{itemize}
+        \item Fuel: H$_2$(L) at 20.27 K.
+        \item Oxidizer: O$_2$(L) at 90.17 K.
+        \item O/F ratio: 5.55157.
+        \item Chamber pressure: 53.3172 bars.
+        \item Equilibrium chemistry.
+        \item Exit conditions: Pressure ratios (pi/p = 10, 100, 1000), subsonic area ratio (Ae/At = 1.58), and supersonic area ratios (Ae/At = 25, 50, 75).
+    \end{itemize}
+    \item Use this as a template to structure your CEA input file, adapting it to your chosen rocket's parameters.
+\end{itemize}
+
+\subsection{3. Create Your CEA Input File}
+\begin{itemize}
+    \item Write a CEA input file for your selected rocket engine. Assume an infinite-area combustor (IAC) as in Example 8.
+    \item Specify:
+    \begin{itemize}
+        \item Propellant types (e.g., RP-1(L), LOX(L), HTPB(S), N$_2$O(L)) and their initial temperatures (use thermo.lib defaults if unknown).
+        \item O/F ratio based on your rocket's data.
+        \item Chamber pressure (p,bar).
+        \item At least three nozzle exit conditions:
+        \begin{itemize}
+            \item One subsonic area ratio (subar).
+            \item Two supersonic area ratios (supar) based on your rocket's nozzle design or estimated from thrust data.
+        \end{itemize}
+        \item Use equilibrium chemistry (\texttt{equilibrium} keyword).
+        \item Output in SI units (\texttt{output siunits}).
+    \end{itemize}
+    \item Follow formatting guidelines demonstrated in \cite{lecture7}
+    \item Example format (based on Example 8): See attached CEA .inp file
+
+\end{itemize}
+
+\subsection{4. Run CEA and Analyze Results}
+\begin{itemize}
+    \item Run your input file in CEA in MS/DOS (via a local installation).
+    \item Extract key performance parameters from the output, including:
+    \begin{itemize}
+        \item Specific impulse ($I_{sp}$) at the nozzle exit.
+        \item Thrust coefficient ($C_f$).
+        \item Exhaust velocity ($V_e$).
+        \item Exit pressure and temperature for each area ratio.
+    \end{itemize}
+    \item Compare your calculated thrust ($F = \dot{m} \cdot V_e$, where $\dot{m}$ is mass flow rate) to the real rocket's reported thrust. Estimate $\dot{m}$ if not provided, using $I_{sp}$ and total impulse or burn time if available.
+\end{itemize}
+
+\subsection{5. Deliverables}
+\begin{itemize}
+    \item Submit a report (2-3 pages) including:
+    \begin{itemize}
+        \item A brief description of your chosen rocket engine and its known parameters (with sources cited).
+        \item Your CEA input files both input case .inp and output .out files (properly formatted and commented).
+        \item Key results from the CEA output (e.g., $I_{sp}$, $C_f$, $V_e$, thrust) for your specified conditions.
+        \item A comparison of your CEA-predicted thrust to the real rocket's thrust. Discuss any discrepancies and possible reasons (e.g., real vs. ideal chemistry, finite combustor effects).
+        \item Answers to the following questions:
+        \begin{enumerate}
+            \item How does the O/F ratio affect the rocket's performance in your model?
+            \item What is the optimim O/F ratio for this set of propellants?
+            \item How does the choice of propellant combination affect:
+            \begin{itemize}
+                \item Flame temperature
+                \item Molecular weight of combustion products
+                \item Specific impulse
+            \end{itemize}
+            \item What assumptions did you make, and how might they impact accuracy?
+            \item Discuss three factors that CEA ignores that would affect actual engine performance:
+            \begin{itemize}
+                \item Finite-rate chemistry
+                \item Nozzle boundary layers
+                \item Heat transfer losses
+            \end{itemize}
+            \item Based on your propellant combination, identify two handling safety concerns and how they influence storage tank design.
+            \item Any additional revelent discussions reelvent to how this type of rocket would be used, for as an in-space thruster only.
+        \end{enumerate}
+    \end{itemize}
+\end{itemize}
+
+\subsection{6. Tips}
+\begin{itemize}
+    \item If exact data (e.g., O/F or Ae/At) is unavailable, make reasonable estimates based on similar engines and justify them in your report.
+    \item Use standard propellant temperatures from thermo.lib (e.g., LOX at 90 K, RP-1 at 298 K) if specific values aren't provided.
+    \item For hybrid rockets, treat the solid and liquid phases appropriately in the \texttt{reactant} section.
+\end{itemize}
+
+\section{Due Date}
+Submit your report by April 2, 2025 via MCV.
+
+\section{Grading Criteria}
+\begin{itemize}
+    \item Completeness and accuracy of rocket data (20\%).
+    \item Correct CEA input file formatting and relevance to the chosen rocket (30\%).
+    \item Analysis of CEA output and thrust comparison (30\%).
+    \item Quality of discussion and responses to questions (20\%).
+\end{itemize}
+
+\section{References}
+\begin{thebibliography}{9}
+\bibitem{cea_example}
+NASA CEA Example Cases, \url{https://www.mycourseville.com/?q=courseville/course/61217/view_content_node_1596557_material}
+
+\bibitem{cea_executable}
+NASA CEA Program Documentation, \url{https://www.mycourseville.com/?q=courseville/course/61217/view_content_node_1604116_material}
+
+\bibitem{lecture7}
+Rocket Propulsion Lecture 7: CEA Analysis (2024), \url{https://mycourseville-default.s3.ap-southeast-1.amazonaws.com/useruploaded_course_files/2024_2/61217/materials/Lecture_7-1259550-17416739115435.pdf}
+
+\bibitem{dawn_aero}
+Dawn Aerospace Green Propulsion Systems, \url{https://www.dawnaerospace.com/green-propulsion#thrusters}
+
+\bibitem{aerojet_report}
+Petersen E.L. et al. (2023) \emph{Review of Alternative Sustainable Fuels for Hybrid Rocket Propulsion}, Aerospace, 10(7), 643. \url{https://www.mdpi.com/2226-4310/10/7/643}
+
+\bibitem{hybrid_prop}
+Chiaverini M.J. et al. (2021) \emph{Review of Hybrid Rocket Propulsion Technologies}, Aerospace, 8(1), 20. \url{https://www.mdpi.com/2226-4310/8/1/20}
+\end{thebibliography}
+
+\end{document}
